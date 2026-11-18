@@ -1,0 +1,50 @@
+# XcodeGen spec: `xcodegen generate` turns this file into MeetingScribe.xcodeproj.
+# (Keeping the project as a small text file instead of a giant .xcodeproj makes it easy to read and diff.)
+name: MeetingScribe
+options:
+  bundleIdPrefix: com.blackhawk12222
+  deploymentTarget:
+    macOS: "14.0"
+packages:
+  FluidAudio:
+    url: https://github.com/FluidInference/FluidAudio.git
+    exactVersion: 0.18.3
+targets:
+  MeetingScribe:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/MeetingScribe
+    dependencies:
+      - package: FluidAudio
+    info:
+      path: Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Meeting Scribe
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: "14.0"
+        LSApplicationCategoryType: public.app-category.productivity
+        NSMicrophoneUsageDescription: Meeting Scribe records your meetings so it can transcribe them and tell who said what. Audio stays on this Mac.
+        NSHumanReadableCopyright: Made by BlackHawk12222
+    entitlements:
+      path: Resources/MeetingScribe.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.device.audio-input: true
+        com.apple.security.network.client: true
+        com.apple.security.files.user-selected.read-write: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.blackhawk12222.MeetingScribe
+        PRODUCT_NAME: MeetingScribe
+        SWIFT_VERSION: "5.0"
+        ARCHS: arm64
+        ONLY_ACTIVE_ARCH: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        DEAD_CODE_STRIPPING: YES

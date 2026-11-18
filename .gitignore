@@ -1,0 +1,7 @@
+*.xcodeproj/
+build/
+DerivedData/
+.build/
+*.zip
+*.dmg
+.DS_Store

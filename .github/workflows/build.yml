@@ -1,0 +1,89 @@
+# Builds MeetingScribe.app on a GitHub-hosted Apple Silicon Mac, runs a headless
+# self-test, and uploads the .zip/.dmg. Add "[release]" to a commit message to
+# also publish a GitHub Release.
+name: build-mac-app
+on:
+  push:
+    branches: [main]
+    paths: ["Sources/**", "project.yml", "scripts/**", ".github/workflows/**"]
+  workflow_dispatch:
+    inputs:
+      selftest:
+        description: "Run the self-test"
+        default: "true"
+      release:
+        description: "Publish a release"
+        default: "false"
+permissions:
+  contents: write
+concurrency:
+  group: build
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode version
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app || true
+          xcodebuild -version
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: build/SourcePackages
+          key: spm-${{ hashFiles('project.yml') }}
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build, sign (ad-hoc), package
+        run: ./scripts/build.sh
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build/xcodebuild.log
+          retention-days: 5
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeetingScribe
+          path: |
+            dist/MeetingScribe.zip
+            dist/MeetingScribe.dmg
+          retention-days: 30
+      - name: Cache models (inside the app's sandbox container)
+        if: github.event_name == 'push' || github.event.inputs.selftest == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Containers/com.blackhawk12222.MeetingScribe/Data/Library/Application Support/FluidAudio
+          key: models-fluidaudio-0.18.3-v1
+      - name: Self-test (AMI meetings, real models, this runner's CPU/GPU)
+        if: github.event_name == 'push' || github.event.inputs.selftest == 'true'
+        timeout-minutes: 25
+        run: |
+          set -o pipefail
+          ./build/DD/Build/Products/Release/MeetingScribe.app/Contents/MacOS/MeetingScribe --selftest --seconds 300 | tee selftest.out
+          grep '^SELFTEST_JSON:' selftest.out | sed 's/^SELFTEST_JSON://' > selftest.json
+          python3 -m json.tool selftest.json
+          sysctl -n machdep.cpu.brand_string >> selftest-machine.txt; sysctl -n hw.memsize >> selftest-machine.txt
+      - name: Upload self-test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selftest
+          path: |
+            selftest.json
+            selftest.out
+            selftest-machine.txt
+          if-no-files-found: ignore
+      - name: Publish release
+        if: contains(github.event.head_commit.message, '[release]') || github.event.inputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v0.1.${{ github.run_number }}"
+          gh release create "$TAG" dist/MeetingScribe.dmg dist/MeetingScribe.zip \
+            --title "Meeting Scribe $TAG" \
+            --notes "Unsigned (ad-hoc) build for Apple Silicon, macOS 14+ (15+ recommended). First launch: right-click the app > Open, or System Settings > Privacy & Security > Open Anyway."
