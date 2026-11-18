@@ -90,8 +90,16 @@ enum SelfTest {
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent("selftest", isDirectory: true)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
-            var people: [Person] = []          // library, names = AMI speaker IDs
-            var libraryAfterA: [Person] = []
+            // Diarizer settings to compare. "auto" is what the app uses by default;
+            // "exactly4" is what you get when you tell the app "4 people talked".
+            let settings: [DiarizerSetting] = [
+                .auto,
+                DiarizerSetting(threshold: 0.4), DiarizerSetting(threshold: 0.8),
+                DiarizerSetting(fa: 0.2), DiarizerSetting(fb: 0.4),
+                DiarizerSetting(speakers: 4),
+            ]
+            var libraries: [String: [Person]] = [:]         // one voice library per setting
+            var libraryAfterA: [String: [Person]] = [:]
             var perMeeting: [[String: Any]] = []
 
             for (idx, name) in ["ES2004a", "ES2004b", "ES2004c"].enumerated() {
@@ -105,77 +113,92 @@ enum SelfTest {
                 let samples = Array(all.prefix(Int(seconds * 16_000)))
                 let audioSec = Double(samples.count) / 16_000
                 log("processing \(name) (\(Int(audioSec)) s)")
-                let out = try await SpeechEngine.shared.process(samples: samples)
 
-                // Diarization error rate vs reference.
-                let der = DiarizationDER.compute(
-                    ref: ref.map { DERSpeakerSegment(speaker: $0.speaker, start: $0.start, end: $0.end) },
-                    hyp: out.rawSegments.map {
-                        DERSpeakerSegment(speaker: $0.speakerId, start: Double($0.startTimeSeconds), end: Double($0.endTimeSeconds))
-                    })
+                let tPrep = Date()
+                let prepared = try await SpeechEngine.shared.prepareDiarization(samples: samples)
+                let prepSec = Date().timeIntervalSince(tPrep)
+                let tr = try await SpeechEngine.shared.transcribe(samples: samples)
+
                 var m: [String: Any] = [
                     "meeting": name,
                     "audio_seconds": audioSec,
-                    "diarize_seconds": out.diarizeSeconds,
-                    "transcribe_seconds": out.transcribeSeconds,
-                    "diarize_rtfx": audioSec / max(out.diarizeSeconds, 1e-6),
-                    "transcribe_rtfx": audioSec / max(out.transcribeSeconds, 1e-6),
-                    "clusters_found": out.clusters.count,
                     "reference_speakers": Set(ref.map(\.speaker)).count,
-                    "der": der.der, "der_miss": der.miss, "der_false_alarm": der.falseAlarm, "der_confusion": der.confusion,
-                    "transcript_preview": String(out.utterances.map(\.text).joined(separator: " ").prefix(300)),
+                    "diarize_prepare_seconds": prepSec,
+                    "transcribe_seconds": tr.seconds,
+                    "transcribe_rtfx": audioSec / max(tr.seconds, 1e-6),
+                    "words": tr.words.count,
+                    "transcript_preview": String(tr.words.map(\.text).joined(separator: " ").prefix(240)),
                 ]
-
-                // Best possible labelling of these clusters (= perfect naming).
-                let oracle = out.rawSegments.map {
-                    (Double($0.startTimeSeconds), Double($0.endTimeSeconds), der.mapping[$0.speakerId] ?? "unmapped")
-                }
-                m["id_accuracy_ceiling_with_perfect_naming"] = idAccuracy(ref: ref, hyp: oracle, limit: seconds)
-
-                func evaluate(with library: [Person]) -> [String: Any] {
-                    let matches = VoiceMatcher.match(clusters: out.clusters, people: library)
-                    var label: [String: String] = [:]
-                    var details: [[String: Any]] = []
-                    var correct = 0, decided = 0
-                    for c in out.clusters {
-                        let mt = matches[c.key]
-                        let who = (mt?.isConfident == true) ? library.first { $0.id == mt!.personID }?.name : nil
-                        label[c.key] = who ?? "unknown"
-                        let truth = der.mapping[c.key] ?? "none"
-                        if who != nil { decided += 1; if who == truth { correct += 1 } }
-                        details.append(["cluster": c.key, "talk_s": c.talkSeconds, "truth": truth,
-                                        "named": who ?? "unknown", "score": Double(mt?.score ?? 0)])
+                var bySetting: [String: Any] = [:]
+                for setting in settings {
+                    let key = setting.label
+                    let d = try await SpeechEngine.shared.cluster(prepared, samples: samples, setting: setting)
+                    let der = DiarizationDER.compute(
+                        ref: ref.map { DERSpeakerSegment(speaker: $0.speaker, start: $0.start, end: $0.end) },
+                        hyp: d.segments.map {
+                            DERSpeakerSegment(speaker: $0.speakerId, start: Double($0.startTimeSeconds), end: Double($0.endTimeSeconds))
+                        })
+                    let oracle = d.segments.map {
+                        (Double($0.startTimeSeconds), Double($0.endTimeSeconds), der.mapping[$0.speakerId] ?? "unmapped")
                     }
-                    let hyp = out.rawSegments.map {
-                        (Double($0.startTimeSeconds), Double($0.endTimeSeconds), label[$0.speakerId] ?? "unknown")
-                    }
-                    return ["id_accuracy": idAccuracy(ref: ref, hyp: hyp, limit: seconds),
-                            "clusters_auto_named": decided, "clusters_named_correctly": correct,
-                            "clusters": details]
-                }
+                    var r: [String: Any] = [
+                        "clusters_found": d.clusters.count,
+                        "der": der.der, "der_miss_pct": der.miss, "der_fa_pct": der.falseAlarm, "der_conf_pct": der.confusion,
+                        "cluster_seconds": d.seconds,
+                        "diarize_rtfx": audioSec / max(prepSec + d.seconds, 1e-6),
+                        "id_accuracy_ceiling_with_perfect_naming": idAccuracy(ref: ref, hyp: oracle, limit: seconds),
+                    ]
 
-                if idx == 1 { m["identify_with_library_A"] = evaluate(with: people) }
-                if idx == 2 {
-                    m["identify_with_library_A_only"] = evaluate(with: libraryAfterA)
-                    m["identify_with_library_A_plus_B"] = evaluate(with: people)
-                }
-
-                // "The user names the speakers": confirm each cluster with its true name -> library learns.
-                let meetingID = UUID()
-                for c in out.clusters {
-                    guard let truth = der.mapping[c.key] else { continue }
-                    if let p = people.firstIndex(where: { $0.name == truth }) {
-                        VoiceMatcher.learn(person: &people[p], from: c, meetingID: meetingID)
-                    } else {
-                        var p = Person(name: truth)
-                        VoiceMatcher.learn(person: &p, from: c, meetingID: meetingID)
-                        people.append(p)
+                    func evaluate(with library: [Person]) -> [String: Any] {
+                        let matches = VoiceMatcher.match(clusters: d.clusters, people: library)
+                        var label: [String: String] = [:]
+                        var details: [[String: Any]] = []
+                        var correct = 0, decided = 0
+                        for c in d.clusters {
+                            let mt = matches[c.key]
+                            let who = (mt?.isConfident == true) ? library.first { $0.id == mt!.personID }?.name : nil
+                            label[c.key] = who ?? "unknown"
+                            let truth = der.mapping[c.key] ?? "none"
+                            if who != nil { decided += 1; if who == truth { correct += 1 } }
+                            var scores: [String: Double] = [:]
+                            for p in library { scores[p.name] = Double(VoiceMatcher.score(c.centroid, person: p)) }
+                            details.append(["cluster": c.key, "talk_s": c.talkSeconds, "truth": truth,
+                                            "named": who ?? "unknown", "scores": scores])
+                        }
+                        let hyp = d.segments.map {
+                            (Double($0.startTimeSeconds), Double($0.endTimeSeconds), label[$0.speakerId] ?? "unknown")
+                        }
+                        return ["id_accuracy": idAccuracy(ref: ref, hyp: hyp, limit: seconds),
+                                "clusters_auto_named": decided, "clusters_named_correctly": correct,
+                                "clusters": details]
                     }
+
+                    var people = libraries[key] ?? []
+                    if idx == 1 { r["identify_with_library_A"] = evaluate(with: people) }
+                    if idx == 2 {
+                        r["identify_with_library_A_only"] = evaluate(with: libraryAfterA[key] ?? [])
+                        r["identify_with_library_A_plus_B"] = evaluate(with: people)
+                    }
+                    // "The user names the speakers": confirm each cluster with its true name -> library learns.
+                    let meetingID = UUID()
+                    for c in d.clusters {
+                        guard let truth = der.mapping[c.key] else { continue }
+                        if let p = people.firstIndex(where: { $0.name == truth }) {
+                            VoiceMatcher.learn(person: &people[p], from: c, meetingID: meetingID)
+                        } else {
+                            var p = Person(name: truth)
+                            VoiceMatcher.learn(person: &p, from: c, meetingID: meetingID)
+                            people.append(p)
+                        }
+                    }
+                    libraries[key] = people
+                    if idx == 0 { libraryAfterA[key] = people }
+                    r["library_after"] = people.map { "\($0.name):\($0.samples.count)" }.joined(separator: " ")
+                    bySetting[key] = r
+                    log("\(name) [\(key)] clusters \(d.clusters.count) DER \(String(format: "%.3f", der.der))")
                 }
-                if idx == 0 { libraryAfterA = people }
-                m["library_samples_after"] = people.map { "\($0.name):\($0.samples.count)" }.joined(separator: " ")
+                m["settings"] = bySetting
                 perMeeting.append(m)
-                log("done \(name): DER \(String(format: "%.3f", der.der))")
             }
             report["meetings"] = perMeeting
 
