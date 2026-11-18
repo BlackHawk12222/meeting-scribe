@@ -98,11 +98,14 @@ final class Store: ObservableObject {
         meetings[i].errorMessage = nil
         progressText[id] = "Transcribing and finding speakers…"
         let url = audioURL(for: meetings[i])
+        let setting = DiarizerSetting(speakers: meetings[i].speakerCount)
         do {
             let started = Date()
             let samples = try SpeechEngine.loadSamples(url)
-            let out = try await SpeechEngine.shared.process(samples: samples)
+            let out = try await SpeechEngine.shared.process(samples: samples, setting: setting)
             guard let j = index(of: id) else { return }
+            unlearnMeeting(id)
+            meetings[j].words = out.words
             meetings[j].utterances = out.utterances
             meetings[j].clusters = out.clusters
             meetings[j].duration = Double(samples.count) / 16_000
@@ -117,6 +120,37 @@ final class Store: ObservableObject {
         }
         progressText[id] = nil
         save()
+    }
+
+    /// "There were really 5 people": re-group the voices without re-transcribing.
+    func resplitSpeakers(_ id: UUID, count: Int?) async {
+        guard engineReady, let i = index(of: id) else { return }
+        meetings[i].speakerCount = count
+        guard let words = meetings[i].words else { await process(id); return }
+        meetings[i].status = .processing
+        progressText[id] = "Re-grouping speakers…"
+        do {
+            let samples = try SpeechEngine.loadSamples(audioURL(for: meetings[i]))
+            let d = try await SpeechEngine.shared.diarize(samples: samples, setting: DiarizerSetting(speakers: count))
+            guard let j = index(of: id) else { return }
+            unlearnMeeting(id)   // old clusters are gone, so forget what they taught
+            meetings[j].clusters = d.clusters
+            meetings[j].utterances = SpeechEngine.utterances(words: words, segments: d.segments)
+            meetings[j].status = .done
+            applyLibrary(to: id)
+        } catch {
+            if let j = index(of: id) {
+                meetings[j].status = .failed
+                meetings[j].errorMessage = error.localizedDescription
+            }
+        }
+        progressText[id] = nil
+        save()
+    }
+
+    /// Remove every voice sample that came from this meeting.
+    private func unlearnMeeting(_ id: UUID) {
+        for p in people.indices { people[p].samples.removeAll { $0.meetingID == id } }
     }
 
     /// Put names on speakers that aren't confirmed yet, using the voice library.
@@ -148,11 +182,7 @@ final class Store: ObservableObject {
            let o = people.firstIndex(where: { $0.id == old }) {
             VoiceMatcher.unlearn(person: &people[o], meetingID: meetingID, clusterKey: clusterKey)
         }
-        // A person is only one cluster per meeting: un-label any other cluster with them.
-        for c in meetings[i].clusters.indices where c != k && meetings[i].clusters[c].personID == personID {
-            meetings[i].clusters[c].personID = nil
-            meetings[i].clusters[c].confirmed = false
-        }
+        // Note: one person CAN own two clusters (the diarizer sometimes splits a voice in two).
         meetings[i].clusters[k].personID = personID
         meetings[i].clusters[k].suggestedPersonID = nil
         meetings[i].clusters[k].confirmed = true
@@ -189,6 +219,7 @@ final class Store: ObservableObject {
 
     func deleteMeeting(_ id: UUID) {
         guard let i = index(of: id) else { return }
+        // Voices learned from this meeting stay in the library on purpose.
         try? FileManager.default.removeItem(at: audioURL(for: meetings[i]))
         meetings.remove(at: i)
         save()

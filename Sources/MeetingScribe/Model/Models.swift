@@ -28,6 +28,13 @@ struct Person: Codable, Identifiable, Hashable {
     var meetingCount: Int { Set(samples.compactMap(\.meetingID)).count }
 }
 
+/// One transcribed word with its time (kept so speakers can be re-split without re-transcribing).
+struct Word: Codable, Hashable {
+    var start: Double
+    var end: Double
+    var text: String
+}
+
 /// One line of the transcript: who said what, and when.
 struct Utterance: Codable, Identifiable, Hashable {
     var id = UUID()
@@ -74,6 +81,10 @@ struct Meeting: Codable, Identifiable, Hashable {
     var errorMessage: String?
     var utterances: [Utterance] = []
     var clusters: [SpeakerCluster] = []
+    /// Timed words from the speech-to-text model (optional so older files still load).
+    var words: [Word]?
+    /// nil = the model decides how many people talked; a number = you told it.
+    var speakerCount: Int?
     /// How long transcription + speaker detection took (for the "x times faster than real time" readout).
     var processingSeconds: Double?
 }

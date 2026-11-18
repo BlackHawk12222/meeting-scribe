@@ -49,6 +49,17 @@ struct MeetingDetailView: View {
             HStack(spacing: 12) {
                 Text(m.date.formatted(date: .abbreviated, time: .shortened))
                 Text(Exporter.clock(m.duration)).monospacedDigit()
+                if m.status == .done {
+                    Picker("People talking", selection: Binding(
+                        get: { m.speakerCount ?? 0 },
+                        set: { n in Task { await store.resplitSpeakers(m.id, count: n == 0 ? nil : n) } }
+                    )) {
+                        Text("Auto").tag(0)
+                        ForEach(2...10, id: \.self) { n in Text("\(n)").tag(n) }
+                    }
+                    .frame(width: 170)
+                    .help("If two people got merged into one speaker (or one person got split), tell the app how many people were talking.")
+                }
                 if let p = m.processingSeconds, p > 0 {
                     // Measured on this Mac for this recording.
                     Text(String(format: "processed in %.0f s (%.0f× real time)", p, m.duration / p))

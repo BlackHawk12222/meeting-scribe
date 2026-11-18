@@ -44,9 +44,9 @@ enum VoiceMatcher {
     // were measured"). Change them here if the app is too eager or too shy.
 
     /// Auto-label a speaker when the best match scores at least this.
-    static let autoMatchThreshold: Float = 0.50
+    static let autoMatchThreshold: Float = 0.55
     /// Between this and the auto threshold we only *suggest* a name ("Maybe Taylor?").
-    static let suggestThreshold: Float = 0.35
+    static let suggestThreshold: Float = 0.40
     /// Keep at most this many samples per person (oldest are dropped first).
     static let maxSamplesPerPerson = 80
     /// Score = average of the K most similar samples (a "k-nearest-neighbours" vote).
@@ -85,6 +85,12 @@ enum VoiceMatcher {
             result[pair.key] = Match(personID: pair.person, score: pair.score,
                                      isConfident: pair.score >= autoMatchThreshold)
             usedPeople.insert(pair.person)
+        }
+        // Second pass: the diarizer sometimes splits ONE person into two clusters.
+        // A leftover cluster that strongly matches an already-used person gets a
+        // *suggestion* ("maybe Sam?") instead of an automatic label.
+        for pair in pairs where pair.score >= autoMatchThreshold && result[pair.key] == nil {
+            result[pair.key] = Match(personID: pair.person, score: pair.score, isConfident: false)
         }
         return result
     }
