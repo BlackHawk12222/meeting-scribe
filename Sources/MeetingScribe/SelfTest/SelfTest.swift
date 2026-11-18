@@ -92,10 +92,10 @@ enum SelfTest {
 
             // Diarizer settings to compare. "auto" is what the app uses by default;
             // "exactly4" is what you get when you tell the app "4 people talked".
+            // ("Fa0.07" = FluidAudio's own default, for comparison.)
             let settings: [DiarizerSetting] = [
                 .auto,
-                DiarizerSetting(threshold: 0.4), DiarizerSetting(threshold: 0.8),
-                DiarizerSetting(fa: 0.2), DiarizerSetting(fb: 0.4),
+                DiarizerSetting(fa: 0.07),
                 DiarizerSetting(speakers: 4),
             ]
             var libraries: [String: [Person]] = [:]         // one voice library per setting

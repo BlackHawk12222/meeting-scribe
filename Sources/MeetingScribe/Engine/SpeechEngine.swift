@@ -23,6 +23,7 @@ struct DiarizerSetting: Hashable, Sendable {
     var fb: Double? = nil
 
     static let auto = DiarizerSetting()
+    static let defaultFa = 0.2
 
     var label: String {
         var parts: [String] = []
@@ -38,7 +39,11 @@ struct DiarizerSetting: Hashable, Sendable {
         // One speaker at a time, so every word maps to exactly one person.
         c.exclusiveSegments = true
         if let t = threshold { c.clusteringThreshold = t }
-        if let a = fa { c.Fa = a }
+        // Fa = how much the clustering trusts the voice evidence. FluidAudio's default (0.07)
+        // merged different people into one speaker on our 5-minute test meetings; 0.2 found
+        // more of the real speakers with equal or lower DER (GitHub Mac runner self-test,
+        // 3 AMI clips — see BENCHMARKS.md). So "Auto" uses 0.2.
+        c.Fa = fa ?? Self.defaultFa
         if let b = fb { c.Fb = b }
         if let s = speakers { c = c.withSpeakers(exactly: s) }
         return c
