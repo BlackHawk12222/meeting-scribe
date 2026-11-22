@@ -1,7 +1,16 @@
 // SelfTest.swift
 // Headless test used on the GitHub Actions Mac runner:
-//   MeetingScribe.app/Contents/MacOS/MeetingScribe --selftest [--seconds 300]
+//   Scribe.app/Contents/MacOS/Scribe --selftest [--suite quick|full] [--seconds 300]
 //
+// QUICK suite (every CI build):
+//   • Dictation: the bundled 16 s clip (2 LibriSpeech sentences with silence around them)
+//     goes through the SAME pipeline as the hotkey: Silero VAD trim -> Parakeet -> cleanup.
+//     Records word error rate (WER) and speed (real-time factor).
+//   • Rule-based cleanup on a few made-up sentences with "um"/"uh".
+//   • Meeting notes on 300 s of AMI meeting ES2004a (Apple Intelligence if the runner has it,
+//     otherwise the no-AI quick notes).
+//
+// FULL suite (adds the speaker-ID test below):
 // It uses three real meetings with the SAME four people (AMI corpus ES2004a/b/c,
 // CC-BY 4.0) and their reference "who spoke when" labels, then:
 //   1. meeting A: diarize + transcribe, score DER, "name" each speaker using the
@@ -74,21 +83,142 @@ enum SelfTest {
         return total == 0 ? 0 : Double(ok) / Double(total)
     }
 
+    // MARK: - Word error rate
+
+    /// Lowercase words without punctuation, so "Correct." and "correct" match.
+    static func normWords(_ s: String) -> [String] {
+        s.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "'" }.map(String.init)
+    }
+
+    /// WER = (substitutions + deletions + insertions) / reference words (classic edit distance).
+    static func wer(ref: String, hyp: String) -> Double {
+        let r = normWords(ref), h = normWords(hyp)
+        guard !r.isEmpty else { return h.isEmpty ? 0 : 1 }
+        var prev = Array(0...h.count)
+        for i in 1...r.count {
+            var cur = [i] + Array(repeating: 0, count: h.count)
+            if !h.isEmpty {
+                for j in 1...h.count {
+                    cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (r[i - 1] == h[j - 1] ? 0 : 1))
+                }
+            }
+            prev = cur
+        }
+        return Double(prev[h.count]) / Double(r.count)
+    }
+
+    // MARK: - Dictation test
+
+    static func dictationTest() async throws -> [String: Any] {
+        guard let wav = Bundle.main.url(forResource: "dictation_sample", withExtension: "wav"),
+              let txt = Bundle.main.url(forResource: "dictation_sample", withExtension: "txt") else {
+            throw NSError(domain: "selftest", code: 2, userInfo: [NSLocalizedDescriptionKey: "test clip missing from the app bundle"])
+        }
+        let reference = try String(contentsOf: txt, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        let samples = try SpeechEngine.loadSamples(wav)
+        var out: [String: Any] = ["reference": reference, "audio_seconds": Double(samples.count) / 16_000,
+                                  "apple_intelligence": AppleIntelligence.statusText]
+        // Run 3 times: the first run includes one-time warm-up; runs 2-3 are what you'd feel day to day.
+        var runs: [[String: Any]] = []
+        for i in 1...3 {
+            let t0 = Date()
+            let r = try await Dictation.run(samples: samples, useAI: true, removeFillers: true)
+            let total = Date().timeIntervalSince(t0)
+            runs.append([
+                "run": i, "raw_text": r.transcript.text, "final_text": r.text, "cleanup_method": r.method.rawValue,
+                "speech_seconds_after_vad": r.transcript.speechSeconds,
+                "vad_seconds": r.transcript.vadSeconds, "asr_seconds": r.transcript.asrSeconds,
+                "cleanup_seconds": r.cleanupSeconds, "total_seconds": total,
+                "rtf": total / r.transcript.audioSeconds,
+                "wer_raw": wer(ref: reference, hyp: r.transcript.text),
+                "wer_final": wer(ref: reference, hyp: r.text),
+            ])
+            log("dictation run \(i): \(String(format: "%.2f", total)) s, text: \(r.text)")
+        }
+        out["runs"] = runs
+        // Same clip WITHOUT the VAD trim (meeting transcriber path), to see what the trim changes.
+        let noVad = try await SpeechEngine.shared.transcribe(samples: samples)
+        let noVadText = noVad.words.map(\.text).joined(separator: " ")
+        out["without_vad"] = ["asr_seconds": noVad.seconds, "wer": wer(ref: reference, hyp: noVadText), "text": noVadText] as [String: Any]
+
+        // Rule-based clean-up on made-up sentences (the Mac-independent part).
+        let samplesIn = [
+            "Um, so I I I think, uh, we should meet on Tuesday.",
+            "uh i need the robot by friday um.",
+            "The error rate was low.",
+            "Hmm, okay, so, uh, the the motor is, um, overheating.",
+        ]
+        out["rule_cleanup"] = samplesIn.map { ["in": $0, "out": TextCleanup.rules($0)] }
+        // Apple Intelligence clean-up (only if this Mac has it; GitHub's virtual Macs normally don't).
+        if AppleIntelligence.isAvailable {
+            var ai: [[String: Any]] = []
+            for text in samplesIn + ["So we need to, no wait, we have to finish the arm by Friday, uh, right?"] {
+                let t0 = Date()
+                let (cleaned, method) = await TextCleanup.clean(text, useAI: true, removeFillers: true)
+                ai.append(["in": text, "out": cleaned, "method": method.rawValue, "seconds": Date().timeIntervalSince(t0)])
+            }
+            out["ai_cleanup"] = ai
+        }
+        return out
+    }
+
+    // MARK: - Notes test
+
+    static func notesTest(dir: URL, seconds: Double) async throws -> [String: Any] {
+        let name = "ES2004a"
+        let wav = dir.appendingPathComponent("\(name).wav")
+        try await download(URL(string: "\(base)/\(name)/audio/\(name).Mix-Headset.wav")!, to: wav)
+        let samples = Array(try SpeechEngine.loadSamples(wav).prefix(Int(seconds * 16_000)))
+        let t0 = Date()
+        let processed = try await SpeechEngine.shared.process(samples: samples)
+        let processSeconds = Date().timeIntervalSince(t0)
+        let lines = processed.utterances.map {
+            NotesLine(speaker: "Speaker " + $0.speakerKey.replacingOccurrences(of: "S", with: ""), text: $0.text)
+        }
+        func encode(_ n: MeetingNotes) -> [String: Any] {
+            ["method": n.method.rawValue, "seconds": n.seconds, "summary": n.summary, "key_points": n.keyPoints,
+             "action_items": n.actionItems.map { "\($0.task) [\($0.owner)]" }, "note": n.note ?? ""]
+        }
+        var out: [String: Any] = [
+            "meeting": name, "audio_seconds": Double(samples.count) / 16_000,
+            "transcribe_and_diarize_seconds": processSeconds, "utterances": lines.count,
+            "quick_notes": encode(NotesMaker.extractive(lines: lines)),
+        ]
+        if AppleIntelligence.isAvailable {
+            out["ai_notes"] = encode(await NotesMaker.make(lines: lines, useAI: true))
+        }
+        return out
+    }
+
     static func run() async -> Int32 {
         let seconds = Double(argValue("--seconds") ?? "300") ?? 300
+        let suite = argValue("--suite") ?? "quick"
         var report: [String: Any] = [
             "measured_on": "GitHub Actions macOS runner (virtual Mac, results may differ from a real Apple Silicon Mac's Neural Engine)",
             "seconds_per_meeting": seconds,
             "os": ProcessInfo.processInfo.operatingSystemVersionString,
             "cpu_count": ProcessInfo.processInfo.processorCount,
+            "suite": suite,
+            "speech_model": SpeechModel.current.title,
         ]
         do {
             let t0 = Date()
-            try await SpeechEngine.shared.prepare { log($0) }
+            try await SpeechEngine.shared.prepare(model: .current) { msg, _ in log(msg) }
             report["model_prepare_seconds"] = Date().timeIntervalSince(t0)
 
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent("selftest", isDirectory: true)
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+            log("dictation test")
+            report["dictation"] = try await dictationTest()
+            log("notes test")
+            do {
+                report["notes"] = try await notesTest(dir: dir, seconds: seconds)
+            } catch {
+                report["notes_error"] = "\(error)"     // keep the dictation numbers even if this fails
+            }
+
+            if suite == "full" {
 
             // Diarizer settings to compare. "auto" is what the app uses by default;
             // "exactly4" is what you get when you tell the app "4 people talked".
@@ -206,6 +336,7 @@ enum SelfTest {
             // are printed per cluster above; thresholds live in VoiceMatcher.
             report["thresholds"] = ["auto": VoiceMatcher.autoMatchThreshold, "suggest": VoiceMatcher.suggestThreshold,
                                     "topK": VoiceMatcher.topK]
+            }
             let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
             print("SELFTEST_JSON:" + String(data: data, encoding: .utf8)!)
             return 0

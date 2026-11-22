@@ -1,8 +1,8 @@
 // Store.swift
-// Saves meetings and the voice library as JSON in
-//   ~/Library/Containers/com.blackhawk12222.MeetingScribe/Data/Library/Application Support/MeetingScribe/
-// (the app is sandboxed, so macOS gives it its own private folder).
+// Saves meetings, the voice library and recent dictations as JSON in
+//   ~/Library/Application Support/Scribe/
 // Nothing is uploaded anywhere.
+// (Older versions were called Meeting Scribe and were sandboxed; their data is copied over once.)
 
 import Foundation
 import SwiftUI
@@ -15,19 +15,42 @@ final class Store: ObservableObject {
     @Published var engineReady = false
     @Published var engineError: String?
     @Published var progressText: [UUID: String] = [:]
+    /// 0...1 while models download (nil = not downloading). Shown in onboarding + the banner.
+    @Published var modelProgress: Double?
+    @Published var dictations: [DictationEntry] = []
 
     let folder: URL
     let audioFolder: URL
     private var meetingsURL: URL { folder.appendingPathComponent("meetings.json") }
     private var voicesURL: URL { folder.appendingPathComponent("voices.json") }
+    private var dictationsURL: URL { folder.appendingPathComponent("dictations.json") }
 
     init(folder: URL? = nil) {
-        let base = folder ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MeetingScribe", isDirectory: true)
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let base = folder ?? support.appendingPathComponent("Scribe", isDirectory: true)
         self.folder = base
         self.audioFolder = base.appendingPathComponent("Audio", isDirectory: true)
+        if folder == nil { Self.migrateFromMeetingScribe(to: base, support: support) }
         try? FileManager.default.createDirectory(at: audioFolder, withIntermediateDirectories: true)
         load()
+    }
+
+    /// One time: copy data from the old sandboxed "Meeting Scribe" app, if there is any.
+    /// (macOS may ask "Scribe would like to access data from other apps" — that's this copy.)
+    private static func migrateFromMeetingScribe(to base: URL, support: URL) {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: base.appendingPathComponent("meetings.json").path),
+              !UserDefaults.standard.bool(forKey: "migratedFromMeetingScribe") else { return }
+        UserDefaults.standard.set(true, forKey: "migratedFromMeetingScribe")
+        let home = fm.homeDirectoryForCurrentUser
+        let candidates = [
+            home.appendingPathComponent("Library/Containers/com.blackhawk12222.MeetingScribe/Data/Library/Application Support/MeetingScribe"),
+            support.appendingPathComponent("MeetingScribe"),
+        ]
+        for old in candidates where fm.fileExists(atPath: old.appendingPathComponent("meetings.json").path) {
+            try? fm.createDirectory(at: base.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if (try? fm.copyItem(at: old, to: base)) != nil { return }
+        }
     }
 
     // MARK: - Saving / loading
@@ -42,6 +65,9 @@ final class Store: ObservableObject {
         if let d = try? Data(contentsOf: voicesURL), let p = try? dec.decode([Person].self, from: d) {
             people = p
         }
+        if let d = try? Data(contentsOf: dictationsURL), let x = try? dec.decode([DictationEntry].self, from: d) {
+            dictations = x
+        }
     }
 
     func save() {
@@ -50,17 +76,24 @@ final class Store: ObservableObject {
         enc.outputFormatting = [.prettyPrinted]
         try? enc.encode(meetings).write(to: meetingsURL, options: .atomic)
         try? enc.encode(people).write(to: voicesURL, options: .atomic)
+        try? enc.encode(dictations).write(to: dictationsURL, options: .atomic)
     }
 
     // MARK: - Models
 
     func prepareEngine() async {
+        engineReady = false
+        engineError = nil
         do {
-            try await SpeechEngine.shared.prepare { msg in
-                Task { @MainActor in self.engineStatus = msg }
+            try await SpeechEngine.shared.prepare(model: .current) { msg, fraction in
+                Task { @MainActor in
+                    self.engineStatus = msg
+                    self.modelProgress = fraction
+                }
             }
             engineReady = true
             engineError = nil
+            modelProgress = nil
             // Process anything recorded while models were loading.
             for m in meetings where m.status == .recorded { await process(m.id) }
         } catch {
@@ -119,6 +152,77 @@ final class Store: ObservableObject {
             }
         }
         progressText[id] = nil
+        save()
+        if meetings.first(where: { $0.id == id })?.status == .done { await makeNotes(id) }
+    }
+
+    // MARK: - Notes
+
+    @Published var notesInProgress: Set<UUID> = []
+
+    /// Summary + key points + action items (Apple Intelligence if available, otherwise quick notes).
+    func makeNotes(_ id: UUID) async {
+        guard let m = meetings.first(where: { $0.id == id }), !m.utterances.isEmpty,
+              !notesInProgress.contains(id) else { return }
+        notesInProgress.insert(id)
+        let lines = m.utterances.map { NotesLine(speaker: displayName(m, key: $0.speakerKey), text: $0.text) }
+        let useAI = UserDefaults.standard.object(forKey: "aiNotes") as? Bool ?? true
+        let notes = await NotesMaker.make(lines: lines, useAI: useAI)
+        if let j = index(of: id) { meetings[j].notes = notes }
+        notesInProgress.remove(id)
+        save()
+    }
+
+    func toggleActionItem(meetingID: UUID, itemID: UUID) {
+        guard let i = index(of: meetingID), var notes = meetings[i].notes,
+              let k = notes.actionItems.firstIndex(where: { $0.id == itemID }) else { return }
+        notes.actionItems[k].done.toggle()
+        meetings[i].notes = notes
+        save()
+    }
+
+    // MARK: - Search
+
+    /// Meetings whose title, transcript, notes or speaker names contain `query`,
+    /// each with a short snippet around the first hit.
+    func search(_ query: String) -> [(id: UUID, snippet: String)] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return [] }
+        func hit(_ text: String) -> String? {
+            guard let r = text.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) else { return nil }
+            let start = text.index(r.lowerBound, offsetBy: -40, limitedBy: text.startIndex) ?? text.startIndex
+            let end = text.index(r.upperBound, offsetBy: 60, limitedBy: text.endIndex) ?? text.endIndex
+            let prefix = start > text.startIndex ? "…" : ""
+            let suffix = end < text.endIndex ? "…" : ""
+            return prefix + String(text[start..<end]) + suffix
+        }
+        var out: [(UUID, String)] = []
+        for m in meetings {
+            if let s = hit(m.title) { out.append((m.id, s)); continue }
+            if let n = m.notes {
+                let notesText = ([n.summary] + n.keyPoints + n.actionItems.map { "\($0.task) (\($0.owner))" })
+                    .joined(separator: " · ")
+                if let s = hit(notesText) { out.append((m.id, "Notes: " + s)); continue }
+            }
+            if let u = m.utterances.first(where: { hit($0.text) != nil }), let s = hit(u.text) {
+                out.append((m.id, "\(displayName(m, key: u.speakerKey)): " + s)); continue
+            }
+            let names = m.clusters.compactMap { person($0.personID)?.name }.joined(separator: ", ")
+            if let s = hit(names) { out.append((m.id, "People: " + s)) }
+        }
+        return out.map { (id: $0.0, snippet: $0.1) }
+    }
+
+    // MARK: - Dictation history
+
+    func addDictation(_ entry: DictationEntry) {
+        dictations.insert(entry, at: 0)
+        if dictations.count > 200 { dictations.removeLast(dictations.count - 200) }
+        save()
+    }
+
+    func clearDictations() {
+        dictations.removeAll()
         save()
     }
 

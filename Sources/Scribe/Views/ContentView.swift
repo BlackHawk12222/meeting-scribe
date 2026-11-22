@@ -1,19 +1,28 @@
 // ContentView.swift
-// Sidebar (record button, meetings, people) + detail pane.
+// The main window: sidebar (search, record button, dictation, people, meetings) + detail pane.
 
 import SwiftUI
 
 enum SidebarItem: Hashable {
     case meeting(UUID)
     case people
+    case dictation
 }
 
 struct ContentView: View {
+    @EnvironmentObject var model: AppModel
     @EnvironmentObject var store: Store
     @EnvironmentObject var recorder: Recorder
+    @EnvironmentObject var permissions: Permissions
     @AppStorage("noiseCleanup") private var noiseCleanup = true
+    @AppStorage("onboarded") private var onboarded = false
     @State private var selection: SidebarItem?
-    @State private var alertText: String?
+    @State private var query = ""
+
+    /// Search results: meeting id -> snippet showing where the words were found.
+    private var hits: [UUID: String] {
+        Dictionary(store.search(query).map { ($0.id, $0.snippet) }, uniquingKeysWith: { a, _ in a })
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -21,19 +30,23 @@ struct ContentView: View {
                 recordPanel
                 Divider()
                 List(selection: $selection) {
-                    Section("Voice library") {
+                    Section("Library") {
+                        Label("Dictation (\(store.dictations.count))", systemImage: "mic")
+                            .tag(SidebarItem.dictation)
                         Label("People (\(store.people.count))", systemImage: "person.2.wave.2")
                             .tag(SidebarItem.people)
                     }
-                    Section("Meetings") {
-                        ForEach(store.meetings) { m in
-                            MeetingRow(meeting: m).tag(SidebarItem.meeting(m.id))
+                    Section(query.isEmpty ? "Meetings" : "Meetings matching “\(query)”") {
+                        let found = hits
+                        ForEach(store.meetings.filter { query.isEmpty || found[$0.id] != nil }) { m in
+                            MeetingRow(meeting: m, snippet: found[m.id]).tag(SidebarItem.meeting(m.id))
                                 .contextMenu {
                                     Button("Delete", role: .destructive) { store.deleteMeeting(m.id) }
                                 }
                         }
                     }
                 }
+                .searchable(text: $query, placement: .sidebar, prompt: "Search meetings & notes")
             }
             .navigationSplitViewColumnWidth(min: 250, ideal: 280)
         } detail: {
@@ -42,6 +55,8 @@ struct ContentView: View {
                 switch selection {
                 case .people:
                     PeopleView()
+                case .dictation:
+                    DictationHistoryView(query: query)
                 case .meeting(let id):
                     if store.meetings.contains(where: { $0.id == id }) {
                         MeetingDetailView(meetingID: id)
@@ -53,16 +68,25 @@ struct ContentView: View {
                 }
             }
         }
-        .alert("Heads up", isPresented: Binding(get: { alertText != nil }, set: { if !$0 { alertText = nil } })) {
-            Button("OK") { alertText = nil }
-        } message: { Text(alertText ?? "") }
+        .alert("Heads up", isPresented: Binding(get: { model.alertText != nil }, set: { if !$0 { model.alertText = nil } })) {
+            Button("OK") { model.alertText = nil }
+        } message: { Text(model.alertText ?? "") }
+        .sheet(isPresented: Binding(get: { !onboarded }, set: { if !$0 { onboarded = true } })) {
+            OnboardingView()
+                .environmentObject(store)
+                .environmentObject(permissions)
+        }
+        .onChange(of: model.justRecordedMeeting) { id in
+            if let id { selection = .meeting(id) }
+        }
     }
 
     private var placeholder: some View {
         VStack(spacing: 12) {
             Image(systemName: "waveform.badge.mic").font(.system(size: 48)).foregroundStyle(.secondary)
             Text("Press Record to capture a meeting.").font(.title3)
-            Text("Everything stays on this Mac.").foregroundStyle(.secondary)
+            Text("Or hold \(DictationSettings.holdKey.title) in any app to dictate. Everything stays on this Mac.")
+                .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -70,7 +94,7 @@ struct ContentView: View {
     // The big record button at the top of the sidebar.
     private var recordPanel: some View {
         VStack(spacing: 10) {
-            Button(action: toggleRecording) {
+            Button(action: { model.toggleMeetingRecording() }) {
                 HStack {
                     Image(systemName: recorder.isRecording ? "stop.circle.fill" : "record.circle")
                         .font(.system(size: 22))
@@ -101,33 +125,12 @@ struct ContentView: View {
         }
         .padding(12)
     }
-
-    private func toggleRecording() {
-        if recorder.isRecording {
-            if let (url, duration) = recorder.stop() {
-                let m = store.addMeeting(audioURL: url, duration: duration)
-                selection = .meeting(m.id)
-                Task { await store.process(m.id) }
-            }
-        } else {
-            Task {
-                guard await Recorder.requestPermission() else {
-                    alertText = "Meeting Scribe needs the microphone. Turn it on in System Settings → Privacy & Security → Microphone."
-                    return
-                }
-                do {
-                    try recorder.start(to: store.newRecordingURL(), noiseCleanup: noiseCleanup)
-                } catch {
-                    alertText = "Couldn't start recording: \(error.localizedDescription)"
-                }
-            }
-        }
-    }
 }
 
 struct MeetingRow: View {
     @EnvironmentObject var store: Store
     let meeting: Meeting
+    var snippet: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -145,6 +148,9 @@ struct MeetingRow: View {
                 }
             }
             .font(.caption).foregroundStyle(.secondary)
+            if let snippet {
+                Text(snippet).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+            }
         }
     }
 }
@@ -154,7 +160,13 @@ struct ModelBanner: View {
     @EnvironmentObject var store: Store
     var body: some View {
         HStack(spacing: 10) {
-            if store.engineError == nil { ProgressView().controlSize(.small) }
+            if store.engineError == nil {
+                if let p = store.modelProgress {
+                    ProgressView(value: p).frame(width: 120)
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
             Text(store.engineError ?? store.engineStatus).font(.callout)
             Spacer()
             if store.engineError != nil {

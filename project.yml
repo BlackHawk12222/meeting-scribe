@@ -1,6 +1,6 @@
-# XcodeGen spec: `xcodegen generate` turns this file into MeetingScribe.xcodeproj.
+# XcodeGen spec: `xcodegen generate` turns this file into Scribe.xcodeproj.
 # (Keeping the project as a small text file instead of a giant .xcodeproj makes it easy to read and diff.)
-name: MeetingScribe
+name: Scribe
 options:
   bundleIdPrefix: com.blackhawk12222
   deploymentTarget:
@@ -10,34 +10,38 @@ packages:
     url: https://github.com/FluidInference/FluidAudio.git
     exactVersion: 0.18.3
 targets:
-  MeetingScribe:
+  Scribe:
     type: application
     platform: macOS
     sources:
-      - path: Sources/MeetingScribe
+      - path: Sources/Scribe
+      # A 16 s test clip (LibriSpeech, CC-BY 4.0) used by `Scribe --selftest` to test dictation.
+      - path: Resources/SelfTest
+        buildPhase: resources
     dependencies:
       - package: FluidAudio
     info:
       path: Resources/Info.plist
       properties:
-        CFBundleDisplayName: Meeting Scribe
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
+        CFBundleDisplayName: Scribe
+        CFBundleName: Scribe
+        CFBundleShortVersionString: "0.2.0"
+        CFBundleVersion: "2"
         LSMinimumSystemVersion: "14.0"
         LSApplicationCategoryType: public.app-category.productivity
-        NSMicrophoneUsageDescription: Meeting Scribe records your meetings so it can transcribe them and tell who said what. Audio stays on this Mac.
+        NSMicrophoneUsageDescription: Scribe listens while you dictate or record a meeting, and turns it into text on this Mac. Audio never leaves your Mac.
         NSHumanReadableCopyright: Made by BlackHawk12222
     entitlements:
-      path: Resources/MeetingScribe.entitlements
+      path: Resources/Scribe.entitlements
       properties:
-        com.apple.security.app-sandbox: true
+        # NOT sandboxed on purpose: a sandboxed app is not allowed to send the
+        # Cmd-V keystroke into other apps, which is how dictation types for you.
+        # Hardened runtime stays on; this one entitlement lets it use the mic.
         com.apple.security.device.audio-input: true
-        com.apple.security.network.client: true
-        com.apple.security.files.user-selected.read-write: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.blackhawk12222.MeetingScribe
-        PRODUCT_NAME: MeetingScribe
+        PRODUCT_BUNDLE_IDENTIFIER: com.blackhawk12222.Scribe
+        PRODUCT_NAME: Scribe
         SWIFT_VERSION: "5.0"
         ARCHS: arm64
         ONLY_ACTIVE_ARCH: NO

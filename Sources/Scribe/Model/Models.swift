@@ -87,4 +87,39 @@ struct Meeting: Codable, Identifiable, Hashable {
     var speakerCount: Int?
     /// How long transcription + speaker detection took (for the "x times faster than real time" readout).
     var processingSeconds: Double?
+    /// Summary, key points and action items (made after processing; optional so older files still load).
+    var notes: MeetingNotes?
+}
+
+/// One thing someone has to do after a meeting.
+struct ActionItem: Codable, Hashable, Identifiable {
+    var id = UUID()
+    var task: String
+    /// A speaker name from the transcript ("Sam"), "Team (...)", "Asked by ...", or "Unassigned".
+    var owner: String
+    var done: Bool = false
+}
+
+struct MeetingNotes: Codable, Hashable {
+    var summary: String
+    var keyPoints: [String]
+    var actionItems: [ActionItem]
+    /// Who wrote these notes: Apple Intelligence (on-device) or the no-AI picker.
+    var method: CleanupMethod
+    var createdAt: Date
+    var seconds: Double
+    /// A short note shown under the notes ("Quick notes picked from the transcript").
+    var note: String?
+}
+
+/// One finished dictation (kept so you can copy it again if pasting didn't work).
+struct DictationEntry: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var date: Date
+    var text: String
+    var raw: String
+    var method: CleanupMethod
+    var audioSeconds: Double
+    /// Time from releasing the key to the text being ready.
+    var latencySeconds: Double
 }

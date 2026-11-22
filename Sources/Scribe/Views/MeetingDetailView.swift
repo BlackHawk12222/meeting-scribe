@@ -1,5 +1,5 @@
 // MeetingDetailView.swift
-// One meeting: the speakers found in it (name them here!) and the transcript.
+// One meeting: the speakers found in it (name them here!), the notes, and the transcript.
 
 import SwiftUI
 import AVFoundation
@@ -13,6 +13,8 @@ struct MeetingDetailView: View {
     @State private var namingKey: String?
     @State private var newName = ""
     @State private var editingTitle = false
+    @State private var tab = DetailTab.notes
+    enum DetailTab: String, CaseIterable { case notes = "Notes", transcript = "Transcript" }
 
     private var meeting: Meeting? { store.meetings.first { $0.id == meetingID } }
 
@@ -24,7 +26,15 @@ struct MeetingDetailView: View {
                 if m.status == .done {
                     speakersBar(m)
                     Divider()
-                    transcript(m)
+                    Picker("", selection: $tab) {
+                        ForEach(DetailTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 240)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity)
+                    if tab == .notes { notesView(m) } else { transcript(m) }
                 } else {
                     statusView(m)
                 }
@@ -159,6 +169,68 @@ struct MeetingDetailView: View {
     private func saveName() {
         if let key = namingKey { store.createPerson(named: newName, meetingID: meetingID, clusterKey: key) }
         namingKey = nil
+    }
+
+    // MARK: Notes
+
+    @ViewBuilder
+    private func notesView(_ m: Meeting) -> some View {
+        if store.notesInProgress.contains(m.id) {
+            VStack(spacing: 10) {
+                ProgressView()
+                Text("Writing notes on this Mac…").foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let n = m.notes {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Summary").font(.headline)
+                        Text(n.summary).textSelection(.enabled)
+                    }
+                    if !n.keyPoints.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Key points").font(.headline)
+                            ForEach(n.keyPoints, id: \.self) { p in
+                                Label { Text(p).textSelection(.enabled) } icon: { Image(systemName: "circle.fill").font(.system(size: 5)) }
+                            }
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Action items").font(.headline)
+                        if n.actionItems.isEmpty { Text("None found.").foregroundStyle(.secondary) }
+                        ForEach(n.actionItems) { a in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Button { store.toggleActionItem(meetingID: m.id, itemID: a.id) } label: {
+                                    Image(systemName: a.done ? "checkmark.circle.fill" : "circle")
+                                }
+                                .buttonStyle(.borderless)
+                                Text(a.task).strikethrough(a.done).textSelection(.enabled)
+                                Spacer()
+                                Text(a.owner).font(.caption.bold())
+                                    .padding(.horizontal, 8).padding(.vertical, 2)
+                                    .background(.quaternary, in: Capsule())
+                            }
+                        }
+                    }
+                    HStack {
+                        Text((n.note ?? "") + " " + (n.method == .appleIntelligence ? "Written by Apple Intelligence on this Mac — check it against the transcript." : ""))
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Redo notes") { Task { await store.makeNotes(m.id) } }
+                            .help("Redo after naming speakers, so action items get the right names.")
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            VStack(spacing: 10) {
+                Text("No notes yet.").foregroundStyle(.secondary)
+                Button("Make notes") { Task { await store.makeNotes(m.id) } }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     // MARK: Transcript

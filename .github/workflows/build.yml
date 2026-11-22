@@ -1,16 +1,17 @@
-# Builds MeetingScribe.app on a GitHub-hosted Apple Silicon Mac, runs a headless
+# Builds Scribe.app on a GitHub-hosted Apple Silicon Mac, runs a headless
 # self-test, and uploads the .zip/.dmg. Add "[release]" to a commit message to
 # also publish a GitHub Release.
+# Private repo: macOS minutes count 10x, so the push build runs the QUICK self-test.
 name: build-mac-app
 on:
   push:
     branches: [main]
-    paths: ["Sources/**", "project.yml", "scripts/**", ".github/workflows/**"]
+    paths: ["Sources/**", "Resources/SelfTest/**", "project.yml", "scripts/**", ".github/workflows/**"]
   workflow_dispatch:
     inputs:
       selftest:
-        description: "Run the self-test"
-        default: "true"
+        description: "Self-test suite: quick, full, or none"
+        default: "quick"
       release:
         description: "Publish a release"
         default: "false"
@@ -25,10 +26,14 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Xcode version
+      - name: Pick Xcode (newest 26.x if installed, for the Apple Intelligence SDK)
         run: |
-          sudo xcode-select -s /Applications/Xcode_16.4.app || true
+          ls -d /Applications/Xcode*.app || true
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)
+          [ -z "$X" ] && X=/Applications/Xcode_16.4.app
+          sudo xcode-select -s "$X"
           xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
@@ -48,26 +53,28 @@ jobs:
       - name: Upload app
         uses: actions/upload-artifact@v4
         with:
-          name: MeetingScribe
+          name: Scribe
           path: |
-            dist/MeetingScribe.zip
-            dist/MeetingScribe.dmg
+            dist/Scribe.zip
+            dist/Scribe.dmg
           retention-days: 30
-      - name: Cache models (inside the app's sandbox container)
-        if: github.event_name == 'push' || github.event.inputs.selftest == 'true'
+      - name: Cache models (the app is not sandboxed, so FluidAudio uses ~/Library/Application Support)
+        if: github.event_name == 'push' || github.event.inputs.selftest != 'none'
         uses: actions/cache@v4
         with:
-          path: ~/Library/Containers/com.blackhawk12222.MeetingScribe/Data/Library/Application Support/FluidAudio
-          key: models-fluidaudio-0.18.3-v1
-      - name: Self-test (AMI meetings, real models, this runner's CPU/GPU)
-        if: github.event_name == 'push' || github.event.inputs.selftest == 'true'
+          path: ~/Library/Application Support/FluidAudio
+          key: models-fluidaudio-0.18.3-unsandboxed-v1
+      - name: Self-test (dictation clip + AMI meeting, real models, this runner's CPU/GPU)
+        if: github.event_name == 'push' || github.event.inputs.selftest != 'none'
         timeout-minutes: 25
         run: |
           set -o pipefail
-          ./build/DD/Build/Products/Release/MeetingScribe.app/Contents/MacOS/MeetingScribe --selftest --seconds 300 | tee selftest.out
+          SUITE="${{ github.event.inputs.selftest }}"; [ -z "$SUITE" ] && SUITE=quick
+          ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --selftest --suite "$SUITE" --seconds 300 | tee selftest.out
           grep '^SELFTEST_JSON:' selftest.out | sed 's/^SELFTEST_JSON://' > selftest.json
           python3 -m json.tool selftest.json
           sysctl -n machdep.cpu.brand_string >> selftest-machine.txt; sysctl -n hw.memsize >> selftest-machine.txt
+          sw_vers >> selftest-machine.txt; xcodebuild -version >> selftest-machine.txt
       - name: Upload self-test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -83,7 +90,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v0.1.${{ github.run_number }}"
-          gh release create "$TAG" dist/MeetingScribe.dmg dist/MeetingScribe.zip \
-            --title "Meeting Scribe $TAG" \
-            --notes "Unsigned (ad-hoc) build for Apple Silicon, macOS 14+ (15+ recommended). First launch: right-click the app > Open, or System Settings > Privacy & Security > Open Anyway."
+          TAG="v0.2.${{ github.run_number }}"
+          gh release create "$TAG" dist/Scribe.dmg dist/Scribe.zip \
+            --title "Scribe $TAG" \
+            --notes "Free, on-device dictation + meeting notes for Apple Silicon Macs (macOS 14+, 15+ recommended; Apple Intelligence features need macOS 26). Unsigned (ad-hoc) build. First launch: right-click the app > Open, or System Settings > Privacy & Security > Open Anyway. Then allow Microphone and Accessibility."

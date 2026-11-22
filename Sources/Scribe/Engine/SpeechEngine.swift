@@ -1,14 +1,20 @@
 // SpeechEngine.swift
-// The "brain": turns an audio recording into a speaker-labeled transcript.
+// The "brain": turns audio into text.
 //
+// MEETINGS (whole recording, after you press Stop):
 //  1. Diarization  ("who spoke when")   -> FluidAudio OfflineDiarizerManager
 //     (pyannote Community-1 segmentation + WeSpeaker voice embeddings + VBx clustering)
-//  2. Transcription ("what was said")   -> FluidAudio Parakeet TDT 0.6B v2 (English)
+//  2. Transcription ("what was said")   -> FluidAudio Parakeet TDT 0.6B (v2 English or v3 multilingual)
 //  3. Merge: every word gets the speaker who was talking at that moment.
 //  4. Voice embeddings for each speaker -> used by VoiceLibrary to put names on them.
 //
+// DICTATION (a few seconds, while you hold the hotkey) -> `dictate(samples:)` below:
+//  1. Silero VAD finds the parts with speech; silence before/after/between is cut out.
+//  2. Parakeet turns the speech into text (it already adds punctuation + capitals).
+//  (Cleanup and pasting happen in Dictation/, not here.)
+//
 // All models run on-device with Core ML (Neural Engine / GPU / CPU).
-// They download once (~600 MB) into Application Support and then work offline.
+// They download once (~600 MB + ~2 MB VAD) into Application Support and then work offline.
 
 import Foundation
 import FluidAudio
@@ -50,27 +56,118 @@ struct DiarizerSetting: Hashable, Sendable {
     }
 }
 
+/// Which speech-to-text model to use (Settings > Model). Both are NVIDIA Parakeet TDT 0.6B
+/// converted to Core ML by FluidAudio. Why these and not Whisper: see BENCHMARKS.md.
+enum SpeechModel: String, CaseIterable, Identifiable, Sendable {
+    case english = "v2"        // default: most accurate for English in our tests
+    case multilingual = "v3"   // 25 European languages, auto-detected
+
+    var id: String { rawValue }
+    var version: AsrModelVersion { self == .english ? .v2 : .v3 }
+    var title: String { self == .english ? "Parakeet v2 · English" : "Parakeet v3 · 25 languages" }
+    var detail: String {
+        self == .english
+            ? "Best for English. Measured 3.2% word errors on our test set (sandbox)."
+            : "Use if you speak Spanish, German, French… Measured 5.0% word errors on the same English test set (sandbox)."
+    }
+    /// What the user picked in Settings (stored in UserDefaults under "speechModel").
+    static var current: SpeechModel {
+        SpeechModel(rawValue: UserDefaults.standard.string(forKey: "speechModel") ?? "") ?? .english
+    }
+}
+
+/// What one dictation produced, plus timings (the self-test prints these).
+struct DictationTranscript: Sendable {
+    var text: String
+    var audioSeconds: Double      // how long you held the key
+    var speechSeconds: Double     // what was left after cutting silence
+    var vadSeconds: Double        // time spent finding speech
+    var asrSeconds: Double        // time spent transcribing
+}
+
 actor SpeechEngine {
     static let shared = SpeechEngine()
 
     private var asr: AsrManager?
+    /// A second manager on the SAME loaded model, so a dictation never waits
+    /// behind a 30-minute meeting being transcribed.
+    private var dictationAsr: AsrManager?
+    private var loadedModel: SpeechModel?
+    private var vad: VadManager?
     /// One diarizer per setting (they share the model files on disk).
     private var diarizers: [DiarizerSetting: OfflineDiarizerManager] = [:]
 
     var isReady: Bool { asr != nil && diarizers[.auto] != nil }
+    var isDictationReady: Bool { dictationAsr != nil }
 
     /// Download (first launch only) and load the models.
-    func prepare(status: @escaping @Sendable (String) -> Void) async throws {
-        status("Loading speaker models…")
-        _ = try await diarizer(.auto)
-        if asr == nil {
-            status("Loading speech-to-text model (first time downloads ~500 MB)…")
-            let models = try await AsrModels.downloadAndLoad(version: .v2)
+    /// `status` gets a message and, while downloading, a 0...1 fraction for the progress bar.
+    func prepare(model: SpeechModel = .current,
+                 status: @escaping @Sendable (String, Double?) -> Void) async throws {
+        if asr == nil || loadedModel != model {
+            status("Downloading \(model.title) (one time, ~500 MB)…", 0)
+            let models = try await AsrModels.downloadAndLoad(version: model.version, progressHandler: { p in
+                switch p.phase {
+                case .listing: status("Finding speech model files…", p.fractionCompleted)
+                case .downloading: status("Downloading speech model (one time)…", p.fractionCompleted)
+                case .compiling: status("Optimizing speech model for this Mac…", p.fractionCompleted)
+                }
+            })
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
+            let second = AsrManager(config: .default)
+            try await second.loadModels(models)
             asr = manager
+            dictationAsr = second
+            loadedModel = model
         }
-        status("Ready")
+        if vad == nil {
+            status("Loading voice detector…", nil)
+            // 0.75 = how sure Silero must be that a 256 ms slice is speech (FluidAudio's doc example).
+            vad = try await VadManager(config: VadConfig(defaultThreshold: 0.75))
+        }
+        status("Loading speaker models…", nil)
+        _ = try await diarizer(.auto)
+        status("Ready", 1)
+    }
+
+    // MARK: - Dictation
+
+    /// Hold-to-talk audio -> text. Steps: VAD trim -> Parakeet.
+    func dictate(samples: [Float]) async throws -> DictationTranscript {
+        guard let dictationAsr else { throw EngineError.notReady }
+        let audioSeconds = Double(samples.count) / 16_000
+
+        // 1) Cut out silence with Silero VAD (like Handy does). Less audio = faster,
+        //    and the model can't "hear" words in background hiss.
+        let t0 = Date()
+        var speech = samples
+        if let vad {
+            var seg = VadSegmentationConfig.default
+            seg.minSpeechDuration = 0.25
+            seg.speechPadding = 0.2          // keep 0.2 s around each part so first/last sounds aren't clipped
+            seg.minSilenceDuration = 0.5
+            let parts = try await vad.segmentSpeechAudio(samples, config: seg)
+            if !parts.isEmpty {
+                // Glue the speech parts together with a short gap so words don't run into each other.
+                let gap = [Float](repeating: 0, count: 16_000 / 5)
+                speech = parts.dropFirst().reduce(parts[0]) { $0 + gap + $1 }
+            }
+            // No speech found at all? Keep the raw audio rather than risk dropping a quiet voice.
+        }
+        let vadSeconds = Date().timeIntervalSince(t0)
+
+        // Parakeet needs a little audio to work with: pad very short clips to 1 s.
+        if speech.count < 16_000 { speech += [Float](repeating: 0, count: 16_000 - speech.count) }
+
+        // 2) Speech -> text.
+        let t1 = Date()
+        var state = TdtDecoderState.make(decoderLayers: await dictationAsr.decoderLayerCount)
+        let result = try await dictationAsr.transcribe(speech, decoderState: &state)
+        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return DictationTranscript(text: text, audioSeconds: audioSeconds,
+                                   speechSeconds: Double(speech.count) / 16_000,
+                                   vadSeconds: vadSeconds, asrSeconds: Date().timeIntervalSince(t1))
     }
 
     private func diarizer(_ setting: DiarizerSetting) async throws -> OfflineDiarizerManager {

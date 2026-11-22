@@ -55,7 +55,17 @@ enum Exporter {
                 let pct = Int((c.talkSeconds / total * 100).rounded())
                 out += "- **\(name(c.key))** – \(clock(c.talkSeconds)) (\(pct)%)\n"
             }
-            out += "\n## Notes\n\n- \n\n## Action items\n\n- [ ] \n\n## Transcript\n\n"
+            if let n = m.notes {
+                out += "\n## Summary\n\n\(n.summary)\n\n## Key points\n\n"
+                for p in n.keyPoints { out += "- \(p)\n" }
+                out += "\n## Action items\n\n"
+                for a in n.actionItems { out += "- [\(a.done ? "x" : " ")] \(a.task) — **\(a.owner)**\n" }
+                if n.actionItems.isEmpty { out += "- [ ] \n" }
+                out += "\n*Notes by \(n.method == .appleIntelligence ? "Apple Intelligence (on-device)" : "Scribe quick notes (no AI)").*\n"
+            } else {
+                out += "\n## Notes\n\n- \n\n## Action items\n\n- [ ] \n"
+            }
+            out += "\n## Transcript\n\n"
             for u in m.utterances {
                 out += "**\(name(u.speakerKey))** `\(clock(u.start))` \(u.text)\n\n"
             }
