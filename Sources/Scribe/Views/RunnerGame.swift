@@ -158,6 +158,7 @@ struct RunnerGameView: View {
     }
 }
 
+@MainActor
 enum RunnerPainter {
     static func draw(_ ctx: inout GraphicsContext, size: CGSize, game: RunnerGame, date: Date) {
         let ground = size.height - 26

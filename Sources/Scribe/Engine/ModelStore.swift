@@ -151,7 +151,7 @@ final class ModelStore: ObservableObject {
     }
     let meetingComponents = ["diarizer"]
 
-    static func mb(_ bytes: Int64) -> String {
+    nonisolated static func mb(_ bytes: Int64) -> String {
         bytes >= 1_000_000 ? String(format: "%.0f MB", Double(bytes) / 1_000_000)
                            : String(format: "%.1f MB", Double(bytes) / 1_000_000)
     }
