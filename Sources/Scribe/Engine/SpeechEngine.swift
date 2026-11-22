@@ -284,6 +284,14 @@ actor SpeechEngine {
         }
     }
 
+    /// Why a 2 s clip costs about as much as a 15 s one: FluidAudio 0.18.3 pads every Parakeet
+    /// call up to its fixed 15 s encoder window (AsrManager+Transcription: padAudioIfNeeded to
+    /// ASRConstants.maxModelSamples). Parakeet v2's Encoder.mlmodelc has ONE shape, so there is
+    /// no shorter window to pick. FluidAudio does run shorter windows ("encoder ladder":
+    /// enc_5040ms / enc_10160ms / enc_15000ms) but only for models that ship a multifunction
+    /// encoder — today that's Phonon-2 (English re-train of v3, ~360 MB, macOS 15+, ~3 min first
+    /// ANE compile). The streaming variants (Parakeet EOU 120M, Unified 0.6B 320–2080 ms) are
+    /// separate models too. Switching = a model change, not a code tweak; not done in 0.3.
     private static func transcribeShort(_ asr: AsrManager, _ audio: [Float]) async throws -> String {
         var a = audio
         if a.count < 16_000 { a += [Float](repeating: 0, count: 16_000 - a.count) }
