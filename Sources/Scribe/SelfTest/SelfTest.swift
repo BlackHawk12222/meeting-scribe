@@ -303,7 +303,14 @@ enum SelfTest {
         return out
     }
 
+    /// Partial results so far, printed after each phase (CI keeps them if a later phase crashes).
+    static func checkpoint(_ report: [String: Any]) {
+        if let data = try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys]),
+           let s = String(data: data, encoding: .utf8) { print("SELFTEST_PARTIAL:" + s) }
+    }
+
     static func run() async -> Int32 {
+        setvbuf(stdout, nil, _IOLBF, 0)      // line-buffered: a crash no longer loses what was printed
         let seconds = Double(argValue("--seconds") ?? "300") ?? 300
         let suite = argValue("--suite") ?? "quick"
         var report: [String: Any] = [
@@ -337,6 +344,7 @@ enum SelfTest {
             try await SpeechEngine.shared.prepareDictation(model: .current, prewarm: false) { msg, _ in log(msg) }
             report["dictation_model_load_seconds"] = Date().timeIntervalSince(t0)
             report["latency"] = try await latencyTest()
+            checkpoint(report)
             let t0m = Date()
             try await SpeechEngine.shared.prepareMeetings { msg, _ in log(msg) }
             report["meeting_model_load_seconds"] = Date().timeIntervalSince(t0m)
@@ -347,6 +355,7 @@ enum SelfTest {
 
             log("dictation test")
             report["dictation"] = try await dictationTest()
+            checkpoint(report)
             log("notes test")
             do {
                 report["notes"] = try await notesTest(dir: dir, seconds: seconds)

@@ -231,8 +231,10 @@ struct ScrollPainter {
         let isMessage: Bool = { if case .message = mode { return true }; return false }()
 
         // Timer slot at the right end.
-        let timerW: CGFloat = isWriting ? 50 : 38
-        let nibX = strip.maxX - timerW - 8
+        // The right roller covers the last ~7 pt of the strip, so keep text clear of it.
+        let timerW: CGFloat = isWriting ? 52 : 42
+        let timerX = strip.maxX - Self.rollerW / 2 - 4 - timerW
+        let nibX = timerX - 8
 
         if !isMessage {
             drawInk(&ctx, strip: strip, nibX: nibX, baseline: baseline, paper: paper)
@@ -241,7 +243,7 @@ struct ScrollPainter {
             let fade = CGRect(x: strip.minX, y: strip.minY + 1, width: 30, height: strip.height - 2)
             ctx.fill(Path(fade), with: .linearGradient(Gradient(colors: [Ink.parchment, Ink.parchment.opacity(0)]),
                                                      startPoint: CGPoint(x: fade.minX, y: 0), endPoint: CGPoint(x: fade.maxX, y: 0)))
-            drawTimer(&ctx, x: strip.maxX - timerW - 2, width: timerW, midY: midY, paper: paper)
+            drawTimer(&ctx, x: timerX, width: timerW, midY: midY, paper: paper)
         }
 
         // Rollers on top of the strip ends. They turn with the paper.
@@ -343,7 +345,7 @@ struct ScrollPainter {
     }
 
     private func drawTimer(_ ctx: inout GraphicsContext, x: CGFloat, width: CGFloat, midY: CGFloat, paper: Double) {
-        let center = CGPoint(x: x + width / 2 + 3, y: midY)
+        let center = CGPoint(x: x + width / 2, y: midY)
         if mode == .writing {
             ctx.draw(Text("Writing…").font(.system(size: 9.5, weight: .medium, design: .serif)).italic()
                 .foregroundStyle(Ink.ink.opacity(0.8)), at: center)
@@ -355,11 +357,11 @@ struct ScrollPainter {
         // A tiny red wax-seal dot (pulses gently) = the mic is on.
         let pulse = 0.75 + 0.25 * sin(tape.now(date) * 4)
         let dotR: CGFloat = mode == .recording ? 3.4 : 2.6
-        let dotX = x + 4
+        let dotX = x + 3
         ctx.fill(Path(ellipseIn: CGRect(x: dotX - dotR, y: midY - dotR, width: dotR * 2, height: dotR * 2)),
                  with: .color(Ink.royal.opacity(pulse)))
         ctx.draw(Text(label).font(.system(size: 9.5, weight: .semibold, design: .rounded)).monospacedDigit()
-            .foregroundStyle(Ink.ink.opacity(0.75)), at: CGPoint(x: center.x + 4, y: midY))
+            .foregroundStyle(Ink.ink.opacity(0.75)), at: CGPoint(x: center.x + 5, y: midY))
     }
 
     /// A cream feather quill whose nib follows the pen.

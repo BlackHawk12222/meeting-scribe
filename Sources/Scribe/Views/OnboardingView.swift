@@ -304,11 +304,11 @@ struct GlowRing: View {
             let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
             ZStack {
                 // Faint full track so you can see where the ring will go.
-                shape.inset(by: 3).stroke(Ink.parchmentDeep.opacity(0.5), lineWidth: 2)
+                shape.inset(by: 3).stroke(Ink.parchmentDeep.opacity(0.8), lineWidth: 2.5)
                 // The filled part: a wide blurred glow + a crisp line.
-                shape.inset(by: 3).trim(from: 0, to: p).stroke(gradient, style: StrokeStyle(lineWidth: 8, lineCap: .round))
-                    .blur(radius: 7).opacity(0.75)
-                shape.inset(by: 3).trim(from: 0, to: p).stroke(gradient, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                shape.inset(by: 3).trim(from: 0, to: p).stroke(gradient, style: StrokeStyle(lineWidth: 12, lineCap: .round))
+                    .blur(radius: 9).opacity(0.85)
+                shape.inset(by: 3).trim(from: 0, to: p).stroke(gradient, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
                 // The comet travelling along the filled part.
                 if active {
                     let head = (phase * 1.0).truncatingRemainder(dividingBy: 1) * p

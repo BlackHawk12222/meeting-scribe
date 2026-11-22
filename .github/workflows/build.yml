@@ -72,12 +72,22 @@ jobs:
         timeout-minutes: 25
         run: |
           set -o pipefail
+          # If it crashes, the Swift runtime prints a symbolicated backtrace to stderr.
+          BT=$(xcrun --find swift-backtrace 2>/dev/null || find "$(xcode-select -p)" -name swift-backtrace -type f 2>/dev/null | head -1 || true)
+          export SWIFT_BACKTRACE="enable=yes,interactive=no,symbolicate=full${BT:+,swift-backtrace=$BT}"
+          echo "SWIFT_BACKTRACE=$SWIFT_BACKTRACE"
           SUITE="${{ github.event.inputs.selftest }}"; [ -z "$SUITE" ] && SUITE=quick
           ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --selftest --suite "$SUITE" --seconds 300 --meeting-wav "$PWD/Tests/ES2004a_first300s.wav" --measure-download | tee selftest.out
           grep '^SELFTEST_JSON:' selftest.out | sed 's/^SELFTEST_JSON://' > selftest.json
           python3 -m json.tool selftest.json
           sysctl -n machdep.cpu.brand_string >> selftest-machine.txt; sysctl -n hw.memsize >> selftest-machine.txt
           sw_vers >> selftest-machine.txt; xcodebuild -version >> selftest-machine.txt
+      - name: Crash reports (if the self-test crashed)
+        if: failure()
+        run: |
+          ls -la ~/Library/Logs/DiagnosticReports/ /Library/Logs/DiagnosticReports/ 2>/dev/null || true
+          for f in ~/Library/Logs/DiagnosticReports/Scribe* /Library/Logs/DiagnosticReports/Scribe*; do
+            [ -f "$f" ] || continue; echo "=== $f"; head -c 60000 "$f"; cp "$f" . ; done
       - name: Upload self-test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -87,6 +97,7 @@ jobs:
             selftest.json
             selftest.out
             selftest-machine.txt
+            Scribe*.ips
           if-no-files-found: ignore
       - name: Publish release
         if: contains(github.event.head_commit.message, '[release]') || github.event.inputs.release == 'true'
