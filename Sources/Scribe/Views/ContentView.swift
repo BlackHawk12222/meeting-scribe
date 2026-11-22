@@ -14,6 +14,8 @@ struct ContentView: View {
     @EnvironmentObject var store: Store
     @EnvironmentObject var recorder: Recorder
     @EnvironmentObject var permissions: Permissions
+    @EnvironmentObject var dictation: DictationController
+    @EnvironmentObject var models: ModelStore
     @AppStorage("noiseCleanup") private var noiseCleanup = true
     @AppStorage("onboarded") private var onboarded = false
     @State private var selection: SidebarItem?
@@ -79,19 +81,39 @@ struct ContentView: View {
             OnboardingView()
                 .environmentObject(store)
                 .environmentObject(permissions)
+                .environmentObject(models)
+                .environmentObject(dictation)
+                .interactiveDismissDisabled()
         }
         .onChange(of: model.justRecordedMeeting) { _, id in
             if let id { selection = .meeting(id) }
         }
+        .onChange(of: model.openMeetingRequest) { _, id in
+            if let id { selection = .meeting(id); model.openMeetingRequest = nil }
+        }
+        .onAppear {
+            if let id = model.openMeetingRequest { selection = .meeting(id); model.openMeetingRequest = nil }
+        }
     }
 
+    /// Empty state: the scribe with a blank scroll when there are no meetings yet,
+    /// otherwise a gentle "pick one".
     private var placeholder: some View {
         VStack(spacing: 12) {
-            Image(systemName: "waveform.badge.mic").font(.system(size: 48)).foregroundStyle(.secondary)
-            Text("Press Record to capture a meeting.").font(.title3)
-            Text("Or hold \(DictationSettings.holdKey.title) in any app to dictate. Everything stays on this Mac.")
-                .foregroundStyle(.secondary)
+            if store.meetings.isEmpty {
+                Mascot(pose: .empty, height: 190)
+                Text("No meetings yet").font(.system(.title2, design: .serif).weight(.semibold))
+                Text("Press Record (⌘R) to capture one — Scribe writes the transcript, who said what, and the notes.")
+                    .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
+                Text("Or hold \(DictationSettings.holdKey.title) in any app to dictate. Everything stays on this Mac.")
+                    .font(.callout).foregroundStyle(.secondary)
+            } else {
+                Mascot(pose: .about, height: 120)
+                Text("Pick a meeting on the left").font(.system(.title3, design: .serif))
+                Text("Or press Record (⌘R) for a new one.").foregroundStyle(.secondary)
+            }
         }
+        .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -109,13 +131,13 @@ struct ContentView: View {
                 .padding(.vertical, 6)
             }
             .buttonStyle(.borderedProminent)
-            .tint(recorder.isRecording ? .red : .accentColor)
+            .tint(recorder.isRecording ? Ink.ink : Ink.royal)
             .keyboardShortcut("r", modifiers: [.command])
 
             if recorder.isRecording {
                 HStack {
                     Text(Exporter.clock(recorder.elapsed)).monospacedDigit()
-                    ProgressView(value: Double(recorder.level)).tint(.green)
+                    ProgressView(value: Double(recorder.level)).tint(Ink.gold)
                 }
                 if recorder.noiseCleanupActive {
                     Label("Noise cleanup on", systemImage: "waveform.badge.minus").font(.caption)
@@ -128,6 +150,8 @@ struct ContentView: View {
             }
         }
         .padding(12)
+        .background(ParchmentBand())
+        .environment(\.colorScheme, .light)      // parchment is light in dark mode too
     }
 }
 

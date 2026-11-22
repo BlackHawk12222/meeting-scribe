@@ -4,6 +4,7 @@
 // headless test and quits.
 
 import SwiftUI
+import Combine
 
 @main
 enum Main {
@@ -29,8 +30,17 @@ final class AppModel: ObservableObject {
     let recorder = Recorder()
     let dictation = DictationController()
     let permissions = Permissions()
+    let models = ModelStore.shared
+    let updater = Updater()
     /// Set when a meeting recording stops, so the window can jump to it.
     @Published var justRecordedMeeting: UUID?
+    /// Set by the menu bar ("open this meeting"); the main window selects it.
+    @Published var openMeetingRequest: UUID?
+
+    /// The meeting scroll at the bottom of the screen while a meeting records.
+    private let meetingOverlay = ScrollOverlay()
+    let meetingTape = InkTape()
+    private var bag: Set<AnyCancellable> = []
     @Published var alertText: String?
 
     private var started = false
@@ -39,7 +49,27 @@ final class AppModel: ObservableObject {
         guard !started else { return }
         started = true
         dictation.attach(store: store, recorder: recorder)
+        // Meeting scroll: ink follows the recorder's mic level.
+        recorder.$level.sink { [weak self] l in
+            guard let self, self.recorder.isRecording else { return }
+            self.meetingTape.add(l)
+        }.store(in: &bag)
+        recorder.$isRecording.removeDuplicates().sink { [weak self] on in
+            guard let self else { return }
+            if on && UserDefaults.standard.object(forKey: "showMeetingScroll") as? Bool ?? true {
+                self.meetingTape.reset()
+                self.meetingOverlay.show(MeetingScrollView(recorder: self.recorder, tape: self.meetingTape))
+            } else {
+                self.meetingOverlay.hide()
+            }
+        }.store(in: &bag)
         Task { await store.prepareEngine() }
+        updater.checkInBackgroundIfDue()
+    }
+
+    /// Menu bar → "open this meeting in the main window".
+    func openMeeting(_ id: UUID) {
+        openMeetingRequest = id
     }
 
     /// Record / Stop a meeting (window button, ⌘R, or the menu bar).
@@ -87,10 +117,17 @@ struct ScribeApp: App {
                 .environmentObject(model.recorder)
                 .environmentObject(model.dictation)
                 .environmentObject(model.permissions)
+                .environmentObject(model.models)
+                .environmentObject(model.updater)
                 .frame(minWidth: 860, minHeight: 540)
                 .onAppear { model.start() }
         }
         .windowStyle(.titleBar)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates…") { model.updater.check(userInitiated: true) }
+            }
+        }
 
         MenuBarExtra {
             MenuBarView()
@@ -98,6 +135,7 @@ struct ScribeApp: App {
                 .environmentObject(model.store)
                 .environmentObject(model.recorder)
                 .environmentObject(model.dictation)
+                .environmentObject(model.models)
         } label: {
             MenuBarIcon(dictation: model.dictation, recorder: model.recorder)
         }
@@ -109,21 +147,24 @@ struct ScribeApp: App {
                 .environmentObject(model.store)
                 .environmentObject(model.dictation)
                 .environmentObject(model.permissions)
+                .environmentObject(model.models)
+                .environmentObject(model.updater)
         }
     }
 }
 
-/// The menu bar icon: a waveform, filled red-dot style while listening or recording.
+/// The menu bar icon: a small open scroll drawn in code as a template image (Theme.swift).
+/// A dot appears on the parchment while listening/recording, three dots while writing.
 struct MenuBarIcon: View {
     @ObservedObject var dictation: DictationController
     @ObservedObject var recorder: Recorder
     var body: some View {
         if dictation.state == .listening || recorder.isRecording {
-            Image(systemName: "record.circle.fill")
+            Image(nsImage: MenuBarGlyph.live)
         } else if dictation.state == .transcribing {
-            Image(systemName: "ellipsis.circle")
+            Image(nsImage: MenuBarGlyph.busy)
         } else {
-            Image(systemName: "waveform")
+            Image(nsImage: MenuBarGlyph.idle)
         }
     }
 }

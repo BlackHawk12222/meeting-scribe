@@ -81,11 +81,37 @@ final class Store: ObservableObject {
 
     // MARK: - Models
 
+    /// Startup: get DICTATION working as fast as possible, then the meeting models.
+    ///  1. ModelStore checks what's on disk and downloads only missing/changed files
+    ///     (in parallel, resumable) — usually nothing at all after the first launch.
+    ///  2. FluidAudio loads Parakeet + the voice detector → dictation works.
+    ///  3. In the background: the speaker models (22 MB) for meetings.
     func prepareEngine() async {
         engineReady = false
         engineError = nil
+        let models = ModelStore.shared
+        let speech = SpeechModel.current
         do {
-            try await SpeechEngine.shared.prepare(model: .current) { msg, fraction in
+            let needed = models.dictationComponents(speech)
+            let watcher = Task { @MainActor in
+                // Mirror download progress into the status line + progress bar.
+                while !Task.isCancelled {
+                    if let p = models.progress {
+                        self.engineStatus = "Downloading speech model (one time) · \(p.text)"
+                        self.modelProgress = p.fraction
+                    }
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+            }
+            defer { watcher.cancel() }
+            engineStatus = "Checking models…"
+            try await models.ensure(needed)
+            watcher.cancel()
+            modelProgress = nil
+            // Dictation models are in; start the meeting models right away (in parallel with
+            // loading the speech model), so everything is ready without waiting for a meeting.
+            Task(priority: .utility) { _ = await self.prepareMeetingModels() }
+            try await SpeechEngine.shared.prepareDictation(model: speech) { msg, fraction in
                 Task { @MainActor in
                     self.engineStatus = msg
                     self.modelProgress = fraction
@@ -94,12 +120,42 @@ final class Store: ObservableObject {
             engineReady = true
             engineError = nil
             modelProgress = nil
-            // Process anything recorded while models were loading.
-            for m in meetings where m.status == .recorded { await process(m.id) }
+            engineStatus = "Ready"
         } catch {
+            modelProgress = nil
             engineError = "Model download/load failed: \(error.localizedDescription). Check your internet connection for the one-time download, then press Retry."
+            return
         }
     }
+
+    /// True once the speaker models are loaded (meetings can be processed).
+    @Published var meetingModelsReady = false
+    private var meetingPrep: Task<Bool, Never>?
+
+    /// Make sure the meeting (speaker) models are downloaded and loaded. Safe to call many times.
+    @discardableResult
+    func prepareMeetingModels() async -> Bool {
+        if meetingModelsReady { return true }
+        if let t = meetingPrep { return await t.value }
+        let t = Task { @MainActor () -> Bool in
+            do {
+                try await ModelStore.shared.ensure(ModelStore.shared.meetingComponents)
+                try await SpeechEngine.shared.prepareMeetings { _, _ in }
+                self.meetingModelsReady = true
+                // Process anything recorded while models were loading.
+                for m in self.meetings where m.status == .recorded { await self.process(m.id) }
+                return true
+            } catch {
+                self.meetingPrepError = error.localizedDescription
+                return false
+            }
+        }
+        meetingPrep = t
+        let ok = await t.value
+        meetingPrep = nil
+        return ok
+    }
+    @Published var meetingPrepError: String?
 
     // MARK: - Meetings
 
@@ -126,7 +182,20 @@ final class Store: ObservableObject {
 
     /// Transcribe + find speakers + match them to the voice library.
     func process(_ id: UUID) async {
-        guard engineReady, let i = index(of: id) else { return }
+        guard engineReady, index(of: id) != nil else { return }
+        if !meetingModelsReady {
+            if let i = index(of: id) { progressText[id] = "Getting the speaker models (one time)…"; meetings[i].status = .processing }
+            guard await prepareMeetingModels() else {
+                if let i = index(of: id) {
+                    meetings[i].status = .failed
+                    meetings[i].errorMessage = "Couldn't get the speaker models: \(meetingPrepError ?? "unknown error"). Check the internet and press Process again."
+                    progressText[id] = nil
+                    save()
+                }
+                return
+            }
+        }
+        guard let i = index(of: id) else { return }
         meetings[i].status = .processing
         meetings[i].errorMessage = nil
         progressText[id] = "Transcribing and finding speakers…"
@@ -135,7 +204,9 @@ final class Store: ObservableObject {
         do {
             let started = Date()
             let samples = try SpeechEngine.loadSamples(url)
-            let out = try await SpeechEngine.shared.process(samples: samples, setting: setting)
+            let out = try await SpeechEngine.shared.process(samples: samples, setting: setting) { line in
+                Task { @MainActor in self.progressText[id] = line }
+            }
             guard let j = index(of: id) else { return }
             unlearnMeeting(id)
             meetings[j].words = out.words
@@ -228,7 +299,7 @@ final class Store: ObservableObject {
 
     /// "There were really 5 people": re-group the voices without re-transcribing.
     func resplitSpeakers(_ id: UUID, count: Int?) async {
-        guard engineReady, let i = index(of: id) else { return }
+        guard engineReady, await prepareMeetingModels(), let i = index(of: id) else { return }
         meetings[i].speakerCount = count
         guard let words = meetings[i].words else { await process(id); return }
         meetings[i].status = .processing

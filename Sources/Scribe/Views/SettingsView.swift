@@ -144,6 +144,14 @@ struct ModelSettingsTab: View {
                 Text("Runs on this Mac's Neural Engine with Core ML. Downloads once (~500 MB), then works with no internet.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section {
+                ModelComponentsList()
+            } header: {
+                Text("Downloaded models")
+            } footer: {
+                Text("Models live outside the app (in Application Support), so updating or reinstalling Scribe never downloads them again. Only missing or changed files are fetched. Verify re-checks every byte.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Meeting notes") {
                 Toggle("Write notes with Apple Intelligence (on-device)", isOn: $aiNotes)
                 Text(AppleIntelligence.statusText + ". Otherwise Scribe picks key sentences and action items from the transcript itself.")
@@ -152,6 +160,62 @@ struct ModelSettingsTab: View {
         }
         .formStyle(.grouped)
         .onChange(of: speechModel) { _, _ in Task { await store.prepareEngine() } }
+    }
+}
+
+/// One row per model component: status (Downloaded / Update available / Missing…) + Verify.
+struct ModelComponentsList: View {
+    @EnvironmentObject var models: ModelStore
+    @EnvironmentObject var store: Store
+
+    var body: some View {
+        if models.components.isEmpty {
+            Text("No model manifest in this build — FluidAudio downloads models itself.").font(.caption)
+        }
+        ForEach(models.components) { c in
+            let state = models.states[c.id] ?? .missing
+            HStack(spacing: 10) {
+                Image(systemName: icon(state)).foregroundStyle(color(state)).frame(width: 18)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(c.title)
+                    Text("\(state.label) · \(ModelStore.mb(c.totalBytes)) · version \(c.version)")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer()
+                switch state {
+                case .downloading, .verifying:
+                    ProgressView().controlSize(.small)
+                case .downloaded:
+                    Button("Verify") { Task { await models.verify(c.id) } }
+                default:
+                    Button("Download") { Task { try? await models.ensure([c.id]) } }
+                }
+            }
+        }
+        HStack {
+            Spacer()
+            Button("Re-check") { models.refresh() }
+        }
+    }
+
+    private func icon(_ s: ModelState) -> String {
+        switch s {
+        case .downloaded: return "checkmark.circle.fill"
+        case .updateAvailable: return "arrow.down.circle"
+        case .downloading: return "arrow.down.circle.dotted"
+        case .verifying: return "magnifyingglass.circle"
+        case .damaged, .failed: return "exclamationmark.triangle.fill"
+        case .missing, .partial: return "circle.dashed"
+        }
+    }
+
+    private func color(_ s: ModelState) -> Color {
+        switch s {
+        case .downloaded: return .green
+        case .updateAvailable, .downloading, .verifying: return .accentColor
+        case .damaged, .failed: return .orange
+        case .missing, .partial: return .secondary
+        }
     }
 }
 
@@ -214,6 +278,7 @@ struct PermissionRow: View {
 struct GeneralSettingsTab: View {
     @AppStorage("noiseCleanup") private var noiseCleanup = true
     @AppStorage("onboarded") private var onboarded = true
+    @AppStorage("showMeetingScroll") private var showMeetingScroll = true
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
 
@@ -223,7 +288,11 @@ struct GeneralSettingsTab: View {
                 .onChange(of: launchAtLogin) { _, on in setLaunchAtLogin(on) }
             if let e = loginError { Text(e).font(.caption).foregroundStyle(.orange) }
             Toggle("Noise cleanup for meetings (Apple voice processing)", isOn: $noiseCleanup)
+            Toggle("Show the scroll at the bottom of the screen while a meeting records", isOn: $showMeetingScroll)
             Button("Show the welcome screen again") { onboarded = false }
+            Section("Updates") {
+                UpdateSection()
+            }
         }
         .formStyle(.grouped)
     }
@@ -236,6 +305,37 @@ struct GeneralSettingsTab: View {
         } catch {
             loginError = "macOS said no: \(error.localizedDescription). You can add Scribe in System Settings → General → Login Items."
             launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+}
+
+/// Settings → General → Updates.
+struct UpdateSection: View {
+    @EnvironmentObject var updater: Updater
+
+    var body: some View {
+        Toggle("Check for updates once a day", isOn: $updater.autoCheck)
+        HStack {
+            Text("This is Scribe \(Updater.currentVersion)").foregroundStyle(.secondary)
+            Spacer()
+            Button("Check for Updates…") { updater.check(userInitiated: true) }
+                .disabled(updater.phase == .checking || updater.phase == .installing)
+        }
+        switch updater.phase {
+        case .idle: EmptyView()
+        case .checking: ProgressView().controlSize(.small)
+        case .upToDate(let v): Label("You're up to date (\(v)).", systemImage: "checkmark.circle").foregroundStyle(.green)
+        case .available(let r):
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Scribe \(r.version) is available — app download \(ModelStore.mb(r.zipBytes)).").font(.headline)
+                Text(r.modelChanges.isEmpty ? "Models: no change (nothing else to download)."
+                                            : "Models that changed: " + r.modelChanges.joined(separator: ", "))
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Download and Restart") { updater.install(r) }.buttonStyle(.borderedProminent)
+            }
+        case .downloading: HStack { ProgressView().controlSize(.small); Text("Downloading the app…") }
+        case .installing: HStack { ProgressView().controlSize(.small); Text("Installing…") }
+        case .failed(let e): Text(e).font(.caption).foregroundStyle(.orange)
         }
     }
 }

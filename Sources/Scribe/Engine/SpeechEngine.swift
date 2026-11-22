@@ -14,10 +14,20 @@
 //  (Cleanup and pasting happen in Dictation/, not here.)
 //
 // All models run on-device with Core ML (Neural Engine / GPU / CPU).
-// They download once (~600 MB + ~2 MB VAD) into Application Support and then work offline.
+// They download once (~465 MB for dictation, +22 MB speaker models for meetings) into
+// Application Support and then work offline. Engine/ModelStore.swift decides what to download.
 
 import Foundation
 import FluidAudio
+import os
+
+/// Timing logs. See them live: Console.app → search "Scribe", or
+///   log stream --predicate 'subsystem == "com.blackhawk12222.Scribe"' --level info
+/// Signposts show up in Instruments (Points of Interest).
+enum Perf {
+    static let log = Logger(subsystem: "com.blackhawk12222.Scribe", category: "perf")
+    static let signposter = OSSignposter(subsystem: "com.blackhawk12222.Scribe", category: .pointsOfInterest)
+}
 
 /// How the diarizer should decide how many people there are.
 struct DiarizerSetting: Hashable, Sendable {
@@ -76,6 +86,23 @@ enum SpeechModel: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// Builds the meeting status line from the two parallel jobs.
+actor MeetingProgress {
+    let report: (@Sendable (String) -> Void)?
+    private var speakerFraction: Double = 0
+    private var transcriptDone = false
+    init(report: (@Sendable (String) -> Void)?) { self.report = report }
+    func speakers(_ done: Int, _ total: Int) {
+        speakerFraction = total > 0 ? Double(done) / Double(total) : 0
+        send()
+    }
+    func transcribed() { transcriptDone = true; send() }
+    private func send() {
+        let s = speakerFraction >= 1 ? "Speakers found" : "Finding speakers \(Int(speakerFraction * 100))%"
+        report?("\(s) · \(transcriptDone ? "transcript done" : "transcribing…")")
+    }
+}
+
 /// What one dictation produced, plus timings (the self-test prints these).
 struct DictationTranscript: Sendable {
     var text: String
@@ -83,6 +110,7 @@ struct DictationTranscript: Sendable {
     var speechSeconds: Double     // what was left after cutting silence
     var vadSeconds: Double        // time spent finding speech
     var asrSeconds: Double        // time spent transcribing
+    var vadMode: String = ""      // "live", "one pass" or "skipped (short clip)"
 }
 
 actor SpeechEngine {
@@ -99,18 +127,31 @@ actor SpeechEngine {
 
     var isReady: Bool { asr != nil && diarizers[.auto] != nil }
     var isDictationReady: Bool { dictationAsr != nil }
+    var isMeetingReady: Bool { asr != nil && diarizers[.auto] != nil }
 
-    /// Download (first launch only) and load the models.
-    /// `status` gets a message and, while downloading, a 0...1 fraction for the progress bar.
+    /// Load everything (dictation + meeting models). Used by the self-test.
     func prepare(model: SpeechModel = .current,
                  status: @escaping @Sendable (String, Double?) -> Void) async throws {
+        try await prepareDictation(model: model, status: status)
+        try await prepareMeetings(status: status)
+        status("Ready", 1)
+    }
+
+    /// Step 1 — what dictation needs: Parakeet + the voice detector.
+    /// The files are normally already on disk (ModelStore downloads them in parallel first),
+    /// so FluidAudio only LOADS them here. If they're not, FluidAudio downloads them itself.
+    func prepareDictation(model: SpeechModel = .current, prewarm warm: Bool = true,
+                          status: @escaping @Sendable (String, Double?) -> Void) async throws {
+        let t0 = Date()
+        var changed = false
         if asr == nil || loadedModel != model {
-            status("Downloading \(model.title) (one time, ~500 MB)…", 0)
+            changed = true
+            status("Loading \(model.title)…", nil)
             let models = try await AsrModels.downloadAndLoad(version: model.version, progressHandler: { p in
                 switch p.phase {
                 case .listing: status("Finding speech model files…", p.fractionCompleted)
-                case .downloading: status("Downloading speech model (one time)…", p.fractionCompleted)
-                case .compiling: status("Optimizing speech model for this Mac…", p.fractionCompleted)
+                case .downloading: status("Downloading speech model…", p.fractionCompleted)
+                case .compiling: status("Optimizing speech model for this Mac…", nil)
                 }
             })
             let manager = AsrManager(config: .default)
@@ -125,29 +166,122 @@ actor SpeechEngine {
             status("Loading voice detector…", nil)
             // 0.75 = how sure Silero must be that a 256 ms slice is speech (FluidAudio's doc example).
             vad = try await VadManager(config: VadConfig(defaultThreshold: 0.75))
+            changed = true
         }
+        Perf.log.info("dictation models loaded in \(Date().timeIntervalSince(t0) * 1000, format: .fixed(precision: 0))ms")
+        if warm && changed {
+            status("Warming up…", nil)
+            await prewarm()
+        }
+    }
+
+    /// Step 2 — what meetings add: the speaker (diarization) models. Loaded in the background
+    /// after dictation is ready, or when the first meeting needs them.
+    func prepareMeetings(status: @escaping @Sendable (String, Double?) -> Void) async throws {
         status("Loading speaker models…", nil)
         _ = try await diarizer(.auto)
-        status("Ready", 1)
     }
 
     // MARK: - Dictation
 
-    /// Hold-to-talk audio -> text. Steps: VAD trim -> Parakeet.
-    func dictate(samples: [Float]) async throws -> DictationTranscript {
+    // MARK: Live voice detection (runs WHILE you talk)
+    //
+    // v0.2 ran Silero VAD over the whole clip after you let go of the key. Now every
+    // 256 ms slice of audio goes through the voice detector as it arrives, so when you
+    // release the key only the last slice is left — the trim is basically done already.
+    // The results are identical to the old one-pass VAD (same model, same order, same
+    // state carried from slice to slice); only the timing changes.
+
+    private var liveState = VadStreamState.initial()
+    private var liveResults: [VadResult] = []
+    private var livePending: [Float] = []
+    private var liveActive = false
+    private var liveDraining = false
+
+    static let vadSegmentation: VadSegmentationConfig = {
+        var seg = VadSegmentationConfig.default
+        seg.minSpeechDuration = 0.25
+        seg.speechPadding = 0.2          // keep 0.2 s around each part so first/last sounds aren't clipped
+        seg.minSilenceDuration = 0.5
+        return seg
+    }()
+
+    /// Clips shorter than this skip the voice detector entirely (nothing much to trim, and
+    /// running it would only add time).
+    static let skipVadBelowSeconds = 3.0
+
+    func liveVadStart() {
+        liveState = VadStreamState.initial()
+        liveResults = []
+        livePending = []
+        liveActive = vad != nil
+    }
+
+    func liveVadCancel() {
+        liveActive = false
+        livePending = []
+        liveResults = []
+    }
+
+    /// Feed microphone audio (16 kHz mono) as it's recorded.
+    func liveVadFeed(_ samples: [Float]) async {
+        guard liveActive else { return }
+        livePending += samples
+        guard !liveDraining else { return }        // another call is already working through the queue
+        liveDraining = true
+        defer { liveDraining = false }
+        while liveActive, livePending.count >= VadManager.chunkSize, let vad {
+            let chunk = Array(livePending.prefix(VadManager.chunkSize))
+            livePending.removeFirst(VadManager.chunkSize)
+            await vadStep(vad, chunk)
+        }
+    }
+
+    private func vadStep(_ vad: VadManager, _ chunk: [Float]) async {
+        guard let r = try? await vad.processStreamingChunk(chunk, state: liveState, config: Self.vadSegmentation) else {
+            liveActive = false          // fall back to the one-pass VAD for this clip
+            return
+        }
+        liveState = r.state
+        liveResults.append(VadResult(probability: r.probability, isVoiceActive: r.probability >= 0.5,
+                                     processingTime: 0, outputState: r.state.modelState))
+    }
+
+    /// Hold-to-talk audio -> text. Steps: VAD trim (mostly done live) -> Parakeet.
+    /// `live`: the clip's audio was also fed to liveVadFeed while recording.
+    func dictate(samples: [Float], live: Bool = false) async throws -> DictationTranscript {
         guard let dictationAsr else { throw EngineError.notReady }
         let audioSeconds = Double(samples.count) / 16_000
+        let signpost = Perf.signposter.beginInterval("dictate")
+        defer { Perf.signposter.endInterval("dictate", signpost) }
 
         // 1) Cut out silence with Silero VAD (like Handy does). Less audio = faster,
         //    and the model can't "hear" words in background hiss.
         let t0 = Date()
         var speech = samples
-        if let vad {
-            var seg = VadSegmentationConfig.default
-            seg.minSpeechDuration = 0.25
-            seg.speechPadding = 0.2          // keep 0.2 s around each part so first/last sounds aren't clipped
-            seg.minSilenceDuration = 0.5
-            let parts = try await vad.segmentSpeechAudio(samples, config: seg)
+        var vadMode = "skipped (short clip)"
+        if let vad, audioSeconds >= Self.skipVadBelowSeconds {
+            let segments: [VadSegment]
+            while liveDraining { try? await Task.sleep(nanoseconds: 2_000_000) }   // let the queue finish
+            let chunk = VadManager.chunkSize
+            if live, liveActive, liveResults.count * chunk <= samples.count {
+                // Only the slices recorded after the last live step are left.
+                var offset = liveResults.count * chunk
+                while offset < samples.count {
+                    await vadStep(vad, Array(samples[offset..<min(samples.count, offset + chunk)]))
+                    offset += chunk
+                }
+                segments = await vad.segmentSpeech(from: liveResults, totalSamples: samples.count, config: Self.vadSegmentation)
+                vadMode = "live"
+            } else {
+                segments = try await vad.segmentSpeech(samples, config: Self.vadSegmentation)
+                vadMode = "one pass"
+            }
+            let parts: [[Float]] = segments.map { seg in
+                let a = max(0, min(seg.startSample(sampleRate: 16_000), samples.count))
+                let b = max(a, min(seg.endSample(sampleRate: 16_000), samples.count))
+                return Array(samples[a..<b])
+            }.filter { !$0.isEmpty }
             if !parts.isEmpty {
                 // Glue the speech parts together with a short gap so words don't run into each other.
                 let gap = [Float](repeating: 0, count: 16_000 / 5)
@@ -155,6 +289,7 @@ actor SpeechEngine {
             }
             // No speech found at all? Keep the raw audio rather than risk dropping a quiet voice.
         }
+        liveVadCancel()
         let vadSeconds = Date().timeIntervalSince(t0)
 
         // Parakeet needs a little audio to work with: pad very short clips to 1 s.
@@ -165,9 +300,27 @@ actor SpeechEngine {
         var state = TdtDecoderState.make(decoderLayers: await dictationAsr.decoderLayerCount)
         let result = try await dictationAsr.transcribe(speech, decoderState: &state)
         let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let asrSeconds = Date().timeIntervalSince(t1)
+        Perf.log.info("dictate: audio \(audioSeconds, format: .fixed(precision: 2))s, VAD \(vadMode, privacy: .public) \(vadSeconds * 1000, format: .fixed(precision: 0))ms, ASR \(asrSeconds * 1000, format: .fixed(precision: 0))ms")
         return DictationTranscript(text: text, audioSeconds: audioSeconds,
                                    speechSeconds: Double(speech.count) / 16_000,
-                                   vadSeconds: vadSeconds, asrSeconds: Date().timeIntervalSince(t1))
+                                   vadSeconds: vadSeconds, asrSeconds: asrSeconds, vadMode: vadMode)
+    }
+
+    /// Run each dictation model once on silence so Core ML finishes its one-time setup
+    /// ("specialization" for this Mac's Neural Engine) at launch, not on your first dictation.
+    func prewarm() async {
+        let t0 = Date()
+        if let vad { _ = try? await vad.process([Float](repeating: 0, count: VadManager.chunkSize * 2)) }
+        if let dictationAsr {
+            var st = TdtDecoderState.make(decoderLayers: await dictationAsr.decoderLayerCount)
+            _ = try? await dictationAsr.transcribe([Float](repeating: 0, count: 16_000), decoderState: &st)
+        }
+        if let asr {
+            var st = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
+            _ = try? await asr.transcribe([Float](repeating: 0, count: 16_000), decoderState: &st)
+        }
+        Perf.log.info("prewarm: \(Date().timeIntervalSince(t0) * 1000, format: .fixed(precision: 0))ms")
     }
 
     private func diarizer(_ setting: DiarizerSetting) async throws -> OfflineDiarizerManager {
@@ -201,9 +354,11 @@ actor SpeechEngine {
     }
 
     /// Step 1 (slow part): segmentation + embeddings. Reusable for several cluster settings.
-    func prepareDiarization(samples: [Float]) async throws -> PreparedDiarization {
+    func prepareDiarization(samples: [Float],
+                            progress: (@Sendable (Int, Int) -> Void)? = nil) async throws -> PreparedDiarization {
         guard samples.count > 16_000 * 2 else { throw EngineError.tooShort }
-        return try await diarizer(.auto).prepare(audio: samples)
+        let d = try await diarizer(.auto)
+        return try await d.prepare(audio: samples, progressCallback: progress)
     }
 
     /// Step 2 (fast part): group the voices into speakers, then embed each speaker's longest turns.
@@ -219,12 +374,19 @@ actor SpeechEngine {
     }
 
     /// Who spoke when (both steps).
-    func diarize(samples: [Float], setting: DiarizerSetting = .auto) async throws -> Diarized {
+    func diarize(samples: [Float], setting: DiarizerSetting = .auto,
+                 progress: (@Sendable (Int, Int) -> Void)? = nil) async throws -> Diarized {
         let t0 = Date()
-        let prepared = try await prepareDiarization(samples: samples)
+        let prepared = try await prepareDiarization(samples: samples, progress: progress)
         var out = try await cluster(prepared, samples: samples, setting: setting)
         out.seconds = Date().timeIntervalSince(t0)
         return out
+    }
+
+    private func transcribeTracked(samples: [Float], tracker: MeetingProgress) async throws -> (words: [Word], seconds: Double) {
+        let r = try await transcribe(samples: samples)
+        await tracker.transcribed()
+        return r
     }
 
     /// What was said, as timed words.
@@ -237,10 +399,23 @@ actor SpeechEngine {
     }
 
     /// Run the whole pipeline on 16 kHz mono samples.
-    func process(samples: [Float], setting: DiarizerSetting = .auto) async throws -> Output {
+    /// Speaker detection and transcription run AT THE SAME TIME (different models, different
+    /// chips can work in parallel), so a meeting is ready sooner than doing one after the other.
+    /// `progress` gets a short status line ("Finding speakers 40% · transcribing…").
+    func process(samples: [Float], setting: DiarizerSetting = .auto,
+                 progress: (@Sendable (String) -> Void)? = nil) async throws -> Output {
         guard asr != nil else { throw EngineError.notReady }
-        let d = try await diarize(samples: samples, setting: setting)
-        let t = try await transcribe(samples: samples)
+        let signpost = Perf.signposter.beginInterval("meeting")
+        defer { Perf.signposter.endInterval("meeting", signpost) }
+        let t0 = Date()
+        let tracker = MeetingProgress(report: progress)
+        async let diarized = diarize(samples: samples, setting: setting) { done, total in
+            Task { await tracker.speakers(done, total) }
+        }
+        async let transcribed = transcribeTracked(samples: samples, tracker: tracker)
+        let d = try await diarized
+        let t = try await transcribed
+        Perf.log.info("meeting \(Double(samples.count) / 16_000, format: .fixed(precision: 0))s: speakers \(d.seconds, format: .fixed(precision: 1))s, transcript \(t.seconds, format: .fixed(precision: 1))s, wall \(Date().timeIntervalSince(t0), format: .fixed(precision: 1))s")
         let utterances = Self.utterances(words: t.words, segments: d.segments)
         return Output(words: t.words, utterances: utterances, clusters: d.clusters,
                       diarizeSeconds: d.seconds, transcribeSeconds: t.seconds, rawSegments: d.segments)

@@ -32,6 +32,83 @@ enum SelfTest {
         dispatchMain()
     }
 
+    /// Downloads the DICTATION models (Parakeet v2 + VAD) from scratch into a temporary
+    /// folder with Scribe's parallel downloader and times it. Numbers are from wherever this
+    /// runs (on CI: a GitHub macOS runner in a data center, not a home connection).
+    static func measureDownload() async -> [String: Any] {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("dl-measure-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let store = await MainActor.run {
+            ModelStore(root: tmp.appendingPathComponent("Models"), receiptsURL: tmp.appendingPathComponent("receipts.json"))
+        }
+        let ids = await MainActor.run { store.dictationComponents(.english) }
+        let bytes = await MainActor.run { ids.compactMap { store.manifest?.component($0)?.totalBytes }.reduce(0, +) }
+        let t0 = Date()
+        do {
+            try await store.ensure(ids)
+            let sec = Date().timeIntervalSince(t0)
+            // Second ensure must download nothing ("never re-download what's present").
+            let t1 = Date()
+            try await store.ensure(ids)
+            let recheck = Date().timeIntervalSince(t1)
+            log(String(format: "download measurement: %.1f MB in %.1f s (%.1f MB/s), recheck %.3f s",
+                       Double(bytes) / 1e6, sec, Double(bytes) / 1e6 / sec, recheck))
+            return ["where": "GitHub Actions macOS runner (data-center network)",
+                    "what": "dictation models: Parakeet v2 + Silero VAD, parallel 8 MB range pieces, 8 at once, incl. SHA-256 check",
+                    "bytes": bytes, "seconds": sec, "mb_per_s": Double(bytes) / 1e6 / sec,
+                    "recheck_seconds": recheck]
+        } catch {
+            return ["error": "\(error)"]
+        }
+    }
+
+    /// Key-release → text latency, as the app does it: the clip is fed to the live voice detector
+    /// in 100 ms slices first (that happens WHILE you talk in the app), then the clock starts
+    /// at "release". Cold = first call after loading (no prewarm); warm = later calls.
+    static func latencyTest() async throws -> [String: Any] {
+        guard let wav = Bundle.main.url(forResource: "dictation_sample", withExtension: "wav") else { return [:] }
+        let clip = try SpeechEngine.loadSamples(wav)
+        func release(_ samples: [Float], live: Bool) async throws -> (Double, Dictation.Result) {
+            if live {
+                await SpeechEngine.shared.liveVadStart()
+                var i = 0
+                while i < samples.count {
+                    await SpeechEngine.shared.liveVadFeed(Array(samples[i..<min(samples.count, i + 1600)]))
+                    i += 1600
+                }
+            }
+            let t0 = Date()
+            let r = try await Dictation.run(samples: samples, useAI: false, removeFillers: true, live: live)
+            return (Date().timeIntervalSince(t0), r)
+        }
+        let (cold, coldR) = try await release(clip, live: true)
+        var warm: [Double] = []
+        var warmR: Dictation.Result?
+        for _ in 0..<3 {
+            let (t, r) = try await release(clip, live: true)
+            warm.append(t); warmR = r
+        }
+        let (batch, batchR) = try await release(clip, live: false)
+        let short = Array(clip.prefix(16_000 * 2))           // 2 s: skips the voice detector
+        let (shortT, shortR) = try await release(short, live: false)
+        let ms = { (x: Double) in (x * 1000).rounded() }
+        log("latency cold \(ms(cold)) ms, warm \(warm.map(ms)) ms, one-pass VAD \(ms(batch)) ms, 2 s clip \(ms(shortT)) ms")
+        return [
+            "measured_on": "GitHub Actions macOS runner (virtual Mac, no Neural Engine); a real Apple Silicon Mac should be faster",
+            "clip_seconds": Double(clip.count) / 16_000,
+            "cold_release_to_text_ms": ms(cold),
+            "cold_breakdown_ms": ["vad": ms(coldR.transcript.vadSeconds), "asr": ms(coldR.transcript.asrSeconds),
+                                  "vad_mode": coldR.transcript.vadMode] as [String: Any],
+            "warm_release_to_text_ms": warm.map(ms),
+            "warm_breakdown_ms": ["vad": ms(warmR?.transcript.vadSeconds ?? 0), "asr": ms(warmR?.transcript.asrSeconds ?? 0),
+                                  "vad_mode": warmR?.transcript.vadMode ?? ""] as [String: Any],
+            "warm_one_pass_vad_ms": ms(batch), "one_pass_vad_part_ms": ms(batchR.transcript.vadSeconds),
+            "short_2s_clip_ms": ms(shortT), "short_clip_vad_mode": shortR.transcript.vadMode,
+            "same_text_live_vs_one_pass": (warmR?.text ?? "") == batchR.text,
+            "note": "Excludes the 150 ms the app keeps listening after release and the paste itself.",
+        ]
+    }
+
     struct RefSeg { var start: Double; var end: Double; var speaker: String }
 
     static let base = "https://groups.inf.ed.ac.uk/ami/AMICorpusMirror/amicorpus"
@@ -208,8 +285,31 @@ enum SelfTest {
             "speech_model": SpeechModel.current.title,
         ]
         do {
+            // Models: ModelStore compares the bundled manifest with the disk and downloads only
+            // what's missing (CI restores a model cache, so usually nothing).
+            let ms = await MainActor.run { ModelStore.shared }
+            let needed = await MainActor.run { ms.dictationComponents(.current) + ms.meetingComponents }
+            let tm = Date()
+            try await ms.ensure(needed)
+            report["models_ensure_seconds"] = Date().timeIntervalSince(tm)
+            let tm2 = Date()
+            try await ms.ensure(needed)                     // must be a no-op now
+            report["models_recheck_seconds"] = Date().timeIntervalSince(tm2)
+            report["models_states"] = await MainActor.run {
+                Dictionary(uniqueKeysWithValues: ms.components.map { ($0.id, ms.states[$0.id]?.label ?? "?") })
+            }
+            if CommandLine.arguments.contains("--measure-download") {
+                report["download_measurement"] = await measureDownload()
+            }
+
+            // Load dictation models WITHOUT the launch prewarm, so the first call below is truly cold.
             let t0 = Date()
-            try await SpeechEngine.shared.prepare(model: .current) { msg, _ in log(msg) }
+            try await SpeechEngine.shared.prepareDictation(model: .current, prewarm: false) { msg, _ in log(msg) }
+            report["dictation_model_load_seconds"] = Date().timeIntervalSince(t0)
+            report["latency"] = try await latencyTest()
+            let t0m = Date()
+            try await SpeechEngine.shared.prepareMeetings { msg, _ in log(msg) }
+            report["meeting_model_load_seconds"] = Date().timeIntervalSince(t0m)
             report["model_prepare_seconds"] = Date().timeIntervalSince(t0)
 
             let dir = FileManager.default.temporaryDirectory.appendingPathComponent("selftest", isDirectory: true)

@@ -18,6 +18,7 @@ xcodebuild -project Scribe.xcodeproj -scheme Scribe -configuration Release \
   -destination 'platform=macOS,arch=arm64' -derivedDataPath build/DD \
   -clonedSourcePackagesDirPath build/SourcePackages \
   CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES \
+  ${SCRIBE_VERSION:+MARKETING_VERSION=$SCRIBE_VERSION} ${SCRIBE_BUILD:+CURRENT_PROJECT_VERSION=$SCRIBE_BUILD} \
   build > build/xcodebuild.log 2>&1 || { grep -E "error:|fatal" build/xcodebuild.log | sort -u | head -80; tail -30 build/xcodebuild.log; exit 1; }
 echo "warnings: $(grep -c "warning:" build/xcodebuild.log || true)"
 APP=build/DD/Build/Products/Release/Scribe.app
@@ -26,6 +27,10 @@ test -d "$APP" || { echo "build failed: no app"; exit 1; }
 # first launch needs right-click > Open (or System Settings > Privacy & Security > Open Anyway).
 codesign --force --options runtime --entitlements Resources/Scribe.entitlements -s - "$APP"
 codesign --verify --verbose=2 "$APP"
+# The app icon must be in the bundle (Dock/Finder): Assets.car + CFBundleIconName.
+test -f "$APP/Contents/Resources/Assets.car" || { echo "missing Assets.car (app icon)"; exit 1; }
+/usr/libexec/PlistBuddy -c "Print :CFBundleIconName" "$APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist"
 codesign -d --entitlements - "$APP" || true
 mkdir -p dist
 rm -rf dist/*

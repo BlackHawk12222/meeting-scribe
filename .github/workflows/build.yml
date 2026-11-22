@@ -42,6 +42,9 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Build, sign (ad-hoc), package
+        env:
+          SCRIBE_VERSION: 0.3.${{ github.run_number }}
+          SCRIBE_BUILD: ${{ github.run_number }}
         run: ./scripts/build.sh
       - name: Upload build log
         if: always()
@@ -70,7 +73,7 @@ jobs:
         run: |
           set -o pipefail
           SUITE="${{ github.event.inputs.selftest }}"; [ -z "$SUITE" ] && SUITE=quick
-          ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --selftest --suite "$SUITE" --seconds 300 --meeting-wav "$PWD/Tests/ES2004a_first300s.wav" | tee selftest.out
+          ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --selftest --suite "$SUITE" --seconds 300 --meeting-wav "$PWD/Tests/ES2004a_first300s.wav" --measure-download | tee selftest.out
           grep '^SELFTEST_JSON:' selftest.out | sed 's/^SELFTEST_JSON://' > selftest.json
           python3 -m json.tool selftest.json
           sysctl -n machdep.cpu.brand_string >> selftest-machine.txt; sysctl -n hw.memsize >> selftest-machine.txt
@@ -90,7 +93,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v0.2.${{ github.run_number }}"
-          gh release create "$TAG" dist/Scribe.dmg dist/Scribe.zip \
+          TAG="v0.3.${{ github.run_number }}"
+          # components.json = the model manifest; the in-app updater compares it with installed models.
+          cp Resources/ModelManifest.json dist/components.json
+          gh release create "$TAG" dist/Scribe.dmg dist/Scribe.zip dist/components.json \
             --title "Scribe $TAG" \
             --notes "Free, on-device dictation + meeting notes for Apple Silicon Macs (macOS 14+, 15+ recommended; Apple Intelligence features need macOS 26). Unsigned (ad-hoc) build. First launch: right-click the app > Open, or System Settings > Privacy & Security > Open Anyway. Then allow Microphone and Accessibility."

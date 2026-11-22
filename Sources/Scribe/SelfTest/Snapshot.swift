@@ -31,13 +31,15 @@ enum Snapshot {
     private static var store: Store!
 
     /// Gives a view the same shared objects the real app gives it.
-    private static func env<V: View>(_ v: V) -> some View {
+    private static func env<V: View>(_ v: V, store s: Store? = nil) -> some View {
         let model = AppModel.shared
         return v.environmentObject(model)
-            .environmentObject(store!)
+            .environmentObject(s ?? store!)
             .environmentObject(model.recorder)
             .environmentObject(model.dictation)
             .environmentObject(model.permissions)
+            .environmentObject(model.models)
+            .environmentObject(model.updater)
     }
 
     static var outDir: URL {
@@ -60,34 +62,72 @@ enum Snapshot {
         let meetingID = fillSampleData(store)
         store.engineReady = true
         store.engineStatus = "Ready"
-        let dictation = model.dictation
 
         var made: [String] = []
         let main = NSSize(width: 1100, height: 700)
+
+        // First-run window mid-download: Parakeet 210 of 465 MB, VAD done, speaker models waiting.
+        store.engineReady = false
+        store.engineStatus = "Downloading speech model (one time)"
+        let mid = DownloadProgress(doneBytes: 210_000_000, totalBytes: 465_500_000, bytesPerSecond: 23_400_000)
+        model.models.setPreview(["asr-v2": .downloading(mid), "vad": .downloaded, "diarizer": .missing, "asr-v3": .missing])
+        let obSize = NSSize(width: OnboardingView.size.width, height: OnboardingView.size.height)
+        made += await capture(env(OnboardingView(initialIndex: 0, previewPhase: 0.3, previewPlanned: 487_400_000)),
+                              size: obSize, name: "07a_firstrun_usecase", dir: dir)
+        made += await capture(env(OnboardingView(initialIndex: 2, previewPhase: 0.55, previewPlanned: 487_400_000)),
+                              size: obSize, name: "07b_firstrun_setup_mic", dir: dir)
+        made += await capture(env(OnboardingView(initialIndex: 6, previewPhase: 0.8, previewPlanned: 487_400_000, previewGame: true)),
+                              size: obSize, name: "07c_firstrun_game", dir: dir)
+        store.engineReady = true
+        store.engineStatus = "Ready"
+        store.meetingModelsReady = true
+        model.models.setPreview(["asr-v2": .downloaded, "vad": .downloaded, "diarizer": .downloaded,
+                                 "asr-v3": .missing])
+        made += await capture(env(OnboardingView(initialIndex: 9, previewPhase: 0.1, previewPlanned: 487_400_000)),
+                              size: obSize, name: "07d_firstrun_ready", dir: dir)
+
         made += await capture(env(ContentView(initialSelection: .meeting(meetingID))), size: main, name: "01_meeting_notes", dir: dir)
         made += await capture(env(ContentView(initialSelection: .people)), size: main, name: "02_people", dir: dir)
         made += await capture(env(ContentView(initialSelection: .dictation)), size: main, name: "03_dictation_history", dir: dir)
+        // Empty state: a brand-new library, no meetings yet.
+        let emptyStore = Store(folder: tmp.appendingPathComponent("empty"))
+        emptyStore.engineReady = true
+        made += await capture(env(ContentView(), store: emptyStore), size: main, name: "13_main_empty_state", dir: dir)
         made += await capture(env(SettingsView()), size: NSSize(width: 520, height: 440), name: "04_settings_dictation", dir: dir)
-        made += await capture(env(ModelSettingsTab().frame(width: 520, height: 440)), size: nil, name: "05_settings_model", dir: dir)
+        model.models.setPreview(["asr-v2": .downloaded, "vad": .downloaded, "diarizer": .updateAvailable(1_200_000),
+                                 "asr-v3": .missing])
+        made += await capture(env(ModelSettingsTab().frame(width: 520, height: 640)), size: nil, name: "05_settings_model", dir: dir)
+        made += await capture(env(GeneralSettingsTab().frame(width: 520, height: 440)), size: nil, name: "05b_settings_general", dir: dir)
         made += await capture(env(AboutView().frame(width: 520, height: 440)), size: nil, name: "06_about_credits", dir: dir)
-        made += await capture(env(OnboardingView()), size: nil, name: "07_onboarding", dir: dir)
         made += await capture(env(MenuBarView().background(Color(nsColor: .windowBackgroundColor))), size: nil,
                               name: "08_menu_bar_panel", dir: dir, titled: false)
 
-        // The recording pill, on a dark desktop-like backdrop (it floats over other apps).
-        let levels: [Float] = [0.15, 0.3, 0.55, 0.8, 0.6, 0.35, 0.7, 0.9, 0.5, 0.3, 0.6, 0.75, 0.4, 0.25, 0.45, 0.2]
-        dictation.setPreview(state: .listening, levels: levels, elapsed: 7)
-        made += await capture(pillStage(dictation), size: NSSize(width: 420, height: 140), name: "09_pill_listening", dir: dir, titled: false)
-        dictation.setPreview(state: .transcribing, levels: levels, elapsed: 7)
-        made += await capture(pillStage(dictation), size: NSSize(width: 420, height: 140), name: "10_pill_writing", dir: dir, titled: false)
-        dictation.setPreview(state: .idle, levels: Array(repeating: 0, count: 16), elapsed: 0)
+        // The scroll overlay, on a desktop-like backdrop (it floats over other apps), normal and 2.5× zoom.
+        let listenTape = InkTape(); listenTape.fillPreview(seconds: 7.4)
+        let writeTape = InkTape(); writeTape.fillPreview(seconds: 9.0); writeTape.stop(); writeTape.previewPhase = 0.62
+        let meetTape = InkTape(); meetTape.fillPreview(seconds: 12.0)
+        let frames: [(String, ScrollMode, InkTape, TimeInterval?)] = [
+            ("09_scroll_listening", .listening, listenTape, nil),
+            ("10_scroll_writing", .writing, writeTape, nil),
+            ("11_scroll_meeting", .recording, meetTape, 754),
+            ("12_scroll_done", .message("Done", failure: false), listenTape, nil),
+        ]
+        for (name, mode, tape, elapsed) in frames {
+            made += await capture(scrollStage(ScribeScroll(mode: mode, tape: tape, elapsed: elapsed), zoom: 1),
+                                  size: NSSize(width: 420, height: 140), name: name, dir: dir, titled: false)
+            made += await capture(scrollStage(ScribeScroll(mode: mode, tape: tape, elapsed: elapsed), zoom: 2.5),
+                                  size: NSSize(width: 960, height: 260), name: name + "_zoom", dir: dir, titled: false)
+        }
+
+        // Icons: what Finder/Dock show for this build, plus the menu bar glyphs.
+        made += iconRenders(dir: dir)
 
         // Fallback: the real screen with the main window in front.
         let w = window(for: env(ContentView(initialSelection: .meeting(meetingID))), size: main, titled: true)
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
         try? await Task.sleep(nanoseconds: 2_000_000_000)
-        let full = dir.appendingPathComponent("11_screen_screencapture.png")
+        let full = dir.appendingPathComponent("15_screen_screencapture.png")
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         p.arguments = ["-x", full.path]
@@ -105,12 +145,67 @@ enum Snapshot {
         try? FileManager.default.removeItem(at: tmp)
     }
 
-    private static func pillStage(_ dictation: DictationController) -> some View {
+    private static func scrollStage(_ scroll: ScribeScroll, zoom: CGFloat) -> some View {
         ZStack {
             LinearGradient(colors: [Color(red: 0.20, green: 0.26, blue: 0.38), Color(red: 0.42, green: 0.36, blue: 0.48)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
-            PillView().environmentObject(dictation).frame(width: 240, height: 46)
+            scroll.scaleEffect(zoom)
         }
+    }
+
+    /// Finder's icon for this app (proves AppIcon is wired in), a Dock-style mock, and the
+    /// menu bar scroll glyphs (black on a light bar, white on a dark bar) at 8×.
+    private static func iconRenders(dir: URL) -> [String] {
+        var out: [String] = []
+        let finderIcon = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
+        if savePNG(size: NSSize(width: 512, height: 512), to: dir.appendingPathComponent("14_icon_finder.png"), draw: { r in
+            finderIcon.draw(in: r)
+        }) { out.append("14_icon_finder.png") }
+        let appIcon = NSApp.applicationIconImage ?? finderIcon
+        if savePNG(size: NSSize(width: 640, height: 220), to: dir.appendingPathComponent("14_icon_dock_mock.png"), draw: { r in
+            NSGradient(colors: [NSColor(calibratedRed: 0.35, green: 0.45, blue: 0.62, alpha: 1),
+                                NSColor(calibratedRed: 0.62, green: 0.48, blue: 0.58, alpha: 1)])?.draw(in: r, angle: -20)
+            let bar = NSRect(x: 40, y: 22, width: r.width - 80, height: 150)
+            NSColor(white: 1, alpha: 0.28).setFill()
+            NSBezierPath(roundedRect: bar, xRadius: 28, yRadius: 28).fill()
+            for (k, size) in [CGFloat(128), 64, 32, 16].enumerated() {
+                let x = bar.minX + 30 + CGFloat(k) * 150
+                appIcon.draw(in: NSRect(x: x, y: bar.midY - size / 2, width: size, height: size))
+            }
+        }) { out.append("14_icon_dock_mock.png") }
+        let glyphs = [MenuBarGlyph.idle, MenuBarGlyph.live, MenuBarGlyph.busy]
+        if savePNG(size: NSSize(width: 560, height: 300), to: dir.appendingPathComponent("14_menubar_glyphs.png"), draw: { r in
+            for (row, dark) in [false, true].enumerated() {
+                let band = NSRect(x: 0, y: CGFloat(row) * 150, width: r.width, height: 150)
+                (dark ? NSColor(white: 0.13, alpha: 1) : NSColor(white: 0.93, alpha: 1)).setFill()
+                band.fill()
+                for (k, g) in glyphs.enumerated() {
+                    let rect = NSRect(x: 30 + CGFloat(k) * 180, y: band.minY + 11, width: 160, height: 128)
+                    let tinted = NSImage(size: g.size, flipped: false) { gr in
+                        g.draw(in: gr)
+                        (dark ? NSColor.white : NSColor.black).set()
+                        gr.fill(using: .sourceAtop)
+                        return true
+                    }
+                    tinted.draw(in: rect)
+                }
+            }
+        }) { out.append("14_menubar_glyphs.png") }
+        return out
+    }
+
+    private static func savePNG(size: NSSize, to url: URL, draw: (NSRect) -> Void) -> Bool {
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return false }
+        rep.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSGraphicsContext.current?.imageInterpolation = .high
+        draw(NSRect(origin: .zero, size: size))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let png = rep.representation(using: .png, properties: [:]) else { return false }
+        return (try? png.write(to: url)) != nil
     }
 
     private static func window<V: View>(for view: V, size: NSSize?, titled: Bool) -> NSWindow {

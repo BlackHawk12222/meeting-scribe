@@ -8,18 +8,20 @@ struct AboutView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 12) {
-                    Image(systemName: "waveform")
-                        .font(.system(size: 28, weight: .semibold))
-                        .frame(width: 52, height: 52)
-                        .background(Color.black, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .foregroundStyle(.white)
-                    VStack(alignment: .leading) {
-                        Text("Scribe").font(.title2.bold())
+                HStack(spacing: 16) {
+                    Mascot(pose: .about, height: 120)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Scribe").font(.system(.largeTitle, design: .serif).weight(.semibold))
                         Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?") · made by BlackHawk12222")
                             .font(.caption).foregroundStyle(.secondary)
+                        Text("Your royal scribe: writes down what you say, so you don't have to.")
+                            .font(.callout).italic().foregroundStyle(.secondary)
                     }
                 }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(ParchmentBand().clipShape(RoundedRectangle(cornerRadius: 12)))
+                .environment(\.colorScheme, .light)
                 Text("Dictation and meeting notes that run 100% on your Mac. Free, no account, nothing uploaded.")
                     .font(.callout)
 
@@ -71,6 +73,9 @@ enum Credits {
         Credit(name: "pyannote speaker-diarization-community-1 + WeSpeaker",
                what: "Who-spoke-when segmentation and voice fingerprints for meetings (Core ML conversion by FluidInference).",
                license: "CC-BY-4.0 — pyannote.audio contributors / WeSpeaker. creativecommons.org/licenses/by/4.0"),
+        Credit(name: "Scribe mascot & app icon",
+               what: "Drawn for Scribe with an AI image generator (prompted by the developer's design brief), then cropped and cleaned up.",
+               license: "Part of Scribe."),
         Credit(name: "Apple Foundation Models",
                what: "Optional on-device clean-up and meeting notes on macOS 26 with Apple Intelligence.",
                license: "Part of macOS. Used under Apple's macOS license; nothing leaves the Mac."),

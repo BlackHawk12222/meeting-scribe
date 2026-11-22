@@ -18,6 +18,12 @@ targets:
       # A 16 s test clip (LibriSpeech, CC-BY 4.0) used by `Scribe --selftest` to test dictation.
       - path: Resources/SelfTest
         buildPhase: resources
+      # App icon (the scribe mascot) + mascot pictures for onboarding, empty states and About.
+      - path: Resources/Assets.xcassets
+        buildPhase: resources
+      # The model manifest: every model file's size + hash (scripts/make_model_manifest.py).
+      - path: Resources/ModelManifest.json
+        buildPhase: resources
     dependencies:
       - package: FluidAudio
     info:
@@ -25,8 +31,12 @@ targets:
       properties:
         CFBundleDisplayName: Scribe
         CFBundleName: Scribe
-        CFBundleShortVersionString: "0.2.0"
-        CFBundleVersion: "2"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        # Where "Check for Updates" looks for the newest release (GitHub API).
+        ScribeReleasesURL: https://api.github.com/repos/BlackHawk12222/meeting-scribe/releases/latest
+        CFBundleIconName: AppIcon
+        CFBundleIconFile: AppIcon
         LSMinimumSystemVersion: "14.0"
         LSApplicationCategoryType: public.app-category.productivity
         NSMicrophoneUsageDescription: Scribe listens while you dictate or record a meeting, and turns it into text on this Mac. Audio never leaves your Mac.
@@ -42,6 +52,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.blackhawk12222.Scribe
         PRODUCT_NAME: Scribe
+        # The app version. CI sets it to 0.3.<build number> so it matches the release tag.
+        MARKETING_VERSION: "0.3.0"
+        CURRENT_PROJECT_VERSION: "3"
         SWIFT_VERSION: "5.0"
         ARCHS: arm64
         ONLY_ACTIVE_ARCH: NO
@@ -50,5 +63,5 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         DEVELOPMENT_TEAM: ""
         GENERATE_INFOPLIST_FILE: NO
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         DEAD_CODE_STRIPPING: YES

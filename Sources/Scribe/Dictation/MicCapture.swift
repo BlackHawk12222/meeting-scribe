@@ -11,6 +11,8 @@ final class MicCapture {
     private let lock = NSLock()                 // the audio thread and the main thread both touch `samples`
     /// Called (on the main thread) about 10 times a second with a 0...1 loudness, for the pill's bars.
     var onLevel: ((Float) -> Void)?
+    /// Called on the AUDIO thread with each new slice of 16 kHz audio (for the live voice detector).
+    var onSamples: (([Float]) -> Void)?
 
     var isRunning: Bool { engine != nil }
 
@@ -48,6 +50,7 @@ final class MicCapture {
             if n > 0, let out = converted.floatChannelData?[0] {
                 let chunk = Array(UnsafeBufferPointer(start: out, count: n))
                 self.lock.lock(); self.samples.append(contentsOf: chunk); self.lock.unlock()
+                self.onSamples?(chunk)
                 // Loudness (RMS in dB, mapped so -60 dB = 0 and 0 dB = 1).
                 let rms = sqrt(chunk.reduce(0) { $0 + $1 * $1 } / Float(n))
                 let level = min(1, max(0, (20 * log10(max(rms, 1e-6)) + 60) / 60))
