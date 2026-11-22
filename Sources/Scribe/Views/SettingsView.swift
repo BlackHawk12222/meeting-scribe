@@ -13,6 +13,7 @@ struct SettingsView: View {
             ModelSettingsTab().tabItem { Label("Model", systemImage: "cpu") }
             PermissionsTab().tabItem { Label("Permissions", systemImage: "lock.shield") }
             GeneralSettingsTab().tabItem { Label("General", systemImage: "gearshape") }
+            SyncSettingsTab().tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
             AboutView().tabItem { Label("About", systemImage: "info.circle") }
         }
         .frame(width: 520, height: 440)
@@ -29,6 +30,7 @@ struct DictationSettingsTab: View {
     @AppStorage("removeFillers") private var removeFillers = true
     @AppStorage("restoreClipboard") private var restoreClipboard = true
     @AppStorage("trailingSpace") private var trailingSpace = true
+    @AppStorage("directInsert") private var directInsert = true
     @AppStorage("dictationSounds") private var sounds = true
 
     var body: some View {
@@ -56,6 +58,7 @@ struct DictationSettingsTab: View {
             }
             Section("Typing") {
                 Toggle("Add a space after the text", isOn: $trailingSpace)
+                Toggle("Type straight into the text field when possible (no clipboard)", isOn: $directInsert)
                 Toggle("Put my clipboard back after pasting", isOn: $restoreClipboard)
                 Toggle("Play start/stop sounds", isOn: $sounds)
             }
@@ -336,6 +339,81 @@ struct UpdateSection: View {
         case .downloading: HStack { ProgressView().controlSize(.small); Text("Downloading the app…") }
         case .installing: HStack { ProgressView().controlSize(.small); Text("Installing…") }
         case .failed(let e): Text(e).font(.caption).foregroundStyle(.orange)
+        }
+    }
+}
+
+// MARK: - Sync (GitHub)
+
+struct SyncSettingsTab: View {
+    @ObservedObject private var sync = GitHubSync.shared
+    @State private var tokenField = ""
+    @State private var testResult: String?
+    @State private var testing = false
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Notes repo") {
+                    TextField("owner/name", text: $sync.repo).frame(width: 240)
+                }
+                if sync.hasToken {
+                    LabeledContent("Token") {
+                        HStack {
+                            Text("Saved in Keychain").foregroundStyle(.secondary)
+                            Button("Remove") { sync.setToken(nil) }
+                        }
+                    }
+                } else {
+                    LabeledContent("Token") {
+                        HStack {
+                            SecureField("github_pat_…", text: $tokenField).frame(width: 200)
+                            Button("Save") { sync.setToken(tokenField); tokenField = "" }
+                                .disabled(tokenField.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    }
+                }
+                HStack {
+                    Button(testing ? "Testing…" : "Test connection") {
+                        testing = true
+                        Task { testResult = await sync.testConnection(); testing = false }
+                    }
+                    .disabled(!sync.hasToken || testing)
+                    if let r = testResult { Text(r).font(.caption).foregroundStyle(.secondary).lineLimit(3) }
+                }
+            } header: {
+                Text("Save to GitHub")
+            } footer: {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Every dictation (dictations/YYYY-MM-DD.md) and every meeting's notes (meetings/…md) are saved as Markdown in this PRIVATE repo — not the app's code repo. Nothing waits for GitHub: items queue up and send in the background, also after being offline.")
+                    Link("1. Create the private repo “scribe-notes”", destination: URL(string: "https://github.com/new?name=scribe-notes&visibility=private")!)
+                    Link("2. Create a fine-grained token (only that repo, Contents: Read and write)", destination: URL(string: "https://github.com/settings/personal-access-tokens/new")!)
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("What to save") {
+                Toggle("Dictations", isOn: $sync.syncDictations)
+                Toggle("Meeting notes", isOn: $sync.syncMeetings)
+            }
+            Section("Status") {
+                HStack {
+                    Text(statusText)
+                    Spacer()
+                    Text("\(sync.pending) waiting").foregroundStyle(.secondary)
+                    Button("Send now") { sync.kick() }.disabled(!sync.hasToken || sync.pending == 0)
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    private var statusText: String {
+        switch sync.status {
+        case .off: return "Off — add a token to start"
+        case .idle(let d): return d.map { "Last saved \($0.formatted(date: .omitted, time: .shortened))" } ?? "Ready"
+        case .syncing: return "Saving…"
+        case .waiting(let m): return m
+        case .problem(let m): return "⚠︎ " + m
         }
     }
 }

@@ -242,6 +242,21 @@ final class Store: ObservableObject {
         if let j = index(of: id) { meetings[j].notes = notes }
         notesInProgress.remove(id)
         save()
+        syncMeeting(id)
+    }
+
+    /// Queue this meeting's Markdown for the user's GitHub notes repo (if Sync is set up).
+    /// Returns immediately; GitHubSync sends it in the background.
+    func syncMeeting(_ id: UUID) {
+        guard folderIsDefault, let m = meetings.first(where: { $0.id == id }), m.status == .done else { return }
+        let md = Exporter.render(m, format: .md, name: { self.displayName(m, key: $0) })
+        GitHubSync.shared.add(meeting: m, markdown: md)
+    }
+
+    /// Only the real library syncs (not the snapshot/self-test sample stores).
+    private var folderIsDefault: Bool {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        return folder.standardizedFileURL == support.appendingPathComponent("Scribe", isDirectory: true).standardizedFileURL
     }
 
     func toggleActionItem(meetingID: UUID, itemID: UUID) {
@@ -290,6 +305,7 @@ final class Store: ObservableObject {
         dictations.insert(entry, at: 0)
         if dictations.count > 200 { dictations.removeLast(dictations.count - 200) }
         save()
+        if folderIsDefault { GitHubSync.shared.add(dictation: entry) }
     }
 
     func clearDictations() {
@@ -365,6 +381,7 @@ final class Store: ObservableObject {
 
         applyLibrary(to: meetingID)   // the new samples may help name the others
         save()
+        syncMeeting(meetingID)        // names changed: update the notes file
     }
 
     func createPerson(named name: String, meetingID: UUID, clusterKey: String) {

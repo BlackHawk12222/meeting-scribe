@@ -22,10 +22,33 @@ enum Dictation {
         var cleanupSeconds: Double
     }
 
-    static func run(samples: [Float], useAI: Bool, removeFillers: Bool, live: Bool = false) async throws -> Result {
-        let t = try await SpeechEngine.shared.dictate(samples: samples, live: live)
+    /// Short dictations (under this) never wait for Apple Intelligence: rules only, instant.
+    static let aiMinimumSeconds = 8.0
+    /// Longer ones give Apple Intelligence at most this long, then paste the rule-cleaned text.
+    static let aiTimeout: Double = 1.2
+
+    static func run(samples: [Float], useAI: Bool, removeFillers: Bool, live: Bool = false,
+                    session: UUID? = nil) async throws -> Result {
+        let t = try await SpeechEngine.shared.dictate(samples: samples, live: live, session: session)
         let t0 = Date()
-        let (text, method) = await TextCleanup.clean(t.text, useAI: useAI, removeFillers: removeFillers)
+        let rulesText = removeFillers ? TextCleanup.rules(t.text) : t.text
+        var text = rulesText
+        var method: CleanupMethod = removeFillers ? .rules : .none
+        if useAI, AppleIntelligence.isAvailable, t.audioSeconds >= aiMinimumSeconds, !t.text.isEmpty {
+            // Race Apple Intelligence against a timer: the paste never waits longer than aiTimeout.
+            let raw = t.text
+            let smart: (String, CleanupMethod)? = await withTaskGroup(of: (String, CleanupMethod)?.self) { group in
+                group.addTask { await TextCleanup.clean(raw, useAI: true, removeFillers: removeFillers) }
+                group.addTask {
+                    try? await Task.sleep(nanoseconds: UInt64(aiTimeout * 1_000_000_000))
+                    return nil
+                }
+                let first = await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+            if let smart { text = smart.0; method = smart.1 }
+        }
         return Result(transcript: t, text: text, method: method, cleanupSeconds: Date().timeIntervalSince(t0))
     }
 }
@@ -55,6 +78,9 @@ final class DictationController: ObservableObject {
         set { liveFeedBox.set(newValue) }
     }
     private var liveConsumer: Task<Void, Never>?
+    /// Each recording gets a fresh id; audio, live VAD state and the result are tied to it, so
+    /// an old recording's text can never be inserted for a new one.
+    private var session = UUID()
     private weak var store: Store?
     private weak var recorder: Recorder?
     private var startedAt: Date?
@@ -144,8 +170,10 @@ final class DictationController: ObservableObject {
         // Start the live voice detector before the mic so no audio is missed.
         let (stream, continuation) = AsyncStream<[Float]>.makeStream()
         liveFeed = continuation
+        session = UUID()
+        let mySession = session
         liveConsumer = Task.detached(priority: .userInitiated) {
-            await SpeechEngine.shared.liveVadStart()
+            await SpeechEngine.shared.liveVadStart(session: mySession)
             for await chunk in stream { await SpeechEngine.shared.liveVadFeed(chunk) }
         }
         do {
@@ -192,6 +220,7 @@ final class DictationController: ObservableObject {
         state = .transcribing
         if DictationSettings.sounds { NSSound(named: "Pop")?.play() }
         let released = Date()
+        let mySession = session
         Task {
             // Keep listening 150 ms after you let go, so the last sound isn't cut off.
             try? await Task.sleep(nanoseconds: 150_000_000)
@@ -207,7 +236,9 @@ final class DictationController: ObservableObject {
             Perf.log.info("key release → mic stopped + live VAD caught up: \(Date().timeIntervalSince(released) * 1000, format: .fixed(precision: 0))ms")
             do {
                 let r = try await Dictation.run(samples: samples, useAI: DictationSettings.aiCleanup,
-                                                removeFillers: DictationSettings.removeFillers, live: true)
+                                                removeFillers: DictationSettings.removeFillers, live: true,
+                                                session: mySession)
+                guard mySession == session else { return }      // a newer recording started: drop this one
                 guard !r.text.isEmpty else {
                     flash(.done("Didn't catch that"))
                     return
@@ -218,7 +249,7 @@ final class DictationController: ObservableObject {
                                                    audioSeconds: r.transcript.audioSeconds,
                                                    latencySeconds: Date().timeIntervalSince(released)))
                 Perf.log.info("key release → text inserted: \(Date().timeIntervalSince(released) * 1000, format: .fixed(precision: 0))ms")
-                flash(outcome == .pasted ? .done("Done") : .done("Copied – press ⌘V"))
+                flash(outcome == .copiedOnly ? .done("Copied – press ⌘V") : .done("Done"))
             } catch {
                 flash(.failed(error.localizedDescription))
             }

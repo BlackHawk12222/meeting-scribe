@@ -65,6 +65,7 @@ final class AppModel: ObservableObject {
         }.store(in: &bag)
         Task { await store.prepareEngine() }
         updater.checkInBackgroundIfDue()
+        GitHubSync.shared.kick()          // send anything left in the queue from last time
     }
 
     /// Menu bar → "open this meeting in the main window".

@@ -98,6 +98,7 @@ enum Snapshot {
                                  "asr-v3": .missing])
         made += await capture(env(ModelSettingsTab().frame(width: 520, height: 640)), size: nil, name: "05_settings_model", dir: dir)
         made += await capture(env(GeneralSettingsTab().frame(width: 520, height: 440)), size: nil, name: "05b_settings_general", dir: dir)
+        made += await capture(env(SyncSettingsTab().frame(width: 520, height: 520)), size: nil, name: "05c_settings_sync", dir: dir)
         made += await capture(env(AboutView().frame(width: 520, height: 440)), size: nil, name: "06_about_credits", dir: dir)
         made += await capture(env(MenuBarView().background(Color(nsColor: .windowBackgroundColor))), size: nil,
                               name: "08_menu_bar_panel", dir: dir, titled: false)

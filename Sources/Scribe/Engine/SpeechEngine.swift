@@ -98,8 +98,11 @@ actor MeetingProgress {
     }
     func transcribed() { transcriptDone = true; send() }
     private func send() {
-        let s = speakerFraction >= 1 ? "Speakers found" : "Finding speakers \(Int(speakerFraction * 100))%"
-        report?("\(s) · \(transcriptDone ? "transcript done" : "transcribing…")")
+        if speakerFraction < 1 {
+            report?("Finding speakers \(Int(speakerFraction * 100))% · then the transcript")
+        } else {
+            report?(transcriptDone ? "Writing notes…" : "Speakers found · transcribing…")
+        }
     }
 }
 
@@ -197,6 +200,12 @@ actor SpeechEngine {
     private var livePending: [Float] = []
     private var liveActive = false
     private var liveDraining = false
+    private var liveSession: UUID?
+    /// All audio fed so far this session (to cut out finished sentences while you still talk).
+    private var liveAudio: [Float] = []
+    private var liveSegmentStart: Int?
+    /// Sentences already transcribed WHILE the key was still held: (where it ended, its text).
+    private var liveEarly: [(end: Int, task: Task<String, Error>)] = []
 
     static let vadSegmentation: VadSegmentationConfig = {
         var seg = VadSegmentationConfig.default
@@ -208,12 +217,17 @@ actor SpeechEngine {
 
     /// Clips shorter than this skip the voice detector entirely (nothing much to trim, and
     /// running it would only add time).
-    static let skipVadBelowSeconds = 3.0
+    static let skipVadBelowSeconds = 5.0
 
-    func liveVadStart() {
+    func liveVadStart(session: UUID? = nil) {
         liveState = VadStreamState.initial()
         liveResults = []
         livePending = []
+        liveAudio = []
+        liveSegmentStart = nil
+        for e in liveEarly { e.task.cancel() }
+        liveEarly = []
+        liveSession = session
         liveActive = vad != nil
     }
 
@@ -221,12 +235,18 @@ actor SpeechEngine {
         liveActive = false
         livePending = []
         liveResults = []
+        liveAudio = []
+        liveSegmentStart = nil
+        for e in liveEarly { e.task.cancel() }
+        liveEarly = []
+        liveSession = nil
     }
 
     /// Feed microphone audio (16 kHz mono) as it's recorded.
     func liveVadFeed(_ samples: [Float]) async {
         guard liveActive else { return }
         livePending += samples
+        liveAudio += samples
         guard !liveDraining else { return }        // another call is already working through the queue
         liveDraining = true
         defer { liveDraining = false }
@@ -245,12 +265,38 @@ actor SpeechEngine {
         liveState = r.state
         liveResults.append(VadResult(probability: r.probability, isVoiceActive: r.probability >= 0.5,
                                      processingTime: 0, outputState: r.state.modelState))
+        // A sentence just ended (≥ 0.5 s of silence) while you're still holding the key:
+        // transcribe it NOW, so at release only the last bit is left.
+        if let ev = r.event {
+            if ev.isStart {
+                liveSegmentStart = ev.sampleIndex
+            } else if ev.isEnd, let start = liveSegmentStart, let asr = dictationAsr {
+                liveSegmentStart = nil
+                let begin = max(liveEarly.last?.end ?? 0, start)
+                let end = min(ev.sampleIndex, liveAudio.count)
+                if end - begin >= 16_000 * 3 / 4 {
+                    let audio = Array(liveAudio[begin..<end])
+                    let task = Task { try await Self.transcribeShort(asr, audio) }
+                    liveEarly.append((end: end, task: task))
+                    Perf.log.info("early sentence: \(Double(end - begin) / 16_000, format: .fixed(precision: 1))s sent to ASR while still talking")
+                }
+            }
+        }
+    }
+
+    private static func transcribeShort(_ asr: AsrManager, _ audio: [Float]) async throws -> String {
+        var a = audio
+        if a.count < 16_000 { a += [Float](repeating: 0, count: 16_000 - a.count) }
+        var st = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
+        return try await asr.transcribe(a, decoderState: &st).text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Hold-to-talk audio -> text. Steps: VAD trim (mostly done live) -> Parakeet.
     /// `live`: the clip's audio was also fed to liveVadFeed while recording.
-    func dictate(samples: [Float], live: Bool = false) async throws -> DictationTranscript {
+    func dictate(samples: [Float], live requestedLive: Bool = false, session: UUID? = nil) async throws -> DictationTranscript {
         guard let dictationAsr else { throw EngineError.notReady }
+        // Live state from a different recording must never be used for this one.
+        let live = requestedLive && (session == nil || session == liveSession)
         let audioSeconds = Double(samples.count) / 16_000
         let signpost = Perf.signposter.beginInterval("dictate")
         defer { Perf.signposter.endInterval("dictate", signpost) }
@@ -260,9 +306,34 @@ actor SpeechEngine {
         let t0 = Date()
         var speech = samples
         var vadMode = "skipped (short clip)"
+        while liveDraining { try? await Task.sleep(nanoseconds: 2_000_000) }   // let the queue finish
+        if live, liveActive, let vad, !liveEarly.isEmpty, (liveEarly.last?.end ?? 0) < samples.count {
+            // Sentences finished while you talked are already transcribed (or nearly).
+            // Only the tail after the last one is left: VAD-trim it, transcribe it, glue it all.
+            let early = liveEarly
+            liveEarly = []
+            let tailStart = early.last!.end
+            let tail = Array(samples[tailStart...])
+            let t1 = Date()
+            var tailText = ""
+            let parts = (try? await vad.segmentSpeechAudio(tail, config: Self.vadSegmentation)) ?? []
+            if !parts.isEmpty {
+                let gap = [Float](repeating: 0, count: 16_000 / 5)
+                tailText = try await Self.transcribeShort(dictationAsr, parts.dropFirst().reduce(parts[0]) { $0 + gap + $1 })
+            }
+            var texts: [String] = []
+            for e in early { texts.append(try await e.task.value) }
+            texts.append(tailText)
+            liveVadCancel()
+            let text = texts.filter { !$0.isEmpty }.joined(separator: " ")
+            let asrSeconds = Date().timeIntervalSince(t1)
+            Perf.log.info("dictate (incremental): \(early.count) early sentences, tail \(Double(tail.count) / 16_000, format: .fixed(precision: 1))s, after release \(asrSeconds * 1000, format: .fixed(precision: 0))ms")
+            return DictationTranscript(text: text, audioSeconds: audioSeconds, speechSeconds: audioSeconds,
+                                       vadSeconds: 0, asrSeconds: asrSeconds,
+                                       vadMode: "incremental (\(early.count) early + tail)")
+        }
         if let vad, audioSeconds >= Self.skipVadBelowSeconds {
             let segments: [VadSegment]
-            while liveDraining { try? await Task.sleep(nanoseconds: 2_000_000) }   // let the queue finish
             let chunk = VadManager.chunkSize
             if live, liveActive, liveResults.count * chunk <= samples.count {
                 // Only the slices recorded after the last live step are left.
@@ -399,9 +470,9 @@ actor SpeechEngine {
     }
 
     /// Run the whole pipeline on 16 kHz mono samples.
-    /// Speaker detection and transcription run AT THE SAME TIME (different models, different
-    /// chips can work in parallel), so a meeting is ready sooner than doing one after the other.
-    /// `progress` gets a short status line ("Finding speakers 40% · transcribing…").
+    /// Speaker detection, then transcription, in the background with a live status line
+    /// ("Finding speakers 40% · transcribing…"). (Running both at once was tried in 0.3 and was
+    /// SLOWER on the CI Mac — 116 s vs 87 s for a 5-minute meeting — so they run one after the other.)
     func process(samples: [Float], setting: DiarizerSetting = .auto,
                  progress: (@Sendable (String) -> Void)? = nil) async throws -> Output {
         guard asr != nil else { throw EngineError.notReady }
@@ -409,12 +480,10 @@ actor SpeechEngine {
         defer { Perf.signposter.endInterval("meeting", signpost) }
         let t0 = Date()
         let tracker = MeetingProgress(report: progress)
-        async let diarized = diarize(samples: samples, setting: setting) { done, total in
+        let d = try await diarize(samples: samples, setting: setting) { done, total in
             Task { await tracker.speakers(done, total) }
         }
-        async let transcribed = transcribeTracked(samples: samples, tracker: tracker)
-        let d = try await diarized
-        let t = try await transcribed
+        let t = try await transcribeTracked(samples: samples, tracker: tracker)
         Perf.log.info("meeting \(Double(samples.count) / 16_000, format: .fixed(precision: 0))s: speakers \(d.seconds, format: .fixed(precision: 1))s, transcript \(t.seconds, format: .fixed(precision: 1))s, wall \(Date().timeIntervalSince(t0), format: .fixed(precision: 1))s")
         let utterances = Self.utterances(words: t.words, segments: d.segments)
         return Output(words: t.words, utterances: utterances, clusters: d.clusters,

@@ -16,8 +16,9 @@ the app stays clean and Apple-like.
 
 ## Install (unsigned app)
 1. Download `Scribe.zip` (or `Scribe.dmg`) from Releases. Unzip, drag **Scribe** into **Applications**.
-2. First launch: right-click Scribe → **Open** → **Open**. (Or open it once, then System Settings →
-   Privacy & Security → scroll down → **Open Anyway**.) Needed because the app is ad-hoc signed, not notarized.
+2. First launch: double-click Scribe (macOS says it can't check it), then System Settings → Privacy & Security →
+   scroll down → **Open Anyway** → Open. (On macOS 15+ the old right-click → Open trick no longer works.) Needed
+   because the app is ad-hoc signed, not notarized. Updates installed from inside Scribe don't need this again.
 3. The welcome window opens with a glowing ring around its edge. **The models start downloading right away**
    (dictation first, then the speaker models) and the ring fills as they come in; the bottom line shows the
    model, MB, speed and time left. While it downloads you flip through cards (← →, swipe, or the arrows):
@@ -54,8 +55,9 @@ release  ─▶ SpeechEngine.dictate: only the last slice is left for VAD ─▶
   one-time setup before your first dictation, then stay in memory.
 - The voice detector runs **while you talk** (streaming, same results as before), so at key release the trim is done.
 - Clips under 3 s skip the voice detector.
-- Meetings: speaker detection and transcription run **at the same time**, with a live status line
-  ("Finding speakers 40% · transcribing…").
+- Meetings: processing runs in the background with a live status line ("Finding speakers 40%…"), and the speaker
+  models are downloaded and loaded at launch instead of on the first meeting. (Running speaker detection and
+  transcription at the same time was tried and was slower on the CI Mac, so they still run one after the other.)
 - Timing logs for every stage: `log stream --predicate 'subsystem == "com.blackhawk12222.Scribe"' --level info`
   (or Console.app; signposts in Instruments → Points of Interest).
 - The app is **not sandboxed**: macOS doesn't let sandboxed apps post the ⌘V keystroke into other apps.

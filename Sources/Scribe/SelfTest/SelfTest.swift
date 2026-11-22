@@ -21,6 +21,7 @@
 // It prints one JSON line starting with SELFTEST_JSON: so CI can save the numbers.
 
 import Foundation
+import AppKit
 import FluidAudio
 
 enum SelfTest {
@@ -64,49 +65,78 @@ enum SelfTest {
 
     /// Key-release → text latency, as the app does it: the clip is fed to the live voice detector
     /// in 100 ms slices first (that happens WHILE you talk in the app), then the clock starts
-    /// at "release". Cold = first call after loading (no prewarm); warm = later calls.
+    /// at "release". Cold = the very first call after loading (no prewarm); warm = later calls.
+    /// Clips: 2 s and 5 s (from the start of speech) and the full 15.7 s test clip.
+    /// Also the back-to-back paste test (v0.2 pasted the PREVIOUS dictation).
     static func latencyTest() async throws -> [String: Any] {
-        guard let wav = Bundle.main.url(forResource: "dictation_sample", withExtension: "wav") else { return [:] }
+        guard let wav = Bundle.main.url(forResource: "dictation_sample", withExtension: "wav"),
+              let txt = Bundle.main.url(forResource: "dictation_sample", withExtension: "txt") else { return [:] }
         let clip = try SpeechEngine.loadSamples(wav)
-        func release(_ samples: [Float], live: Bool) async throws -> (Double, Dictation.Result) {
-            if live {
-                await SpeechEngine.shared.liveVadStart()
-                var i = 0
-                while i < samples.count {
-                    await SpeechEngine.shared.liveVadFeed(Array(samples[i..<min(samples.count, i + 1600)]))
-                    i += 1600
-                }
+        let reference = try String(contentsOf: txt, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        let onset = clip.firstIndex { abs($0) > 0.02 }.map { max(0, $0 - 1600) } ?? 0
+        let clip2 = Array(clip[onset..<min(clip.count, onset + 32_000)])
+        let clip5 = Array(clip[onset..<min(clip.count, onset + 80_000)])
+
+        func release(_ samples: [Float]) async throws -> (Double, Dictation.Result) {
+            let session = UUID()
+            await SpeechEngine.shared.liveVadStart(session: session)
+            var i = 0
+            while i < samples.count {
+                await SpeechEngine.shared.liveVadFeed(Array(samples[i..<min(samples.count, i + 1600)]))
+                i += 1600
             }
             let t0 = Date()
-            let r = try await Dictation.run(samples: samples, useAI: false, removeFillers: true, live: live)
+            let r = try await Dictation.run(samples: samples, useAI: true, removeFillers: true, live: true, session: session)
             return (Date().timeIntervalSince(t0), r)
         }
-        let (cold, coldR) = try await release(clip, live: true)
-        var warm: [Double] = []
-        var warmR: Dictation.Result?
-        for _ in 0..<3 {
-            let (t, r) = try await release(clip, live: true)
-            warm.append(t); warmR = r
-        }
-        let (batch, batchR) = try await release(clip, live: false)
-        let short = Array(clip.prefix(16_000 * 2))           // 2 s: skips the voice detector
-        let (shortT, shortR) = try await release(short, live: false)
         let ms = { (x: Double) in (x * 1000).rounded() }
-        log("latency cold \(ms(cold)) ms, warm \(warm.map(ms)) ms, one-pass VAD \(ms(batch)) ms, 2 s clip \(ms(shortT)) ms")
-        return [
-            "measured_on": "GitHub Actions macOS runner (virtual Mac, no Neural Engine); a real Apple Silicon Mac should be faster",
-            "clip_seconds": Double(clip.count) / 16_000,
-            "cold_release_to_text_ms": ms(cold),
-            "cold_breakdown_ms": ["vad": ms(coldR.transcript.vadSeconds), "asr": ms(coldR.transcript.asrSeconds),
-                                  "vad_mode": coldR.transcript.vadMode] as [String: Any],
-            "warm_release_to_text_ms": warm.map(ms),
-            "warm_breakdown_ms": ["vad": ms(warmR?.transcript.vadSeconds ?? 0), "asr": ms(warmR?.transcript.asrSeconds ?? 0),
-                                  "vad_mode": warmR?.transcript.vadMode ?? ""] as [String: Any],
-            "warm_one_pass_vad_ms": ms(batch), "one_pass_vad_part_ms": ms(batchR.transcript.vadSeconds),
-            "short_2s_clip_ms": ms(shortT), "short_clip_vad_mode": shortR.transcript.vadMode,
-            "same_text_live_vs_one_pass": (warmR?.text ?? "") == batchR.text,
-            "note": "Excludes the 150 ms the app keeps listening after release and the paste itself.",
+        var out: [String: Any] = [
+            "measured_on": "GitHub Actions macOS runner (virtual Mac, no Neural Engine): every Parakeet call pads audio to a 15 s window and runs on CPU here, so expect much lower numbers on a real Apple Silicon Mac",
+            "note": "Key release → final text, excluding the 150 ms post-roll and the paste itself.",
         ]
+        // Cold: first call after load, on the short clip (the case users complained about).
+        let (cold, coldR) = try await release(clip2)
+        out["cold_2s_ms"] = ms(cold)
+        out["cold_2s_mode"] = coldR.transcript.vadMode
+        for (name, c) in [("2s", clip2), ("5s", clip5), ("15s", clip)] {
+            var times: [Double] = []
+            var mode = ""
+            for _ in 0..<3 {
+                let (t, r) = try await release(c)
+                times.append(ms(t)); mode = r.transcript.vadMode
+            }
+            out["warm_\(name)_ms"] = times
+            out["warm_\(name)_mode"] = mode
+        }
+        // Back-to-back: two DIFFERENT sentences, one after the other; the second result (and
+        // what ends up on the clipboard to paste) must be sentence 2, not sentence 1.
+        let lo = clip.count * 35 / 100, hi = clip.count * 65 / 100
+        var cut = lo, quietest = Float.infinity
+        var k = lo
+        while k + 1600 < hi {
+            let e = clip[k..<(k + 1600)].reduce(Float(0)) { $0 + $1 * $1 }
+            if e < quietest { quietest = e; cut = k + 800 }
+            k += 400
+        }
+        let a = Array(clip[..<cut]), b = Array(clip[cut...])
+        let refs = reference.components(separatedBy: ". ")
+        let refA = refs.first ?? "", refB = refs.dropFirst().joined(separator: ". ")
+        let (_, ra) = try await release(a)
+        let (_, rb) = try await release(b)
+        let pb = NSPasteboard.general
+        _ = await TextInserter.paste(ra.text, restoreClipboard: false)
+        _ = await TextInserter.paste(rb.text, restoreClipboard: false)
+        let onClipboard = pb.string(forType: .string) ?? ""
+        let werB = wer(ref: refB, hyp: rb.text), werBvsA = wer(ref: refA, hyp: rb.text)
+        out["back_to_back"] = [
+            "text_1": ra.text, "text_2": rb.text,
+            "wer_2_vs_sentence2": werB, "wer_2_vs_sentence1": werBvsA,
+            "clipboard_after_second": onClipboard,
+            "pass": onClipboard == rb.text && rb.text != ra.text && werB < werBvsA,
+            "limits": "CI can't grant Accessibility, so the real ⌘V into another app isn't exercised; this checks the pipeline + what's on the pasteboard at paste time.",
+        ] as [String: Any]
+        log("latency: \(out)")
+        return out
     }
 
     struct RefSeg { var start: Double; var end: Double; var speaker: String }

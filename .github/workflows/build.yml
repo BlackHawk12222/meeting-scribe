@@ -98,4 +98,4 @@ jobs:
           cp Resources/ModelManifest.json dist/components.json
           gh release create "$TAG" dist/Scribe.dmg dist/Scribe.zip dist/components.json \
             --title "Scribe $TAG" \
-            --notes "Free, on-device dictation + meeting notes for Apple Silicon Macs (macOS 14+, 15+ recommended; Apple Intelligence features need macOS 26). Unsigned (ad-hoc) build. First launch: right-click the app > Open, or System Settings > Privacy & Security > Open Anyway. Then allow Microphone and Accessibility."
+            --notes "Free, on-device dictation + meeting notes for Apple Silicon Macs (macOS 14+, 15+ recommended; Apple Intelligence features need macOS 26). Unsigned (ad-hoc) build. First launch: open it once, then System Settings > Privacy & Security > Open Anyway (macOS 15+). The welcome window downloads the models (~490 MB, once) while you allow Microphone and Accessibility."
