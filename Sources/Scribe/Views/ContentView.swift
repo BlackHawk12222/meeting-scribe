@@ -19,6 +19,10 @@ struct ContentView: View {
     @State private var selection: SidebarItem?
     @State private var query = ""
 
+    init(initialSelection: SidebarItem? = nil) {
+        _selection = State(initialValue: initialSelection)
+    }
+
     /// Search results: meeting id -> snippet showing where the words were found.
     private var hits: [UUID: String] {
         Dictionary(store.search(query).map { ($0.id, $0.snippet) }, uniquingKeysWith: { a, _ in a })

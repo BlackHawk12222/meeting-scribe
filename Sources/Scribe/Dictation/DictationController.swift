@@ -56,6 +56,13 @@ final class DictationController: ObservableObject {
     /// Safety limit so a stuck key can't record forever.
     static let maximumLength: TimeInterval = 10 * 60
 
+    /// Only for `Scribe --snapshot` (CI screenshots): show the pill in a given state with fake levels.
+    func setPreview(state: State, levels: [Float], elapsed: TimeInterval) {
+        self.state = state
+        self.levels = levels
+        self.elapsed = elapsed
+    }
+
     func attach(store: Store, recorder: Recorder) {
         self.store = store
         self.recorder = recorder

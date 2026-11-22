@@ -10,6 +10,8 @@ enum Main {
     static func main() {
         if CommandLine.arguments.contains("--selftest") {
             SelfTest.runAndExit()            // never returns
+        } else if CommandLine.arguments.contains("--snapshot") {
+            Snapshot.runAndExit()            // renders the UI to PNGs (CI screenshots), never returns
         } else {
             ScribeApp.main()
         }
