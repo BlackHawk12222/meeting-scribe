@@ -60,8 +60,8 @@ auto-label, 0.40–0.55 "maybe …?"). Every confirmed meeting adds up to 8 fing
 | Languages | English | 25 European | 99 |
 | WER, our 42-file test set (sandbox, ONNX int8, Linux CPU) | **3.25 %** | 4.96 % | 3.59 % |
 | Speed, same sandbox (lower = faster) | RTF 0.057 | RTF 0.069 | RTF 0.582 (~10× slower) |
-Parakeet v2 was most accurate *and* ~10× faster than Whisper-turbo in our own test, so it's the default; v3 is in
-Settings → Model for other languages. Whisper isn't included (slower, and it can invent text on silence).
+In our own test Parakeet v2 beat Whisper-turbo on accuracy and was ~10× faster; Whisper small.en was slightly more
+accurate (2.93 %) but ~5× slower. So v2 is the default; v3 is in Settings → Model for other languages. Whisper isn't included (slower, and it can invent text on silence).
 Full details and where each number was measured: `BENCHMARKS.md`.
 
 ## Settings (⌘,)

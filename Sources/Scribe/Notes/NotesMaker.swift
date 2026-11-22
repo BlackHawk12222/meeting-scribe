@@ -123,13 +123,13 @@ enum NotesMaker {
         "if", "then", "there", "here", "what", "which", "who", "how", "why", "when", "can", "could", "would", "should",
         "will", "i'll", "we'll", "don't", "i'm", "we're", "you're", "that's", "there's", "gonna", "really", "very", "also", "about",
         "think", "know", "mean", "right", "well", "go", "get", "got", "one", "all", "some", "more", "as", "from",
-        "by", "up", "out", "because", "maybe", "kind", "sort", "thing", "things", "lot", "mm", "hmm", "oh", "actually",
+        "by", "up", "out", "because", "maybe", "kind", "sort", "thing", "things", "lot", "mm", "hmm", "oh", "actually", "going", "yup", "yep", "now", "first",
         "need",
     ]
 
     /// Promise / request / deadline phrases that usually mark an action item.
     static let actionPattern = try! NSRegularExpression(pattern: """
-    (?i)\\b(i'll|i will|i'm going to|i am going to|i can|let me|we'll|we will|we need to|we have to|we should|\
+    (?i)\\b(i'll|i will|i'm going to|i am going to|let me|we'll|we will|we need to|we have to|we should|\
     let's|you need to|can you|could you|would you|please|make sure|remember to|don't forget|action item|\
     by (monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|tonight|next week|the end of))\\b
     """)
