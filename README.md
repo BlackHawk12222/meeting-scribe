@@ -10,9 +10,9 @@ A free, native macOS app (SwiftUI, Apple Silicon, macOS 14+, **macOS 15+ recomme
 
 No account, no cloud, nothing uploaded. Models download once (~490 MB), then it works offline.
 
-**v0.3 look:** a 14th-century royal scribe. The app icon and mascot are a friendly scribe with a quill; while
-you talk, a thin parchment scroll at the bottom of the screen scribbles ink that follows your voice. The rest of
-the app stays clean and Apple-like.
+**v0.4 look:** plain macOS. System fonts and colors (light and dark), standard materials, SF Symbols and one
+quiet indigo accent. The icon is a single fountain-pen nib. While you talk, a small capsule shows level bars and a
+timer; you choose where it sits (Settings › Dictation › Overlay) or drag it anywhere.
 
 ## Install (unsigned app)
 1. Download `Scribe.zip` (or `Scribe.dmg`) from Releases. Unzip, drag **Scribe** into **Applications**.
@@ -44,10 +44,10 @@ release  ─▶ SpeechEngine.dictate: only the last slice is left for VAD ─▶
 ```
 - `HotkeyManager.swift` — hold key via `NSEvent` global monitor (needs Accessibility); toggle shortcut via Carbon
   `RegisterEventHotKey` (needs nothing). A tap shorter than 0.3 s, or using ⌥ in a shortcut (⌥←), is ignored.
-- `ScrollOverlay.swift` — the thin parchment scroll at the bottom of the screen (rollers at both ends, one line of
-  ink scribbles that follow your mic level, paper feeding sideways, timer at one end). One SwiftUI `Canvas` in a
-  30 fps `TimelineView`, paused when hidden. A *non-activating* panel, so the app you're typing in keeps focus.
-  The same scroll (with a red seal) shows while a meeting records.
+- `RecordingOverlay.swift` — the ~140 × 32 pt capsule (dark HUD): mic-level bars + timer while listening, a
+  spinner while transcribing, a red dot for meetings. Six positions (bottom center by default) on the screen with
+  the active window, inside the visible frame (clear of menu bar and Dock); drag it and it remembers the spot per
+  display. A *non-activating* panel, so the app you're typing in keeps focus.
 - `DictationController.swift` — the state machine (idle → listening → transcribing → done).
 
 **Why it's faster in 0.3 ("the voice detector takes too long"):**
@@ -132,10 +132,10 @@ launch at login (`SMAppService`), permissions with live status, About & licenses
 | Folder | What |
 |---|---|
 | `App/ScribeApp.swift` | Entry point, window + menu bar + settings scenes, `AppModel` (shared state) |
-| `Dictation/` | Hotkeys, mic capture, scroll overlay, paste, dictation state machine, settings keys |
+| `Dictation/` | Hotkeys, mic capture, recording overlay, paste, dictation state machine, settings keys |
 | `Engine/ModelStore.swift`, `ModelDownloader.swift` | Model manifest check + parallel resumable downloads |
 | `System/Updater.swift` | Check for Updates (app zip only; model changes from components.json) |
-| `Views/Theme.swift` | Parchment/ink palette, mascot images, menu bar scroll glyph |
+| `Views/Theme.swift` | Accent + spacing, the nib shape, app icon view, menu bar glyph |
 | `Views/RunnerGame.swift` | Quill Dash, the first-run mini-game |
 | `Engine/SpeechEngine.swift` | Loads models; meeting pipeline (diarize + transcribe) and dictation (VAD + transcribe) |
 | `Engine/TextCleanup.swift`, `AppleIntelligence.swift` | Rule cleanup + guarded Foundation Models wrapper |
@@ -155,7 +155,7 @@ Xcode 16 builds everything except the Apple Intelligence parts (they are behind 
 and turn into the rule-based fallback). Xcode 26 compiles them in. CI picks the newest Xcode 26 on the runner.
 Put `[release]` in a commit message to publish a GitHub Release (tag `v0.3.<build>`, assets Scribe.zip, Scribe.dmg,
 components.json). The **ui-screenshots** workflow (Actions tab, manual) runs `Scribe --snapshot` and uploads PNGs of
-every screen, the scroll overlay and the icons.
+every screen, the recording overlay and the icons.
 
 ## Credits / licenses
 Dictation design inspired by **Handy** (MIT, © 2025 CJ Pais) — full notice in the app's About screen.

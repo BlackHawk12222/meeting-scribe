@@ -1,5 +1,5 @@
 // SettingsView.swift
-// Scribe > Settings… (⌘,). Five tabs: Dictation, Model, Permissions, General, About.
+// Scribe > Settings… (⌘,). Tabs: Dictation, Model, Permissions, General, Sync, About.
 
 import SwiftUI
 import AppKit
@@ -16,8 +16,9 @@ struct SettingsView: View {
             SyncSettingsTab().tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
             AboutView().tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 520, height: 440)
+        .frame(width: SettingsView.size.width, height: SettingsView.size.height)
     }
+    static let size = CGSize(width: 560, height: 500)
 }
 
 // MARK: - Dictation
@@ -32,6 +33,8 @@ struct DictationSettingsTab: View {
     @AppStorage("trailingSpace") private var trailingSpace = true
     @AppStorage("directInsert") private var directInsert = true
     @AppStorage("dictationSounds") private var sounds = true
+    @AppStorage(OverlayPosition.key) private var overlayPosition = OverlayPosition.bottomCenter.rawValue
+    @State private var hasDragged = false
 
     var body: some View {
         Form {
@@ -50,6 +53,23 @@ struct DictationSettingsTab: View {
                 Text("Press Esc while talking to cancel. A quick tap of the hold key does nothing, and so does using it in a shortcut like ⌥← .")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section {
+                Picker("Position", selection: $overlayPosition) {
+                    ForEach(OverlayPosition.allCases) { Text($0.title).tag($0.rawValue) }
+                }
+                .onChange(of: overlayPosition) { _, _ in OverlayPosition.clearDragged(); hasDragged = false }
+                OverlayPositionPreview(position: OverlayPosition(rawValue: overlayPosition) ?? .bottomCenter)
+                if hasDragged {
+                    LabeledContent("Dragged to a custom spot") {
+                        Button("Reset") { OverlayPosition.clearDragged(); hasDragged = false }
+                    }
+                }
+            } header: {
+                Text("Overlay")
+            } footer: {
+                Text("The small recording indicator appears on the screen you're working on, clear of the menu bar and Dock. Drag it to move it; Scribe remembers the spot for each display.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Section("Clean-up") {
                 Toggle("Remove “um” and “uh”", isOn: $removeFillers)
                 Toggle("Polish with Apple Intelligence (on-device)", isOn: $aiCleanup)
@@ -64,8 +84,48 @@ struct DictationSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { hasDragged = OverlayPosition.hasDragged }
         .onChange(of: holdKey) { _, _ in dictation.hotkeys.reload() }
         .onChange(of: mode) { _, _ in dictation.hotkeys.reload() }
+    }
+}
+
+/// A tiny screen diagram showing where the overlay will appear.
+struct OverlayPositionPreview: View {
+    var position: OverlayPosition
+    var body: some View {
+        HStack {
+            Spacer()
+            ZStack(alignment: alignment) {
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.primary.opacity(0.05))
+                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.primary.opacity(0.15), lineWidth: 1))
+                // Menu bar and Dock, so the safe areas read at a glance.
+                VStack(spacing: 0) {
+                    Rectangle().fill(Color.primary.opacity(0.10)).frame(height: 6)
+                    Spacer()
+                    RoundedRectangle(cornerRadius: 2).fill(Color.primary.opacity(0.10)).frame(width: 60, height: 6).padding(.bottom, 3)
+                }
+                Capsule().fill(Color.accentColor).frame(width: 30, height: 7)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 12)
+                    .padding(.bottom, 13)
+            }
+            .frame(width: 160, height: 96)
+            .animation(.easeInOut(duration: 0.2), value: position)
+            .accessibilityLabel("Overlay preview: \(position.title)")
+            Spacer()
+        }
+    }
+    private var alignment: Alignment {
+        switch position {
+        case .bottomCenter: return .bottom
+        case .topCenter: return .top
+        case .topLeft: return .topLeading
+        case .topRight: return .topTrailing
+        case .bottomLeft: return .bottomLeading
+        case .bottomRight: return .bottomTrailing
+        }
     }
 }
 
@@ -291,7 +351,7 @@ struct GeneralSettingsTab: View {
                 .onChange(of: launchAtLogin) { _, on in setLaunchAtLogin(on) }
             if let e = loginError { Text(e).font(.caption).foregroundStyle(.orange) }
             Toggle("Noise cleanup for meetings (Apple voice processing)", isOn: $noiseCleanup)
-            Toggle("Show the scroll at the bottom of the screen while a meeting records", isOn: $showMeetingScroll)
+            Toggle("Show the recording indicator while a meeting records", isOn: $showMeetingScroll)
             Button("Show the welcome screen again") { onboarded = false }
             Section("Updates") {
                 UpdateSection()

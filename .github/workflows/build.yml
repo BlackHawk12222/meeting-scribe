@@ -43,7 +43,7 @@ jobs:
         run: brew install xcodegen
       - name: Build, sign (ad-hoc), package
         env:
-          SCRIBE_VERSION: 0.3.${{ github.run_number }}
+          SCRIBE_VERSION: 0.4.${{ github.run_number }}
           SCRIBE_BUILD: ${{ github.run_number }}
         run: ./scripts/build.sh
       - name: Upload build log
@@ -104,7 +104,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="v0.3.${{ github.run_number }}"
+          TAG="v0.4.${{ github.run_number }}"
           # components.json = the model manifest; the in-app updater compares it with installed models.
           cp Resources/ModelManifest.json dist/components.json
           gh release create "$TAG" dist/Scribe.dmg dist/Scribe.zip dist/components.json \

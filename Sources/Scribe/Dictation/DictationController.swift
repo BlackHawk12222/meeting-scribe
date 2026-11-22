@@ -68,9 +68,9 @@ final class DictationController: ObservableObject {
 
     let hotkeys = HotkeyManager()
     private let mic = MicCapture()
-    private let overlay = ScrollOverlay()
-    /// Mic level history that the scroll's ink is drawn from.
-    let tape = InkTape()
+    private let overlay = OverlayPanel()
+    /// Mic level history that the overlay's bars are drawn from.
+    let tape = LevelTape()
     /// Microphone audio on its way to the live voice detector, in order.
     private let liveFeedBox = LiveFeedBox()
     private var liveFeed: AsyncStream<[Float]>.Continuation? {
@@ -92,22 +92,22 @@ final class DictationController: ObservableObject {
     /// Safety limit so a stuck key can't record forever.
     static let maximumLength: TimeInterval = 10 * 60
 
-    /// Only for `Scribe --snapshot` (CI screenshots): show the scroll in a given state with fake levels.
+    /// Only for `Scribe --snapshot` (CI screenshots): show the overlay in a given state with fake levels.
     func setPreview(state: State, levels: [Float], elapsed: TimeInterval) {
         self.state = state
         self.levels = levels
         self.elapsed = elapsed
     }
 
-    /// Lift the dictation scroll above the meeting scroll while a meeting records.
+    /// Stack the dictation capsule next to the meeting capsule while a meeting records.
     var overlayLift: CGFloat {
         get { overlay.lift }
         set { overlay.lift = newValue }
     }
 
     private func showOverlay() {
-        overlay.lift = recorder?.isRecording == true ? 58 : 0
-        overlay.show(DictationScrollView().environmentObject(self))
+        overlay.lift = recorder?.isRecording == true ? 40 : 0
+        overlay.show(DictationOverlayView().environmentObject(self))
     }
 
     func attach(store: Store, recorder: Recorder) {
@@ -270,7 +270,7 @@ final class DictationController: ObservableObject {
         return c
     }
 
-    /// Show a message in the scroll for a moment, then hide it.
+    /// Show a message in the overlay for a moment, then hide it.
     private func flash(_ s: State) {
         state = s
         showOverlay()

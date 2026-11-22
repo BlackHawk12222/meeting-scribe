@@ -74,6 +74,8 @@ enum Snapshot {
         let obSize = NSSize(width: OnboardingView.size.width, height: OnboardingView.size.height)
         made += await capture(env(OnboardingView(initialIndex: 0, previewPhase: 0.3, previewPlanned: 487_400_000)),
                               size: obSize, name: "07a_firstrun_usecase", dir: dir)
+        made += await capture(env(OnboardingView(initialIndex: 0, previewPhase: 0.3, previewPlanned: 487_400_000)),
+                              size: obSize, name: "07a_firstrun_usecase_dark", dir: dir, dark: true)
         made += await capture(env(OnboardingView(initialIndex: 2, previewPhase: 0.55, previewPlanned: 487_400_000)),
                               size: obSize, name: "07b_firstrun_setup_mic", dir: dir)
         made += await capture(env(OnboardingView(initialIndex: 6, previewPhase: 0.8, previewPlanned: 487_400_000, previewGame: true)),
@@ -93,32 +95,44 @@ enum Snapshot {
         let emptyStore = Store(folder: tmp.appendingPathComponent("empty"))
         emptyStore.engineReady = true
         made += await capture(env(ContentView(), store: emptyStore), size: main, name: "13_main_empty_state", dir: dir)
-        made += await capture(env(SettingsView()), size: NSSize(width: 520, height: 440), name: "04_settings_dictation", dir: dir)
+        made += await capture(env(SettingsView()), size: NSSize(width: SettingsView.size.width, height: SettingsView.size.height),
+                              name: "04_settings_dictation", dir: dir)
+        // The whole Dictation tab (it scrolls in the real window), to show Overlay > Position.
+        UserDefaults.standard.set(OverlayPosition.bottomCenter.rawValue, forKey: OverlayPosition.key)
+        made += await capture(env(DictationSettingsTab().frame(width: SettingsView.size.width, height: 940)), size: nil,
+                              name: "04b_settings_overlay_position", dir: dir)
         model.models.setPreview(["asr-v2": .downloaded, "vad": .downloaded, "diarizer": .updateAvailable(1_200_000),
                                  "asr-v3": .missing])
         made += await capture(env(ModelSettingsTab().frame(width: 520, height: 640)), size: nil, name: "05_settings_model", dir: dir)
-        made += await capture(env(GeneralSettingsTab().frame(width: 520, height: 440)), size: nil, name: "05b_settings_general", dir: dir)
+        made += await capture(env(GeneralSettingsTab().frame(width: 560, height: 460)), size: nil, name: "05b_settings_general", dir: dir)
         made += await capture(env(SyncSettingsTab().frame(width: 520, height: 520)), size: nil, name: "05c_settings_sync", dir: dir)
-        made += await capture(env(AboutView().frame(width: 520, height: 440)), size: nil, name: "06_about_credits", dir: dir)
+        made += await capture(env(AboutView().frame(width: 560, height: 500)), size: nil, name: "06_about_credits", dir: dir)
         made += await capture(env(MenuBarView().background(Color(nsColor: .windowBackgroundColor))), size: nil,
                               name: "08_menu_bar_panel", dir: dir, titled: false)
+        made += await capture(env(MenuBarView().background(Color(nsColor: .windowBackgroundColor))), size: nil,
+                              name: "08b_menu_bar_panel_dark", dir: dir, titled: false, dark: true)
 
-        // The scroll overlay, on a desktop-like backdrop (it floats over other apps), normal and 2.5× zoom.
-        let listenTape = InkTape(); listenTape.fillPreview(seconds: 7.4)
-        let writeTape = InkTape(); writeTape.fillPreview(seconds: 9.0); writeTape.stop(); writeTape.previewPhase = 0.62
-        let meetTape = InkTape(); meetTape.fillPreview(seconds: 12.0)
-        let frames: [(String, ScrollMode, InkTape, TimeInterval?)] = [
-            ("09_scroll_listening", .listening, listenTape, nil),
-            ("10_scroll_writing", .writing, writeTape, nil),
-            ("11_scroll_meeting", .recording, meetTape, 754),
-            ("12_scroll_done", .message("Done", failure: false), listenTape, nil),
+        // The recording overlay capsule: each state at 1x and 3x on a desktop-like backdrop,
+        // then two full-screen mocks showing where it sits (bottom center, top right).
+        let listenTape = LevelTape(); listenTape.fillPreview(seconds: 7.4)
+        let meetTape = LevelTape(); meetTape.fillPreview(seconds: 12.0)
+        let frames: [(String, OverlayMode, LevelTape, TimeInterval?)] = [
+            ("09_overlay_listening", .listening, listenTape, nil),
+            ("10_overlay_transcribing", .transcribing, listenTape, nil),
+            ("11_overlay_meeting", .recording, meetTape, 754),
+            ("12_overlay_done", .message("Done", failure: false), listenTape, nil),
         ]
         for (name, mode, tape, elapsed) in frames {
-            made += await capture(scrollStage(ScribeScroll(mode: mode, tape: tape, elapsed: elapsed), zoom: 1),
-                                  size: NSSize(width: 420, height: 140), name: name, dir: dir, titled: false)
-            made += await capture(scrollStage(ScribeScroll(mode: mode, tape: tape, elapsed: elapsed), zoom: 2.5),
-                                  size: NSSize(width: 960, height: 260), name: name + "_zoom", dir: dir, titled: false)
+            let capsule = OverlayCapsule(mode: mode, tape: tape, elapsed: elapsed, previewSpin: 40)
+            made += await capture(overlayStage(capsule, zoom: 1), size: NSSize(width: 360, height: 120), name: name, dir: dir, titled: false)
+            made += await capture(overlayStage(capsule, zoom: 3), size: NSSize(width: 900, height: 240), name: name + "_zoom", dir: dir, titled: false)
         }
+        made += await capture(screenMock(position: .bottomCenter,
+                                         capsule: OverlayCapsule(mode: .listening, tape: listenTape, previewSpin: 40)),
+                              size: NSSize(width: 1280, height: 800), name: "09s_overlay_screen_bottom_center", dir: dir, titled: false)
+        made += await capture(screenMock(position: .topRight,
+                                         capsule: OverlayCapsule(mode: .recording, tape: meetTape, elapsed: 754, previewSpin: 40)),
+                              size: NSSize(width: 1280, height: 800), name: "09t_overlay_screen_top_right", dir: dir, titled: false)
 
         // Icons: what Finder/Dock show for this build, plus the menu bar glyphs.
         made += iconRenders(dir: dir)
@@ -146,16 +160,72 @@ enum Snapshot {
         try? FileManager.default.removeItem(at: tmp)
     }
 
-    private static func scrollStage(_ scroll: ScribeScroll, zoom: CGFloat) -> some View {
+    private static func overlayStage(_ capsule: OverlayCapsule, zoom: CGFloat) -> some View {
         ZStack {
-            LinearGradient(colors: [Color(red: 0.20, green: 0.26, blue: 0.38), Color(red: 0.42, green: 0.36, blue: 0.48)],
+            LinearGradient(colors: [Color(red: 0.55, green: 0.62, blue: 0.74), Color(red: 0.36, green: 0.42, blue: 0.56)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
-            scroll.scaleEffect(zoom)
+            capsule.scaleEffect(zoom)
         }
     }
 
+    /// A 1280x800 "screen" (wallpaper, menu bar, a window, the Dock) with the capsule placed
+    /// exactly where OverlayPanel would put it for `position`.
+    private static func screenMock(position: OverlayPosition, capsule: OverlayCapsule) -> some View {
+        let screen = CGSize(width: 1280, height: 800)
+        let menuH: CGFloat = 24, dockH: CGFloat = 76
+        // AppKit coordinates (origin bottom-left): visible frame = screen minus menu bar and Dock.
+        let visible = CGRect(x: 0, y: dockH, width: screen.width, height: screen.height - menuH - dockH)
+        let f = OverlayPanel.frame(for: position, in: visible)
+        return ZStack(alignment: .topLeading) {
+            LinearGradient(colors: [Color(red: 0.62, green: 0.70, blue: 0.82), Color(red: 0.40, green: 0.46, blue: 0.62)],
+                           startPoint: .top, endPoint: .bottom)
+            // A document window.
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 8) {
+                    ForEach(0..<3, id: \.self) { _ in Circle().fill(Color(white: 0.82)).frame(width: 12, height: 12) }
+                }
+                ForEach(0..<7, id: \.self) { i in
+                    RoundedRectangle(cornerRadius: 3).fill(Color(white: 0.88)).frame(width: i == 6 ? 260 : 600, height: 10)
+                }
+            }
+            .padding(20)
+            .frame(width: 720, height: 440, alignment: .topLeading)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 10))
+            .compositingGroup()
+            .shadow(color: .black.opacity(0.25), radius: 20, y: 8)
+            .offset(x: 280, y: 150)
+            // Menu bar.
+            HStack(spacing: 18) {
+                Image(systemName: "applelogo").font(.system(size: 13))
+                Text("Notes").font(.system(size: 13, weight: .semibold))
+                Text("File")
+                Text("Edit")
+                Text("View")
+                Spacer()
+                Image(nsImage: MenuBarGlyph.live).renderingMode(.template)
+                Text("Mon 9:41 AM")
+            }
+            .font(.system(size: 13))
+            .foregroundStyle(Color.black.opacity(0.85))
+            .padding(.horizontal, 16)
+            .frame(width: screen.width, height: menuH)
+            .background(Color.white.opacity(0.6))
+            // Dock.
+            RoundedRectangle(cornerRadius: 18).fill(Color.white.opacity(0.35))
+                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.white.opacity(0.5), lineWidth: 0.5))
+                .frame(width: 560, height: 62)
+                .offset(x: (screen.width - 560) / 2, y: screen.height - dockH + 7)
+            // The overlay panel.
+            capsule
+                .frame(width: f.width, height: f.height, alignment: position.alignment)
+                .offset(x: f.minX, y: screen.height - f.maxY)
+        }
+        .frame(width: screen.width, height: screen.height, alignment: .topLeading)
+        .environment(\.colorScheme, .light)
+    }
+
     /// Finder's icon for this app (proves AppIcon is wired in), a Dock-style mock, and the
-    /// menu bar scroll glyphs (black on a light bar, white on a dark bar) at 8×.
+    /// menu bar nib glyphs (black on a light bar, white on a dark bar) at 8×.
     private static func iconRenders(dir: URL) -> [String] {
         var out: [String] = []
         let finderIcon = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
@@ -209,14 +279,14 @@ enum Snapshot {
         return (try? png.write(to: url)) != nil
     }
 
-    private static func window<V: View>(for view: V, size: NSSize?, titled: Bool) -> NSWindow {
+    private static func window<V: View>(for view: V, size: NSSize?, titled: Bool, dark: Bool = false) -> NSWindow {
         let host = NSHostingView(rootView: view)
         let s = size ?? host.fittingSize
         let style: NSWindow.StyleMask = titled ? [.titled, .closable, .miniaturizable, .resizable] : [.borderless]
         let w = NSWindow(contentRect: NSRect(origin: .zero, size: s), styleMask: style, backing: .buffered, defer: false)
         w.title = "Scribe"
         w.isReleasedWhenClosed = false
-        w.appearance = NSAppearance(named: .aqua)
+        w.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         w.contentView = host
         w.setContentSize(s)
         w.center()
@@ -225,8 +295,9 @@ enum Snapshot {
     }
 
     /// Returns the file names written (the view alone, and for titled windows also the window frame).
-    private static func capture<V: View>(_ view: V, size: NSSize?, name: String, dir: URL, titled: Bool = true) async -> [String] {
-        let w = window(for: view, size: size, titled: titled)
+    private static func capture<V: View>(_ view: V, size: NSSize?, name: String, dir: URL, titled: Bool = true,
+                                         dark: Bool = false) async -> [String] {
+        let w = window(for: view, size: size, titled: titled, dark: dark)
         try? await Task.sleep(nanoseconds: 1_500_000_000)          // let SwiftUI lay out + load
         var out: [String] = []
         if let host = w.contentView {

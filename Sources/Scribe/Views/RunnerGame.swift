@@ -1,7 +1,7 @@
 // RunnerGame.swift
 // "Quill Dash": a tiny endless runner for the first-run download screen.
-// The scribe runs along a strip of parchment and jumps (Space, ↑ or click) over ink pots,
-// candles and stacks of books. It speeds up slowly. Best score is saved.
+// Flat monochrome shapes (think Chrome's offline dino): the nib runs along a line and jumps
+// (Space, ↑ or click) over ink drops, posts and blocks. It speeds up slowly. Best score is saved.
 //
 // How it works (no game engine): a SwiftUI Canvas inside a TimelineView redraws ~60×/s
 // ONLY while a run is going (paused otherwise). Each frame, `step(to:)` moves time forward:
@@ -112,11 +112,11 @@ struct RunnerGameView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack {
-                Text("Quill Dash").font(.system(.headline, design: .serif)).foregroundStyle(Ink.ink)
+                Text("Quill Dash").font(.headline)
                 Spacer()
-                Text("Score \(game.score)   Best \(game.best)")
-                    .font(.system(.callout, design: .rounded)).monospacedDigit()
-                    .foregroundStyle(Ink.ink.opacity(0.7))
+                Text("\(game.score)   HI \(game.best)")
+                    .font(.system(.callout, design: .monospaced).weight(.medium))
+                    .foregroundStyle(.secondary)
             }
             ZStack {
                 TimelineView(.animation(minimumInterval: 1.0 / 60.0, paused: game.phase != .running || game.previewFrozen)) { tl in
@@ -125,29 +125,29 @@ struct RunnerGameView: View {
                         RunnerPainter.draw(&ctx, size: size, game: game, date: tl.date)
                     }
                 }
-                .background(Ink.parchmentLight, in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Ink.parchmentDeep, lineWidth: 1))
+                .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
                 .contentShape(Rectangle())
                 .onTapGesture { game.jump() }
 
                 if game.phase != .running {
                     VStack(spacing: 8) {
-                        Text(game.phase == .over ? "Ink spilled!" : "Help the scribe dodge the ink")
-                            .font(.system(.title3, design: .serif).weight(.semibold))
+                        Text(game.phase == .over ? "Game over" : "Jump the ink blots")
+                            .font(.headline)
                         Text(game.phase == .over ? "Score \(game.score)" : "Space, ↑ or click to jump")
                             .font(.callout).foregroundStyle(.secondary)
                         HStack {
-                            Button(game.phase == .over ? "Play again" : "Start") { game.start() }
+                            Button(game.phase == .over ? "Play Again" : "Start") { game.start() }
                                 .keyboardShortcut(.space, modifiers: [])
-                                .buttonStyle(.borderedProminent).tint(Ink.royal)
+                                .buttonStyle(.borderedProminent)
                             if game.phase == .over { Button("Next") { onNext() } }
                         }
                     }
                     .padding(16)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
-            .frame(height: 170)
+            .frame(height: 176)
         }
         .focusable()
         .focusEffectDisabled()
@@ -161,61 +161,53 @@ struct RunnerGameView: View {
 @MainActor
 enum RunnerPainter {
     static func draw(_ ctx: inout GraphicsContext, size: CGSize, game: RunnerGame, date: Date) {
-        let ground = size.height - 26
-        // Ground line with dashes sliding left.
+        let ink = Color.primary
+        let ground = size.height - 28
+        // Ground line with small pebbles sliding left.
         var line = Path()
         line.move(to: CGPoint(x: 0, y: ground)); line.addLine(to: CGPoint(x: size.width, y: ground))
-        ctx.stroke(line, with: .color(Ink.ink.opacity(0.6)), lineWidth: 1.2)
-        let off = game.distance.truncatingRemainder(dividingBy: 40)
-        var dashes = Path()
+        ctx.stroke(line, with: .color(ink.opacity(0.55)), lineWidth: 1)
+        let off = game.distance.truncatingRemainder(dividingBy: 48)
+        var pebbles = Path()
         var x = -off
         while x < size.width {
-            let y = ground + 7 + CGFloat(Int(x + game.distance) % 3)
-            dashes.move(to: CGPoint(x: x, y: y)); dashes.addLine(to: CGPoint(x: x + 9, y: y))
-            x += 40
+            let y = ground + 6 + CGFloat(Int(x + game.distance) % 3) * 2
+            pebbles.move(to: CGPoint(x: x, y: y)); pebbles.addLine(to: CGPoint(x: x + 4, y: y))
+            x += 48
         }
-        ctx.stroke(dashes, with: .color(Ink.ink.opacity(0.25)), lineWidth: 1)
+        ctx.stroke(pebbles, with: .color(ink.opacity(0.25)), lineWidth: 1)
 
-        // Obstacles.
+        // Obstacles: flat shapes, one color.
         for o in game.obstacles {
             let r = CGRect(x: o.x, y: ground - o.h, width: o.w, height: o.h)
             switch o.kind {
-            case .inkPot:
-                ctx.fill(Path(roundedRect: r.insetBy(dx: 0, dy: 5).offsetBy(dx: 0, dy: 5), cornerRadius: 5), with: .color(Ink.ink))
-                ctx.fill(Path(roundedRect: CGRect(x: r.minX + 5, y: r.minY + 2, width: r.width - 10, height: 6), cornerRadius: 2), with: .color(Ink.ink))
-                ctx.fill(Path(ellipseIn: CGRect(x: r.minX + 4, y: r.midY + 2, width: 4, height: 4)), with: .color(.white.opacity(0.5)))
-            case .candle:
-                ctx.fill(Path(roundedRect: r.insetBy(dx: 0, dy: 8).offsetBy(dx: 0, dy: 8), cornerRadius: 2), with: .color(Ink.parchment))
-                ctx.stroke(Path(roundedRect: r.insetBy(dx: 0, dy: 8).offsetBy(dx: 0, dy: 8), cornerRadius: 2), with: .color(Ink.ink), lineWidth: 1.2)
-                let flicker = sin(date.timeIntervalSinceReferenceDate * 14) * 1.2
-                ctx.fill(Path(ellipseIn: CGRect(x: r.midX - 3.5 + flicker * 0.3, y: r.minY, width: 7, height: 13)), with: .color(Ink.gold))
-                ctx.fill(Path(ellipseIn: CGRect(x: r.midX - 1.6, y: r.minY + 5, width: 3.2, height: 6)), with: .color(Ink.royal))
-            case .books:
-                let colors = [Ink.royal, Ink.gold, Ink.ink]
-                for k in 0..<3 {
-                    let b = CGRect(x: r.minX + CGFloat(k % 2) * 3, y: r.maxY - CGFloat(k + 1) * 7.3, width: r.width - 3, height: 7)
-                    ctx.fill(Path(roundedRect: b, cornerRadius: 1.5), with: .color(colors[k]))
-                    ctx.stroke(Path(roundedRect: b, cornerRadius: 1.5), with: .color(Ink.ink), lineWidth: 0.8)
-                }
+            case .inkPot:       // an ink drop
+                var drop = Path()
+                drop.move(to: CGPoint(x: r.midX, y: r.minY))
+                drop.addQuadCurve(to: CGPoint(x: r.maxX, y: r.maxY - r.width / 2), control: CGPoint(x: r.maxX, y: r.minY + r.height * 0.45))
+                drop.addArc(center: CGPoint(x: r.midX, y: r.maxY - r.width / 2), radius: r.width / 2,
+                            startAngle: .degrees(0), endAngle: .degrees(180), clockwise: false)
+                drop.addQuadCurve(to: CGPoint(x: r.midX, y: r.minY), control: CGPoint(x: r.minX, y: r.minY + r.height * 0.45))
+                ctx.fill(drop, with: .color(ink.opacity(0.8)))
+            case .candle:       // a post
+                ctx.fill(Path(roundedRect: r, cornerRadius: 2), with: .color(ink.opacity(0.8)))
+            case .books:        // two stacked blocks
+                let lower = CGRect(x: r.minX, y: r.midY, width: r.width, height: r.height / 2)
+                let upper = CGRect(x: r.minX + 5, y: r.minY, width: r.width - 10, height: r.height / 2 - 2)
+                ctx.fill(Path(roundedRect: lower, cornerRadius: 2), with: .color(ink.opacity(0.8)))
+                ctx.fill(Path(roundedRect: upper, cornerRadius: 2), with: .color(ink.opacity(0.8)))
             }
         }
 
-        // The scribe (mascot picture), bobbing while running, tilted while in the air.
-        let bob = game.y > 0 ? 0 : abs(sin(game.distance / 18)) * 2.5
+        // The player: the Scribe nib, upright, bobbing while running, tilted in the air.
+        let bob = game.y > 0 ? 0 : abs(sin(game.distance / 18)) * 2
         let rect = CGRect(x: RunnerGame.playerX, y: ground - RunnerGame.playerH - game.y - bob,
                           width: RunnerGame.playerW, height: RunnerGame.playerH)
-        if let img = NSImage(named: "MascotWelcome") {
-            var c = ctx
-            c.translateBy(x: rect.midX, y: rect.midY)
-            c.rotate(by: .degrees(game.y > 0 ? -8 : 0))
-            c.draw(Image(nsImage: img), in: CGRect(x: -rect.width / 2 - 4, y: -rect.height / 2 - 4,
-                                                  width: rect.width + 8, height: rect.height + 8))
-        } else {
-            ctx.fill(Path(roundedRect: rect, cornerRadius: 10), with: .color(Ink.royal))
-        }
+        let nib = Path(NibShape.path(in: rect.insetBy(dx: -3, dy: 0), degrees: game.y > 0 ? -12 : 0, detail: .glyph))
+        ctx.fill(nib, with: .color(ink), style: FillStyle(eoFill: true))
         // Shadow on the ground.
-        let sw = max(10, 26 - game.y / 4)
-        ctx.fill(Path(ellipseIn: CGRect(x: rect.midX - sw / 2, y: ground - 2, width: sw, height: 4)),
-                 with: .color(Ink.ink.opacity(0.18)))
+        let sw = max(8, 22 - game.y / 4)
+        ctx.fill(Path(ellipseIn: CGRect(x: rect.midX - sw / 2, y: ground - 1.5, width: sw, height: 3)),
+                 with: .color(ink.opacity(0.15)))
     }
 }

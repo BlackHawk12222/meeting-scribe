@@ -96,62 +96,57 @@ struct ContentView: View {
         }
     }
 
-    /// Empty state: the scribe with a blank scroll when there are no meetings yet,
-    /// otherwise a gentle "pick one".
-    private var placeholder: some View {
-        VStack(spacing: 12) {
-            if store.meetings.isEmpty {
-                Mascot(pose: .empty, height: 190)
-                Text("No meetings yet").font(.system(.title2, design: .serif).weight(.semibold))
-                Text("Press Record (⌘R) to capture one — Scribe writes the transcript, who said what, and the notes.")
-                    .foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 420)
-                Text("Or hold \(DictationSettings.holdKey.title) in any app to dictate. Everything stays on this Mac.")
-                    .font(.callout).foregroundStyle(.secondary)
-            } else {
-                Mascot(pose: .about, height: 120)
-                Text("Pick a meeting on the left").font(.system(.title3, design: .serif))
-                Text("Or press Record (⌘R) for a new one.").foregroundStyle(.secondary)
+    /// Empty state (native ContentUnavailableView).
+    @ViewBuilder private var placeholder: some View {
+        if store.meetings.isEmpty {
+            ContentUnavailableView {
+                Label("No Meetings Yet", systemImage: "waveform")
+            } description: {
+                Text("Press Record (⌘R) and Scribe writes the transcript, who said what, and the notes. Or hold \(DictationSettings.holdKey.title) in any app to dictate. Everything stays on this Mac.")
+            } actions: {
+                Button("Record a Meeting") { model.toggleMeetingRecording() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
             }
+        } else {
+            ContentUnavailableView("Select a Meeting", systemImage: "doc.text",
+                                   description: Text("Pick a meeting in the sidebar, or press ⌘R to record a new one."))
         }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // The big record button at the top of the sidebar.
+    // The record button at the top of the sidebar.
     private var recordPanel: some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             Button(action: { model.toggleMeetingRecording() }) {
-                HStack {
-                    Image(systemName: recorder.isRecording ? "stop.circle.fill" : "record.circle")
-                        .font(.system(size: 22))
-                    Text(recorder.isRecording ? "Stop" : "Record")
-                        .font(.headline)
+                Label {
+                    Text(recorder.isRecording ? "Stop · \(Exporter.clock(recorder.elapsed))" : "Record Meeting")
+                        .monospacedDigit()
+                } icon: {
+                    Image(systemName: recorder.isRecording ? "stop.fill" : "record.circle")
+                        .foregroundStyle(Brand.record)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(recorder.isRecording ? Ink.ink : Ink.royal)
+            .controlSize(.large)
+            .buttonStyle(.bordered)
+            .tint(recorder.isRecording ? Brand.record : nil)
             .keyboardShortcut("r", modifiers: [.command])
 
             if recorder.isRecording {
-                HStack {
-                    Text(Exporter.clock(recorder.elapsed)).monospacedDigit()
-                    ProgressView(value: Double(recorder.level)).tint(Ink.gold)
-                }
+                ProgressView(value: Double(recorder.level)).tint(Brand.record)
                 if recorder.noiseCleanupActive {
                     Label("Noise cleanup on", systemImage: "waveform.badge.minus").font(.caption)
                         .foregroundStyle(.secondary)
                 }
             } else {
-                Toggle("Noise cleanup (Apple voice processing)", isOn: $noiseCleanup)
+                Toggle("Noise cleanup", isOn: $noiseCleanup)
                     .font(.caption)
                     .toggleStyle(.checkbox)
+                    .help("Apple voice processing: reduces background noise while recording.")
             }
         }
-        .padding(12)
-        .background(ParchmentBand())
-        .environment(\.colorScheme, .light)      // parchment is light in dark mode too
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
     }
 }
 
@@ -190,18 +185,20 @@ struct ModelBanner: View {
         HStack(spacing: 10) {
             if store.engineError == nil {
                 if let p = store.modelProgress {
-                    ProgressView(value: p).frame(width: 120)
+                    ProgressView(value: p).frame(width: 120).controlSize(.small)
                 } else {
                     ProgressView().controlSize(.small)
                 }
             }
-            Text(store.engineError ?? store.engineStatus).font(.callout)
+            Text(store.engineError ?? store.engineStatus).font(.callout).foregroundStyle(.secondary).monospacedDigit()
             Spacer()
             if store.engineError != nil {
                 Button("Retry") { Task { await store.prepareEngine() } }
             }
         }
-        .padding(10)
-        .background(.yellow.opacity(0.15))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
     }
 }

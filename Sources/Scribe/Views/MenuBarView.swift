@@ -1,9 +1,9 @@
 // MenuBarView.swift
-// The panel that drops down from the scroll icon in the menu bar: the essentials only.
+// The panel that drops down from the nib icon in the menu bar: the essentials only.
 //   • Start/stop dictation (with the hotkey hint)   • Record/stop a meeting
 //   • Last dictation + Copy                          • Recent meetings (open in the main window)
 //   • Settings, Quit
-// A light parchment header; everything else is plain, readable system UI.
+// Plain, compact system UI (light and dark).
 
 import SwiftUI
 import AppKit
@@ -20,42 +20,48 @@ struct MenuBarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            VStack(alignment: .leading, spacing: 10) {
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
                 if !store.engineReady { loading }
                 dictationButton
                 meetingButton
-                if let last = store.dictations.first { lastDictation(last) }
-                if !store.meetings.isEmpty { recentMeetings }
             }
             .padding(12)
+            if let last = store.dictations.first {
+                Divider()
+                lastDictation(last).padding(12)
+            }
+            if !store.meetings.isEmpty {
+                Divider()
+                recentMeetings.padding(.horizontal, 6).padding(.vertical, 8)
+            }
             Divider()
             footer
         }
-        .frame(width: 300)
+        .frame(width: 296)
     }
 
     // MARK: Parts
 
     private var header: some View {
         HStack(spacing: 8) {
-            Image(nsImage: NSApp.applicationIconImage ?? NSImage()).resizable().frame(width: 22, height: 22)
-            Text("Scribe").font(.system(.headline, design: .serif))
+            AppIconView(size: 20)
+            Text("Scribe").font(.headline)
             Spacer()
-            HStack(spacing: 5) {
-                Circle().fill(statusColor).frame(width: 7, height: 7)
-                Text(statusText).font(.caption).foregroundStyle(Ink.ink.opacity(0.75))
+            HStack(spacing: 6) {
+                Circle().fill(statusColor).frame(width: 6, height: 6)
+                Text(statusText).font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .background(ParchmentBand())
-        .environment(\.colorScheme, .light)
+        .padding(.vertical, 10)
     }
 
     private var loading: some View {
         VStack(alignment: .leading, spacing: 4) {
             ProgressView(value: store.modelProgress ?? models.progress?.fraction ?? 0)
             Text(store.engineError ?? store.engineStatus).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                .monospacedDigit()
         }
     }
 
@@ -68,7 +74,7 @@ struct MenuBarView: View {
             }
             .controlSize(.large)
             .buttonStyle(.borderedProminent)
-            .tint(dictation.state == .listening ? Ink.royal : Ink.ink)
+            .tint(dictation.state == .listening ? Brand.record : Brand.accent)
             .disabled(!store.engineReady || dictation.state == .transcribing)
             Text(hint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
@@ -76,13 +82,17 @@ struct MenuBarView: View {
 
     private var meetingButton: some View {
         Button { model.toggleMeetingRecording() } label: {
-            Label(recorder.isRecording ? "Stop meeting · \(Exporter.clock(recorder.elapsed))" : "Record a meeting",
-                  systemImage: recorder.isRecording ? "stop.circle.fill" : "record.circle")
-                .frame(maxWidth: .infinity)
+            Label {
+                Text(recorder.isRecording ? "Stop meeting · \(Exporter.clock(recorder.elapsed))" : "Record a meeting")
+                    .monospacedDigit()
+            } icon: {
+                Image(systemName: recorder.isRecording ? "stop.circle.fill" : "record.circle")
+                    .foregroundStyle(Brand.record)
+            }
+            .frame(maxWidth: .infinity)
         }
         .controlSize(.large)
         .buttonStyle(.bordered)
-        .tint(recorder.isRecording ? Ink.royal : nil)
         .disabled(!store.engineReady && !recorder.isRecording)
     }
 
@@ -105,14 +115,14 @@ struct MenuBarView: View {
             Text(last.text).font(.callout).lineLimit(3).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(8)
-                .background(Ink.parchmentLight.opacity(0.6), in: RoundedRectangle(cornerRadius: 7))
-                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Ink.parchmentDeep.opacity(0.7), lineWidth: 0.5))
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
     }
 
     private var recentMeetings: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 0) {
             Text("Recent meetings").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                .padding(.horizontal, 6).padding(.bottom, 4)
             ForEach(store.meetings.prefix(3)) { m in
                 Button {
                     model.openMeeting(m.id)
@@ -128,8 +138,7 @@ struct MenuBarView: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .padding(.vertical, 3)
+                .buttonStyle(MenuRowStyle())
             }
         }
     }
@@ -155,14 +164,14 @@ struct MenuBarView: View {
         if !store.engineReady { return store.engineError == nil ? "Getting ready…" : "Needs attention" }
         switch dictation.state {
         case .listening: return "Listening"
-        case .transcribing: return "Writing…"
+        case .transcribing: return "Transcribing…"
         default: return recorder.isRecording ? "Recording meeting" : "Ready"
         }
     }
 
     private var statusColor: Color {
-        if !store.engineReady { return store.engineError == nil ? Ink.gold : .orange }
-        if dictation.state == .listening || recorder.isRecording { return Ink.royal }
+        if !store.engineReady { return store.engineError == nil ? .yellow : .orange }
+        if dictation.state == .listening || recorder.isRecording { return Brand.record }
         return .green
     }
 
@@ -172,5 +181,24 @@ struct MenuBarView: View {
         if key != .off, DictationSettings.mode != .toggleOnly { parts.append("Hold \(key.title) and talk") }
         if let t = DictationSettings.toggleShortcut, DictationSettings.mode != .holdOnly { parts.append("or press \(t.label)") }
         return parts.isEmpty ? "Hotkeys are off (Settings)." : parts.joined(separator: ", ") + " in any app."
+    }
+}
+
+/// A menu-like row: highlights on hover, like native menu items.
+struct MenuRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        MenuRow(configuration: configuration)
+    }
+    private struct MenuRow: View {
+        let configuration: ButtonStyleConfiguration
+        @State private var hover = false
+        var body: some View {
+            configuration.label
+                .padding(.horizontal, 6)
+                .padding(.vertical, 5)
+                .background(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.12 : (hover ? 0.07 : 0))))
+                .onHover { hover = $0 }
+        }
     }
 }

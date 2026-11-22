@@ -7,25 +7,21 @@ import SwiftUI
 struct AboutView: View {
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 16) {
-                    Mascot(pose: .about, height: 120)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Scribe").font(.system(.largeTitle, design: .serif).weight(.semibold))
-                        Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?") · made by BlackHawk12222")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Text("Your royal scribe: writes down what you say, so you don't have to.")
-                            .font(.callout).italic().foregroundStyle(.secondary)
-                    }
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(spacing: 8) {
+                    AppIconView(size: 96)
+                    Text("Scribe").font(.title.weight(.semibold))
+                    Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")")
+                        .font(.callout).foregroundStyle(.secondary).monospacedDigit()
+                    Text("Dictation and meeting notes that run entirely on your Mac.\nFree, no account, nothing uploaded.")
+                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Text("Made by BlackHawk12222").font(.caption).foregroundStyle(.tertiary)
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(ParchmentBand().clipShape(RoundedRectangle(cornerRadius: 12)))
-                .environment(\.colorScheme, .light)
-                Text("Dictation and meeting notes that run 100% on your Mac. Free, no account, nothing uploaded.")
-                    .font(.callout)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
 
-                Text("Credits & licenses").font(.headline).padding(.top, 6)
+                Divider()
+                Text("Credits & licenses").font(.headline)
                 ForEach(Credits.all, id: \.name) { c in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(c.name).font(.subheadline.bold())
@@ -34,12 +30,12 @@ struct AboutView: View {
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(10)
+                    .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
             }
-            .padding(20)
+            .padding(24)
         }
     }
 }
@@ -73,8 +69,8 @@ enum Credits {
         Credit(name: "pyannote speaker-diarization-community-1 + WeSpeaker",
                what: "Who-spoke-when segmentation and voice fingerprints for meetings (Core ML conversion by FluidInference).",
                license: "CC-BY-4.0 — pyannote.audio contributors / WeSpeaker. creativecommons.org/licenses/by/4.0"),
-        Credit(name: "Scribe mascot & app icon",
-               what: "Drawn for Scribe with an AI image generator (prompted by the developer's design brief), then cropped and cleaned up.",
+        Credit(name: "Scribe app icon",
+               what: "A fountain-pen nib drawn in code (vector math, scripts/make_icon.py) for Scribe.",
                license: "Part of Scribe."),
         Credit(name: "Apple Foundation Models",
                what: "Optional on-device clean-up and meeting notes on macOS 26 with Apple Intelligence.",

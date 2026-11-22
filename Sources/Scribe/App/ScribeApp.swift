@@ -37,9 +37,9 @@ final class AppModel: ObservableObject {
     /// Set by the menu bar ("open this meeting"); the main window selects it.
     @Published var openMeetingRequest: UUID?
 
-    /// The meeting scroll at the bottom of the screen while a meeting records.
-    private let meetingOverlay = ScrollOverlay()
-    let meetingTape = InkTape()
+    /// The meeting capsule (red dot + level bars + timer) while a meeting records.
+    private let meetingOverlay = OverlayPanel()
+    let meetingTape = LevelTape()
     private var bag: Set<AnyCancellable> = []
     @Published var alertText: String?
 
@@ -49,7 +49,7 @@ final class AppModel: ObservableObject {
         guard !started else { return }
         started = true
         dictation.attach(store: store, recorder: recorder)
-        // Meeting scroll: ink follows the recorder's mic level.
+        // Meeting capsule: the bars follow the recorder's mic level.
         recorder.$level.sink { [weak self] l in
             guard let self, self.recorder.isRecording else { return }
             self.meetingTape.add(l)
@@ -58,7 +58,7 @@ final class AppModel: ObservableObject {
             guard let self else { return }
             if on && UserDefaults.standard.object(forKey: "showMeetingScroll") as? Bool ?? true {
                 self.meetingTape.reset()
-                self.meetingOverlay.show(MeetingScrollView(recorder: self.recorder, tape: self.meetingTape))
+                self.meetingOverlay.show(MeetingOverlayView(recorder: self.recorder, tape: self.meetingTape))
             } else {
                 self.meetingOverlay.hide()
             }
@@ -154,8 +154,8 @@ struct ScribeApp: App {
     }
 }
 
-/// The menu bar icon: a small open scroll drawn in code as a template image (Theme.swift).
-/// A dot appears on the parchment while listening/recording, three dots while writing.
+/// The menu bar icon: the nib, drawn in code as a template image (Theme.swift).
+/// A dot appears while listening/recording, three dots while transcribing.
 struct MenuBarIcon: View {
     @ObservedObject var dictation: DictationController
     @ObservedObject var recorder: Recorder
