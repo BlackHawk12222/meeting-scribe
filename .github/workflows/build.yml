@@ -6,7 +6,7 @@ name: build-mac-app
 on:
   push:
     branches: [main]
-    paths: ["Sources/**", "Resources/SelfTest/**", "project.yml", "scripts/**", ".github/workflows/**"]
+    paths: ["Sources/**", "Resources/SelfTest/**", "Tests/**", "project.yml", "scripts/**", ".github/workflows/**"]
   workflow_dispatch:
     inputs:
       selftest:
@@ -70,7 +70,7 @@ jobs:
         run: |
           set -o pipefail
           SUITE="${{ github.event.inputs.selftest }}"; [ -z "$SUITE" ] && SUITE=quick
-          ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --selftest --suite "$SUITE" --seconds 300 | tee selftest.out
+          ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --selftest --suite "$SUITE" --seconds 300 --meeting-wav "$PWD/Tests/ES2004a_first300s.wav" | tee selftest.out
           grep '^SELFTEST_JSON:' selftest.out | sed 's/^SELFTEST_JSON://' > selftest.json
           python3 -m json.tool selftest.json
           sysctl -n machdep.cpu.brand_string >> selftest-machine.txt; sysctl -n hw.memsize >> selftest-machine.txt

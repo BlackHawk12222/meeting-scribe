@@ -166,8 +166,14 @@ enum SelfTest {
 
     static func notesTest(dir: URL, seconds: Double) async throws -> [String: Any] {
         let name = "ES2004a"
-        let wav = dir.appendingPathComponent("\(name).wav")
-        try await download(URL(string: "\(base)/\(name)/audio/\(name).Mix-Headset.wav")!, to: wav)
+        // CI passes a 300 s copy stored in the repo (Tests/), because the AMI server is sometimes down.
+        let wav: URL
+        if let local = argValue("--meeting-wav") {
+            wav = URL(fileURLWithPath: local)
+        } else {
+            wav = dir.appendingPathComponent("\(name).wav")
+            try await download(URL(string: "\(base)/\(name)/audio/\(name).Mix-Headset.wav")!, to: wav)
+        }
         let samples = Array(try SpeechEngine.loadSamples(wav).prefix(Int(seconds * 16_000)))
         let t0 = Date()
         let processed = try await SpeechEngine.shared.process(samples: samples)

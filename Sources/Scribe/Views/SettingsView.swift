@@ -61,8 +61,8 @@ struct DictationSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .onChange(of: holdKey) { _ in dictation.hotkeys.reload() }
-        .onChange(of: mode) { _ in dictation.hotkeys.reload() }
+        .onChange(of: holdKey) { _, _ in dictation.hotkeys.reload() }
+        .onChange(of: mode) { _, _ in dictation.hotkeys.reload() }
     }
 }
 
@@ -151,7 +151,7 @@ struct ModelSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .onChange(of: speechModel) { _ in Task { await store.prepareEngine() } }
+        .onChange(of: speechModel) { _, _ in Task { await store.prepareEngine() } }
     }
 }
 
@@ -220,7 +220,7 @@ struct GeneralSettingsTab: View {
     var body: some View {
         Form {
             Toggle("Open Scribe when I log in", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { on in setLaunchAtLogin(on) }
+                .onChange(of: launchAtLogin) { _, on in setLaunchAtLogin(on) }
             if let e = loginError { Text(e).font(.caption).foregroundStyle(.orange) }
             Toggle("Noise cleanup for meetings (Apple voice processing)", isOn: $noiseCleanup)
             Button("Show the welcome screen again") { onboarded = false }

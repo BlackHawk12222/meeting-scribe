@@ -76,7 +76,7 @@ struct ContentView: View {
                 .environmentObject(store)
                 .environmentObject(permissions)
         }
-        .onChange(of: model.justRecordedMeeting) { id in
+        .onChange(of: model.justRecordedMeeting) { _, id in
             if let id { selection = .meeting(id) }
         }
     }

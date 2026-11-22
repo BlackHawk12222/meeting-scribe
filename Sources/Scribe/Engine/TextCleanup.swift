@@ -33,8 +33,10 @@ enum TextCleanup {
 
     static func rules(_ input: String) -> String {
         var s = " " + input + " "
-        // 1) Fillers, plus a comma that came right after them: "Um, so" -> "so".
         let alternation = fillers.joined(separator: "|")
+        // 1a) A filler between two commas: "the motor is, um, overheating" -> "the motor is overheating".
+        s = replace(s, "(?i)(?<=\\w),\\s*(?:\(alternation))\\s*,(?=\\s)", with: "")
+        // 1b) Any other filler, plus a comma right after it: "Um, so" -> "so".
         s = replace(s, "(?i)(?<=[\\s,.!?])(?:\(alternation))(?=[\\s,.!?])[,]?", with: "")
         // 2) Stutters: the same word 3+ times in a row -> once. ("that that" can be correct English, so 2 stays.)
         s = replace(s, "(?i)\\b(\\w+)(?:[\\s,]+\\1\\b){2,}", with: "$1")
