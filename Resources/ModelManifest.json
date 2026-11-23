@@ -503,6 +503,248 @@
      "gitSha1": "dc56c6540cd21c9a080c2908fdf0fe2530413415"
     }
    ]
+  },
+  {
+   "id": "asr-ultra",
+   "title": "Speech model \u00b7 Accurate (Parakeet Ultra)",
+   "group": "optional",
+   "repo": "FluidInference/parakeet-ultra-coreml",
+   "fluidRevision": "main",
+   "commit": "95eaa59a39d4394f047a4dc5cce480388a60d1b6",
+   "version": "95eaa59a39",
+   "hash": "5fc4cbadc49cc27799b6d35f4b41defd2e6f76c830cd87d5c378badfe24fc167",
+   "totalBytes": 632314500,
+   "files": [
+    {
+     "path": "Decoder.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "fe92b6cfaa012abd5248c0bc877832f19807015abffc60d87b8ccc8ccb48b3b5",
+     "gitSha1": null
+    },
+    {
+     "path": "Decoder.mlmodelc/coremldata.bin",
+     "size": 560,
+     "sha256": "3b06e66768f0df7e21795f50e2b29300e33eeb1a2579dc42c695279c2d308497",
+     "gitSha1": null
+    },
+    {
+     "path": "Decoder.mlmodelc/model.mil",
+     "size": 13110,
+     "sha256": null,
+     "gitSha1": "36dcd5cbb71d13f42a177427ddbab7539e0d167e"
+    },
+    {
+     "path": "Decoder.mlmodelc/weights/weight.bin",
+     "size": 23604992,
+     "sha256": "02a0d219f281b9665bc10c8768649403b2eebbbf4b44c627041d948e0de11bb4",
+     "gitSha1": null
+    },
+    {
+     "path": "Encoder.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "d87101d824d6723cf95304da33755c3c60e762663b9ef2b0c4bd0aa166a09a0d",
+     "gitSha1": null
+    },
+    {
+     "path": "Encoder.mlmodelc/coremldata.bin",
+     "size": 514,
+     "sha256": "397a84a4062f563cbc5f56077c674f09a61d85be5090f61d2f1932afb92ac0fe",
+     "gitSha1": null
+    },
+    {
+     "path": "Encoder.mlmodelc/model.mil",
+     "size": 1002653,
+     "sha256": null,
+     "gitSha1": "8c5c9915fc71bb7e9b0be1e7b55e38ec6a007e7f"
+    },
+    {
+     "path": "Encoder.mlmodelc/weights/weight.bin",
+     "size": 594211328,
+     "sha256": "315ba01f33cadbf601d43ac7f5c86208b7aa75fdaa34705c9869d5abe3521c9b",
+     "gitSha1": null
+    },
+    {
+     "path": "JointDecisionv3.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "68d38ca646aebafa7a9329e2efda50f5767c49e89fdb5f77f212072bb66f97c4",
+     "gitSha1": null
+    },
+    {
+     "path": "JointDecisionv3.mlmodelc/coremldata.bin",
+     "size": 592,
+     "sha256": "5e3af5a4ce686f6c237cadbd9284e10d333bc0e1546633cd0e430e6194044bc4",
+     "gitSha1": null
+    },
+    {
+     "path": "JointDecisionv3.mlmodelc/model.mil",
+     "size": 11777,
+     "sha256": null,
+     "gitSha1": "be552d46f98f9dc9b242b0d1659833db60aa3f83"
+    },
+    {
+     "path": "JointDecisionv3.mlmodelc/weights/weight.bin",
+     "size": 12642764,
+     "sha256": "3f310b85b82341c53ec383025ab094a4e462ee1c592e1ad7c6bfe39cff66ca25",
+     "gitSha1": null
+    },
+    {
+     "path": "Preprocessor.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "c9beeb989c8d66f8be11df59bc6df277ec76cee404f6865b46243835ef562f6d",
+     "gitSha1": null
+    },
+    {
+     "path": "Preprocessor.mlmodelc/coremldata.bin",
+     "size": 486,
+     "sha256": "dbde3f2300842c1fd51ef3ff948a0bcffe65ffd2dca10707f2509f32c1d65b1d",
+     "gitSha1": null
+    },
+    {
+     "path": "Preprocessor.mlmodelc/metadata.json",
+     "size": 2841,
+     "sha256": null,
+     "gitSha1": "06162c58cf2f5343a0e60f36f843bcdf3cc58527"
+    },
+    {
+     "path": "Preprocessor.mlmodelc/model.mil",
+     "size": 28181,
+     "sha256": null,
+     "gitSha1": "f987e2479228436c49189aa47edb376db74dcff5"
+    },
+    {
+     "path": "Preprocessor.mlmodelc/weights/weight.bin",
+     "size": 491072,
+     "sha256": "129b76e3aeafa8afa3ea76d995b964b145fe83700d579f6ff42c4c38fa0968ea",
+     "gitSha1": null
+    },
+    {
+     "path": "config.json",
+     "size": 414,
+     "sha256": null,
+     "gitSha1": "169454f3dd120a0b7278bc1ef79ce8a8078febde"
+    },
+    {
+     "path": "parakeet_v3_vocab.json",
+     "size": 151122,
+     "sha256": null,
+     "gitSha1": "c684822ec3b671ebc449c433a7012398d39b8bb0"
+    },
+    {
+     "path": "parakeet_vocab.json",
+     "size": 151122,
+     "sha256": null,
+     "gitSha1": "c684822ec3b671ebc449c433a7012398d39b8bb0"
+    }
+   ]
+  },
+  {
+   "id": "ctc-110m",
+   "title": "Vocabulary helper (Parakeet CTC 110M)",
+   "group": "optional",
+   "repo": "FluidInference/parakeet-ctc-110m-coreml",
+   "fluidRevision": "main",
+   "commit": "accdafd8cf8a2ff1cabe3c11e54416b405d409aa",
+   "version": "accdafd8cf",
+   "hash": "eafab282a34dddd1e5990ce1d2e096e42e953554545ec7de852f1eb504984d96",
+   "totalBytes": 102803869,
+   "files": [
+    {
+     "path": "AudioEncoder.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "8906c823e9bb3bf6b16d9f0308f98cd70573526333ad85dd767dc3f9ae6b25fa",
+     "gitSha1": null
+    },
+    {
+     "path": "AudioEncoder.mlmodelc/coremldata.bin",
+     "size": 505,
+     "sha256": "a88b002b58193b4c31211754cdfdf220a85f9651dc61caf336ab84400cbc191a",
+     "gitSha1": null
+    },
+    {
+     "path": "AudioEncoder.mlmodelc/metadata.json",
+     "size": 3456,
+     "sha256": null,
+     "gitSha1": "d8cc3094ea923273b3870c1418c982eb8c518704"
+    },
+    {
+     "path": "AudioEncoder.mlmodelc/model.mil",
+     "size": 1060924,
+     "sha256": null,
+     "gitSha1": "f394aeed7e0f3e8b25ae16e713f2a80558435158"
+    },
+    {
+     "path": "AudioEncoder.mlmodelc/weights/weight.bin",
+     "size": 100778304,
+     "sha256": "af0734b4a5d7465ad9e8bb170f0c53c5e6b91ebb75a9bdf88d3f59ae4ad6aebd",
+     "gitSha1": null
+    },
+    {
+     "path": "MelSpectrogram.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "22f2a8cba1de25c984050566b534a1d8caf22a82f9fe6c1c6f3149a0dd7e8ae3",
+     "gitSha1": null
+    },
+    {
+     "path": "MelSpectrogram.mlmodelc/coremldata.bin",
+     "size": 330,
+     "sha256": "3a32ec67c76aa0aa2faef518413c311493e89aeb7fa11289fa4b8653ab8a160c",
+     "gitSha1": null
+    },
+    {
+     "path": "MelSpectrogram.mlmodelc/metadata.json",
+     "size": 1962,
+     "sha256": null,
+     "gitSha1": "944c0c11d0e59dff561e97c44e5e47127a9e953b"
+    },
+    {
+     "path": "MelSpectrogram.mlmodelc/model.mil",
+     "size": 12584,
+     "sha256": null,
+     "gitSha1": "d1ef7d81e60edf7bc921ade3f5b602a471e8609b"
+    },
+    {
+     "path": "MelSpectrogram.mlmodelc/weights/weight.bin",
+     "size": 567712,
+     "sha256": "0a89c055bfde9022029d3cc59a23e949385e063974460d8eaec3a7614c3eaaa8",
+     "gitSha1": null
+    },
+    {
+     "path": "config.json",
+     "size": 121,
+     "sha256": null,
+     "gitSha1": "601ee835ed23ea5b6c10bdfcb3c9a44ef622ac9d"
+    },
+    {
+     "path": "ctc_head_metadata.json",
+     "size": 382,
+     "sha256": null,
+     "gitSha1": "f8b394115e5054ef0e25effacafae998742c8abc"
+    },
+    {
+     "path": "special_tokens_map.json",
+     "size": 279,
+     "sha256": null,
+     "gitSha1": "815fbdc56abc60a0f29e51ff2373c998d7779805"
+    },
+    {
+     "path": "tokenizer.json",
+     "size": 360106,
+     "sha256": null,
+     "gitSha1": "21e87f185d71820f5089456aa9c79c97c0a0ce8b"
+    },
+    {
+     "path": "tokenizer_config.json",
+     "size": 632,
+     "sha256": null,
+     "gitSha1": "d9eaa0fb393ab6e3ac6890fe99efb6191cded97c"
+    },
+    {
+     "path": "vocab.json",
+     "size": 16086,
+     "sha256": null,
+     "gitSha1": "33b95831722563db5362641673b37885e25fb47a"
+    }
+   ]
   }
  ]
 }

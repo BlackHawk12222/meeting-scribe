@@ -1,5 +1,5 @@
 // SettingsView.swift
-// Scribe > Settings… (⌘,). Tabs: Dictation, Model, Permissions, General, Sync, About.
+// Scribe > Settings… (⌘,). Tabs: Dictation, Vocabulary, Model, Permissions, General, Sync, About.
 
 import SwiftUI
 import AppKit
@@ -10,6 +10,7 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             DictationSettingsTab().tabItem { Label("Dictation", systemImage: "mic") }
+            VocabularySettingsTab().tabItem { Label("Vocabulary", systemImage: "character.book.closed") }
             ModelSettingsTab().tabItem { Label("Model", systemImage: "cpu") }
             PermissionsTab().tabItem { Label("Permissions", systemImage: "lock.shield") }
             GeneralSettingsTab().tabItem { Label("General", systemImage: "gearshape") }
@@ -33,6 +34,7 @@ struct DictationSettingsTab: View {
     @AppStorage("trailingSpace") private var trailingSpace = true
     @AppStorage("directInsert") private var directInsert = true
     @AppStorage("dictationSounds") private var sounds = true
+    @AppStorage("pauseWhileThinking") private var pauseWhileThinking = true
     @AppStorage(OverlayPosition.key) private var overlayPosition = OverlayPosition.bottomCenter.rawValue
     @State private var hasDragged = false
 
@@ -68,6 +70,14 @@ struct DictationSettingsTab: View {
                 Text("Overlay")
             } footer: {
                 Text("The small recording indicator appears on the screen you're working on, clear of the menu bar and Dock. Drag it to move it; Scribe remembers the spot for each display.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("I pause while thinking", isOn: $pauseWhileThinking)
+            } header: {
+                Text("Pauses")
+            } footer: {
+                Text("On: a pause has to last over a second before Scribe treats it as a break, and everything you say in one go is written in a single pass, so thinking pauses don't add periods or capitals mid-sentence.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Clean-up") {
@@ -173,6 +183,70 @@ struct ShortcutRecorder: View {
     }
 }
 
+// MARK: - Vocabulary
+
+/// Settings › Vocabulary: words Scribe should spell your way.
+struct VocabularySettingsTab: View {
+    @EnvironmentObject var store: Store
+    @State private var words: [String] = Vocabulary.words
+    @State private var newWord = ""
+    @State private var selection: String?
+    @AppStorage(Vocabulary.boostKey) private var acoustic = false
+
+    var body: some View {
+        Form {
+            Section {
+                List(selection: $selection) {
+                    ForEach(words, id: \.self) { w in Text(w).tag(w) }
+                        .onDelete { words.remove(atOffsets: $0); save() }
+                }
+                .frame(minHeight: 170)
+                HStack {
+                    TextField("Add a word or name", text: $newWord)
+                        .onSubmit(add)
+                    Button("Add", action: add).disabled(newWord.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("Remove") {
+                        if let s = selection { words.removeAll { $0 == s }; selection = nil; save() }
+                    }
+                    .disabled(selection == nil)
+                }
+            } header: {
+                Text("Your words")
+            } footer: {
+                Text("Names, apps and terms you use. Scribe spells them your way: “on shape” → Onshape, “swift ui” → SwiftUI, “v five” → V5. Close misspellings of longer words are fixed only when they aren't real English words.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle("Also match against the audio", isOn: $acoustic)
+                if acoustic, !store.vocabularyBoostStatus.isEmpty {
+                    Text(store.vocabularyBoostStatus).font(.caption).foregroundStyle(.secondary)
+                }
+            } footer: {
+                Text("Uses a small extra model (about 100 MB, downloaded once) to check your words against how they sounded, so misheard names can be fixed even when the spelling is far off. Off by default: it can sometimes swap an ordinary word for one of yours.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Button("Restore Defaults") { words = Vocabulary.defaults; save() }
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: acoustic) { _, _ in Task { await store.prepareVocabularyBoost() } }
+    }
+
+    private func add() {
+        let w = newWord.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !w.isEmpty, !words.contains(where: { $0.caseInsensitiveCompare(w) == .orderedSame }) else { newWord = ""; return }
+        words.append(w)
+        newWord = ""
+        save()
+    }
+
+    private func save() {
+        Vocabulary.words = words
+        Task { await store.prepareVocabularyBoost() }
+    }
+}
+
 // MARK: - Model
 
 struct ModelSettingsTab: View {
@@ -184,7 +258,7 @@ struct ModelSettingsTab: View {
         Form {
             Section("Speech to text") {
                 Picker("Model", selection: $speechModel) {
-                    ForEach(SpeechModel.allCases) { m in
+                    ForEach(SpeechModel.choices) { m in
                         VStack(alignment: .leading) {
                             Text(m.title)
                             Text(m.detail).font(.caption).foregroundStyle(.secondary)
@@ -235,7 +309,7 @@ struct ModelComponentsList: View {
         if models.components.isEmpty {
             Text("No model manifest in this build — FluidAudio downloads models itself.").font(.caption)
         }
-        ForEach(models.components) { c in
+        ForEach(models.components.filter { models.isRelevant($0) }) { c in
             let state = models.states[c.id] ?? .missing
             HStack(spacing: 10) {
                 Image(systemName: icon(state)).foregroundStyle(color(state)).frame(width: 18)
@@ -286,11 +360,58 @@ struct ModelComponentsList: View {
 
 struct PermissionsTab: View {
     @EnvironmentObject var permissions: Permissions
+    @ObservedObject private var pasteLog = PasteLog.shared
+    @State private var testing = false
+    @State private var testResult: TypingTest.Result?
+
     var body: some View {
         Form {
-            PermissionRows()
-            Text("Rebuilt or updated the app and dictation stopped pasting? macOS ties Accessibility to the exact app build. Remove Scribe from the Accessibility list with “–”, then add it again.")
-                .font(.caption).foregroundStyle(.secondary)
+            Section {
+                AccessibilityBanner(permissions: permissions)
+                PermissionRows()
+            }
+            Section {
+                HStack {
+                    Button(testing ? "Testing…" : "Test typing into TextEdit") {
+                        testing = true
+                        Task {
+                            testResult = await TypingTest.run()
+                            testing = false
+                            NSApp.activate(ignoringOtherApps: true)
+                        }
+                    }
+                    .disabled(testing)
+                    if let r = testResult {
+                        Image(systemName: r.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .foregroundStyle(r.ok ? .green : .orange)
+                    }
+                }
+                if let r = testResult { Text(r.message).font(.caption).foregroundStyle(.secondary) }
+                if let last = pasteLog.last {
+                    LabeledContent("Last dictation") {
+                        Text(last.line).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
+                }
+            } header: {
+                Text("Typing")
+            } footer: {
+                Text("The test opens an empty TextEdit document and types one line the same way a dictation does.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("Reset Accessibility (after every update)") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("1. Open System Settings › Privacy & Security › Accessibility.")
+                    Text("2. Select Scribe and click –. It's fine if its switch looked on.")
+                    Text("3. Click +, choose Scribe in Applications, and turn it on.")
+                    Text("Scribe builds aren't signed with a paid Apple certificate, so macOS sees each update as a new app and quietly stops trusting the old entry.")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.caption)
+                HStack {
+                    Button("Open Accessibility Settings") { AccessibilityHelp.fix() }
+                    Button("Show Scribe in Finder") { NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL]) }
+                }
+            }
         }
         .formStyle(.grouped)
         .onAppear { permissions.startWatching() }
@@ -377,7 +498,9 @@ struct UpdateSection: View {
     @EnvironmentObject var updater: Updater
 
     var body: some View {
-        Toggle("Check for updates once a day", isOn: $updater.autoCheck)
+        Toggle("Update automatically", isOn: $updater.autoCheck)
+        Text("Checks when Scribe opens and every 6 hours, downloads in the background, and installs when you restart or quit. Never during a recording. Models only download again if they changed.")
+            .font(.caption).foregroundStyle(.secondary)
         HStack {
             Text("This is Scribe \(Updater.currentVersion)").foregroundStyle(.secondary)
             Spacer()
@@ -397,6 +520,12 @@ struct UpdateSection: View {
                 Button("Download and Restart") { updater.install(r) }.buttonStyle(.borderedProminent)
             }
         case .downloading: HStack { ProgressView().controlSize(.small); Text("Downloading the app…") }
+        case .ready(let r):
+            HStack {
+                Label("Scribe \(r.version) is ready.", systemImage: "arrow.down.circle.fill")
+                Spacer()
+                Button("Restart Now") { updater.restartNow() }.buttonStyle(.borderedProminent)
+            }
         case .installing: HStack { ProgressView().controlSize(.small); Text("Installing…") }
         case .failed(let e): Text(e).font(.caption).foregroundStyle(.orange)
         }

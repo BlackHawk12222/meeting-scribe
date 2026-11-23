@@ -33,7 +33,7 @@ targets:
         CFBundleName: Scribe
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
-        # Where "Check for Updates" looks for the newest release (GitHub API).
+        # Where updates come from: this (public) repo's releases.
         ScribeReleasesURL: https://api.github.com/repos/BlackHawk12222/meeting-scribe/releases/latest
         CFBundleIconName: AppIcon
         CFBundleIconFile: AppIcon
@@ -52,9 +52,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.blackhawk12222.Scribe
         PRODUCT_NAME: Scribe
-        # The app version. CI sets it to 0.4.<build number> so it matches the release tag.
-        MARKETING_VERSION: "0.4.0"
-        CURRENT_PROJECT_VERSION: "4"
+        # The app version. CI sets it to 0.5.<build number> so it matches the release tag.
+        MARKETING_VERSION: "0.5.0"
+        CURRENT_PROJECT_VERSION: "5"
         SWIFT_VERSION: "5.0"
         ARCHS: arm64
         ONLY_ACTIVE_ARCH: NO

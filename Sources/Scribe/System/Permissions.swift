@@ -37,9 +37,39 @@ final class Permissions: ObservableObject {
         if mic != microphone { microphone = mic }
         let ax = AXIsProcessTrusted()
         if ax != accessibility { accessibility = ax }
+        if ax { Self.noteTrusted() }
     }
 
-    static var accessibilityGranted: Bool { AXIsProcessTrusted() }
+    static var accessibilityGranted: Bool {
+        let ax = AXIsProcessTrusted()
+        if ax { noteTrusted() }
+        return ax
+    }
+
+    // MARK: Accessibility after an update
+    //
+    // Scribe is ad-hoc signed (no paid Apple developer certificate), so macOS identifies it by
+    // the exact build. After an update the Accessibility switch can still LOOK on while macOS
+    // answers "not trusted". The only fix: remove Scribe from the list (–) and add it again (+).
+    // We remember which build last had the permission, to explain this instead of "turn it on".
+
+    static let trustedBuildKey = "axTrustedBuild"
+    static var currentBuild: String {
+        let i = Bundle.main.infoDictionary
+        return "\(i?["CFBundleShortVersionString"] as? String ?? "?") (\(i?["CFBundleVersion"] as? String ?? "?"))"
+    }
+    static func noteTrusted() {
+        if UserDefaults.standard.string(forKey: trustedBuildKey) != currentBuild {
+            UserDefaults.standard.set(currentBuild, forKey: trustedBuildKey)
+        }
+    }
+    /// Not trusted now, but an earlier build (or a previous install that finished the welcome
+    /// screen) was set up → almost certainly the "stale switch after update" case.
+    static var likelyResetByUpdate: Bool {
+        guard !AXIsProcessTrusted() else { return false }
+        if let b = UserDefaults.standard.string(forKey: trustedBuildKey) { return b != currentBuild }
+        return UserDefaults.standard.bool(forKey: "onboarded")
+    }
     static var microphoneGranted: Bool { AVCaptureDevice.authorizationStatus(for: .audio) == .authorized }
 
     /// Shows the macOS pop-up the first time; afterwards opens System Settings.

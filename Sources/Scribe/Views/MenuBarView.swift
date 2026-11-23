@@ -14,6 +14,8 @@ struct MenuBarView: View {
     @EnvironmentObject var recorder: Recorder
     @EnvironmentObject var dictation: DictationController
     @EnvironmentObject var models: ModelStore
+    @EnvironmentObject var permissions: Permissions
+    @EnvironmentObject var updater: Updater
     @Environment(\.openWindow) private var openWindow
     @State private var copied = false
 
@@ -22,6 +24,7 @@ struct MenuBarView: View {
             header
             Divider()
             VStack(alignment: .leading, spacing: 12) {
+                AccessibilityBanner(permissions: permissions)
                 if !store.engineReady { loading }
                 dictationButton
                 meetingButton
@@ -35,10 +38,16 @@ struct MenuBarView: View {
                 Divider()
                 recentMeetings.padding(.horizontal, 6).padding(.vertical, 8)
             }
+            if case .ready(let r) = updater.phase {
+                Divider()
+                updateReady(r).padding(.horizontal, 12).padding(.vertical, 8)
+            }
             Divider()
             footer
         }
         .frame(width: 296)
+        .onAppear { permissions.startWatching() }
+        .onDisappear { permissions.stopWatching() }
     }
 
     // MARK: Parts
@@ -55,6 +64,23 @@ struct MenuBarView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
+    }
+
+    /// "Update ready — Restart": small, never pops up by itself.
+    private func updateReady(_ r: Updater.Release) -> some View {
+        let busy = recorder.isRecording || dictation.state.isBusy
+        return HStack(spacing: 8) {
+            Image(systemName: "arrow.down.circle.fill").foregroundStyle(Brand.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Update ready — \(r.version)").font(.callout)
+                Text(busy ? "Restarts after you finish recording" : "Installs when you restart or quit")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Restart") { updater.restartNow() }
+                .controlSize(.small)
+                .disabled(busy)
+        }
     }
 
     private var loading: some View {

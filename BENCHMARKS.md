@@ -7,6 +7,51 @@ Three places numbers come from:
   Xcode 26.3 / macOS 26.2 SDK. A virtual Mac with no (or limited) Neural Engine/GPU — speeds are a floor.
 - **Expected on a real Mac** = FluidAudio's own published numbers (M4 Pro / M5 Pro). Not verified by us.
 
+## G. Scribe 0.5 self-test (Runner) — GitHub Actions run 45111200196, commit dc5a21a, 2026-11-23
+**Measured on a GitHub Actions `macos-15` runner: `Apple M1 (Virtual)`, 3 cores, 7 GB RAM, macOS 15.8.2,
+Xcode 26.3. A virtual Mac with no Neural Engine — not a real Mac.** Parakeet pads every call to a 15 s window and
+runs on CPU there, so a real Apple Silicon Mac should be much faster. Nothing below was measured on a real Mac.
+
+**Accuracy — 40 LibriSpeech test-clean clips (287.8 s, 753 words), corpus WER, simple normalizer:**
+
+| model | WER | key release → text, mean / median | RTF |
+|---|---|---|---|
+| Fast · Parakeet v2 (default) | **1.59 %** | 1496 / 1437 ms | 0.208 |
+| Parakeet v2 + vocabulary acoustic helper (CTC 110M) | 1.99 % | 2492 / 2407 ms | 0.346 |
+| Accurate · Parakeet Ultra | 1.73 % | 1866 / 1612 ms | 0.259 |
+
+- **"Accurate" (Parakeet Ultra) stays hidden**: on the runner it was both less accurate (1.73 % vs 1.59 %) and slower
+  (1866 vs 1496 ms mean) than v2 on LibriSpeech. (On the single 15.7 s dictation clip both had 2.9 % WER; Ultra took
+  1978 ms vs v2 2844 ms in that one comparison.)
+- **Vocabulary acoustic helper is now OFF by default**: on real speech it inserted "CAD" into ordinary sentences
+  ("I will practise it" → "I will CAD it") and added ~1 s. The text pass alone (default) fixed every term in the
+  vocabulary test.
+
+**Dictation clip** (`dictation_sample.wav`, 15.67 s, 34 words): WER 2.9 % (1 error) on all 3 runs; total 2.28 / 1.85 /
+2.11 s (RTF 0.146 / 0.118 / 0.135).
+
+**Latency** (key release → final text, excl. 150 ms post-roll and the paste): 2 s clip cold 3332 ms, warm 2828 / 1733 /
+1875 ms; 5 s warm 2057 / 2567 / 1631 ms; 15 s warm 1681 / 1594 / 1677 ms.
+
+**Pause test** (LibriSpeech sentence with a 2.5 s pause inserted at 5.1 s, 15.2 s clip): PASS. With "I pause while
+thinking" on: one sentence, 0 sentence breaks inside, 0 stray mid-sentence capitals, WER 0 %, release → text 4888 ms.
+For comparison the 0.4-style stitch of the same halves produced "…was not contemptible. a more exact plan…".
+
+**Back-to-back paste logic**: PASS — after two quick dictations the clipboard held sentence 2 (WER 5 % vs sentence 2),
+not sentence 1. **Paste-logic checks**: 20 / 21 passed (focus classification, ⌘V events, overlay never key/main,
+target never Scribe, chunk joining, stray capitals, numbers, vocabulary). The one failure is **"typing into
+TextEdit"**: on the runner Scribe pressed ⌘V into TextEdit but the text did not land. Not yet known whether that is a
+runner limitation or a real bug — needs a check on a real Mac.
+
+**Vocabulary** (3 sentences spoken by macOS `say`, a synthetic voice — not a person; 11 terms): raw model 8 / 11,
+after the text pass 11 / 11, with the acoustic helper 11 / 11. Cleanup + vocabulary on ~200 words: 4.6 ms.
+
+**Meetings** (AMI ES2004 a/b/c, 300 s each): transcription 42.9 / 50.7 / 38.9 s (5.9–7.7× real time); speaker DER
+19.2 % / 20.1 % / 17.5 % (auto setting).
+
+**Setup** (runner): dictation models 465.5 MB downloaded in 12.2 s (38 MB/s, data-center network); dictation model
+load 8.7 s.
+
 ## D. Dictation (Scribe 0.2, `Scribe --selftest`, Runner)
 Clip: `Resources/SelfTest/dictation_sample.wav` — two LibriSpeech test-clean sentences (CC-BY 4.0) with 1.5 s / 2 s /
 1.5 s of faint hiss around them, 15.67 s total, 34 reference words. Runs the exact hotkey pipeline

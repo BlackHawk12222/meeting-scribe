@@ -26,11 +26,18 @@ import FluidAudio
 
 enum SelfTest {
     static func runAndExit() -> Never {
-        Task.detached {
-            let code = await run()
-            exit(code)
+        // Keep thread 1 as the real main thread (dispatchMain() would retire it, and AppKit then
+        // refuses to create windows such as the recording overlay the paste test checks).
+        MainActor.assumeIsolated {
+            let app = NSApplication.shared
+            app.setActivationPolicy(.accessory)
+            Task.detached {
+                let code = await run()
+                exit(code)
+            }
+            app.run()
         }
-        dispatchMain()
+        exit(0)
     }
 
     /// Downloads the DICTATION models (Parakeet v2 + VAD) from scratch into a temporary
@@ -356,6 +363,45 @@ enum SelfTest {
             log("dictation test")
             report["dictation"] = try await dictationTest()
             checkpoint(report)
+
+            // ---- 0.5 tests ----
+            log("paste logic test")
+            report["paste_logic"] = await pasteLogicTest()
+            log("pause test")
+            do { report["pause"] = try await pauseTest() } catch { report["pause_error"] = "\(error)" }
+            checkpoint(report)
+            log("vocabulary helper")
+            do {
+                let tv = Date()
+                try await ms.ensure(await MainActor.run { ms.vocabularyComponents })
+                try await SpeechEngine.shared.loadVocabularyBoost(terms: Vocabulary.terms(from: Vocabulary.defaults))
+                report["vocabulary_helper_load_seconds"] = Date().timeIntervalSince(tv)
+            } catch { report["vocabulary_helper_error"] = "\(error)" }
+            do { report["vocabulary"] = try await vocabularyTest(dir: FileManager.default.temporaryDirectory) }
+            catch { report["vocabulary_error"] = "\(error)" }
+            checkpoint(report)
+            if let libri = argValue("--libri-dir") {
+                var managers: [(String, AsrManager?, Bool)] = [("parakeet_v2", nil, false)]
+                if await SpeechEngine.shared.isVocabularyBoostReady { managers.append(("parakeet_v2_with_vocab_helper", nil, true)) }
+                var compare: [String: Any] = [:]
+                if CommandLine.arguments.contains("--compare-models") {
+                    do {
+                        let tu = Date()
+                        try await ms.ensure(["asr-ultra"])
+                        compare["ultra_download_seconds"] = Date().timeIntervalSince(tu)
+                        let tl = Date()
+                        let ultra = try await SpeechEngine.loadManager(.accurate)
+                        compare["ultra_load_seconds"] = Date().timeIntervalSince(tl)
+                        managers.append(("parakeet_ultra", ultra, false))
+                        compare["parakeet_v2_clips"] = try await clipCompare(nil)
+                        compare["parakeet_ultra_clips"] = try await clipCompare(ultra)
+                    } catch { compare["ultra_error"] = "\(error)" }
+                    report["model_compare"] = compare
+                }
+                do { report["librispeech"] = try await libriTest(dir: libri, managers: managers) }
+                catch { report["librispeech_error"] = "\(error)" }
+                checkpoint(report)
+            }
             log("notes test")
             do {
                 report["notes"] = try await notesTest(dir: dir, seconds: seconds)

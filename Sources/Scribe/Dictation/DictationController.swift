@@ -12,6 +12,7 @@
 import AppKit
 import os
 import Combine
+import FluidAudio
 
 /// The pipeline from audio to finished text, without any UI. Used by the app AND the self-test.
 enum Dictation {
@@ -28,10 +29,11 @@ enum Dictation {
     static let aiTimeout: Double = 1.2
 
     static func run(samples: [Float], useAI: Bool, removeFillers: Bool, live: Bool = false,
-                    session: UUID? = nil) async throws -> Result {
-        let t = try await SpeechEngine.shared.dictate(samples: samples, live: live, session: session)
+                    session: UUID? = nil, asrOverride: AsrManager? = nil) async throws -> Result {
+        let t = try await SpeechEngine.shared.dictate(samples: samples, live: live, session: session, asrOverride: asrOverride)
         let t0 = Date()
-        let rulesText = removeFillers ? TextCleanup.rules(t.text) : t.text
+        // Rules (fillers, false starts, numbers, capitals) then your vocabulary list. Both < 20 ms.
+        let rulesText = Vocabulary.apply(removeFillers ? TextCleanup.rules(t.text) : TextCleanup.light(t.text))
         var text = rulesText
         var method: CleanupMethod = removeFillers ? .rules : .none
         if useAI, AppleIntelligence.isAvailable, t.audioSeconds >= aiMinimumSeconds, !t.text.isEmpty {
@@ -47,7 +49,7 @@ enum Dictation {
                 group.cancelAll()
                 return first
             }
-            if let smart { text = smart.0; method = smart.1 }
+            if let smart { text = Vocabulary.apply(smart.0); method = smart.1 }
         }
         return Result(transcript: t, text: text, method: method, cleanupSeconds: Date().timeIntervalSince(t0))
     }
@@ -58,7 +60,11 @@ final class DictationController: ObservableObject {
     enum State: Equatable {
         case idle, listening, transcribing
         case done(String), failed(String)
-        var isFailure: Bool { if case .failed = self { return true }; return false }
+        /// Text was copied, but typing needs Accessibility (capsule shows a Fix button).
+        case needsAccess
+        var isFailure: Bool {
+            switch self { case .failed, .needsAccess: return true; default: return false }
+        }
         var isBusy: Bool { self == .listening || self == .transcribing }
     }
 
@@ -86,6 +92,8 @@ final class DictationController: ObservableObject {
     private var startedAt: Date?
     private var ticker: Timer?
     private var hideWork: DispatchWorkItem?
+    /// Where the text goes: the app + text box in front when you started talking.
+    private var target: FocusTarget?
 
     /// Holding less than this = an accidental tap: ignored (Handy uses 300 ms too).
     static let minimumHold: TimeInterval = 0.3
@@ -137,6 +145,7 @@ final class DictationController: ObservableObject {
             self.cancel(silently: false)
         }
         hotkeys.start()
+        FocusTracker.start()
     }
 
     /// Menu bar button / toggle shortcut.
@@ -184,6 +193,11 @@ final class DictationController: ObservableObject {
             return
         }
         hideWork?.cancel()
+        // Remember where you are NOW (app + text box), so the words go there even if focus moves.
+        target = FocusTracker.capture()
+        if !Permissions.accessibilityGranted {
+            FocusTracker.log.info("dictation started without Accessibility: text will be copied, not typed")
+        }
         levels = Array(repeating: 0, count: levels.count)
         startedAt = Date()
         elapsed = 0
@@ -244,12 +258,18 @@ final class DictationController: ObservableObject {
                     return
                 }
                 let text = r.text + (DictationSettings.trailingSpace ? " " : "")
-                let outcome = await TextInserter.insert(text, restoreClipboard: DictationSettings.restoreClipboard)
+                let paste = await TextInserter.insert(text, target: target, restoreClipboard: DictationSettings.restoreClipboard)
+                let outcome = paste.outcome
                 store?.addDictation(DictationEntry(date: Date(), text: r.text, raw: r.transcript.text, method: r.method,
                                                    audioSeconds: r.transcript.audioSeconds,
                                                    latencySeconds: Date().timeIntervalSince(released)))
                 Perf.log.info("key release → text inserted: \(Date().timeIntervalSince(released) * 1000, format: .fixed(precision: 0))ms")
-                flash(outcome == .copiedOnly ? .done("Copied – press ⌘V") : .done("Done"))
+                switch outcome {
+                case .typedDirectly, .pasted: flash(.done("Done"))
+                case .noTextBox: flash(.done("Copied — no text box selected"))
+                case .needsAccessibility: flash(.needsAccess)
+                case .copiedOnly: flash(.done("Copied — press ⌘V"))
+                }
             } catch {
                 flash(.failed(error.localizedDescription))
             }
@@ -283,7 +303,14 @@ final class DictationController: ObservableObject {
             }
         }
         hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + (s.isFailure ? 2.5 : 1.0), execute: work)
+        let seconds: Double
+        switch s {
+        case .needsAccess: seconds = 7          // long enough to click Fix
+        case .done(let m) where m.hasPrefix("Copied"): seconds = 2.5
+        case .failed: seconds = 2.5
+        default: seconds = 1.0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 }
 
