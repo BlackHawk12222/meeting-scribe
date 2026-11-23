@@ -14,6 +14,7 @@ enum Main {
         } else if CommandLine.arguments.contains("--snapshot") {
             Snapshot.runAndExit()            // renders the UI to PNGs (CI screenshots), never returns
         } else {
+            LegacyMigration.runOnce()        // settings + sync token from an older bundle id, once
             ScribeApp.main()
         }
     }

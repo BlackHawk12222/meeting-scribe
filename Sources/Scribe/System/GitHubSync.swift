@@ -74,7 +74,7 @@ final class GitHubSync: ObservableObject {
 
     // MARK: Token (Keychain)
 
-    private static let keychainService = "com.blackhawk12222.Scribe.github"
+    static let keychainService = "com.blackhawk12222.Scribe.github"
 
     var hasToken: Bool { Self.readToken() != nil }
 

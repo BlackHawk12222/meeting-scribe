@@ -42,9 +42,7 @@ final class Store: ObservableObject {
         guard !fm.fileExists(atPath: base.appendingPathComponent("meetings.json").path),
               !UserDefaults.standard.bool(forKey: "migratedFromMeetingScribe") else { return }
         UserDefaults.standard.set(true, forKey: "migratedFromMeetingScribe")
-        let home = fm.homeDirectoryForCurrentUser
-        let candidates = [
-            home.appendingPathComponent("Library/Containers/com.blackhawk12222.MeetingScribe/Data/Library/Application Support/MeetingScribe"),
+        let candidates = LegacyMigration.oldMeetingScribeContainers() + [
             support.appendingPathComponent("MeetingScribe"),
         ]
         for old in candidates where fm.fileExists(atPath: old.appendingPathComponent("meetings.json").path) {
