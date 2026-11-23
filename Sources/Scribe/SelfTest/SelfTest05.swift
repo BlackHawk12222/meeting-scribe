@@ -49,6 +49,14 @@ extension SelfTest {
         return out
     }
 
+    /// Runs `body` on the real main thread. In --selftest the app has no NSApplication run loop
+    /// (dispatchMain), and AppKit windows must be created on thread 1, so hop explicitly.
+    static func onMainThread<T: Sendable>(_ body: @escaping @MainActor () -> T) async -> T {
+        await withCheckedContinuation { (c: CheckedContinuation<T, Never>) in
+            DispatchQueue.main.async { c.resume(returning: MainActor.assumeIsolated { body() }) }
+        }
+    }
+
     // MARK: Paste logic (no Accessibility needed)
 
     static func pasteLogicTest() async -> [String: Any] {
@@ -67,11 +75,15 @@ extension SelfTest {
         // ⌘V events.
         let ev = TextInserter.commandVEvents()
         let codes = ev.map { $0.getIntegerValueField(.keyboardEventKeycode) }
-        let downs = ev.map { $0.type == .keyDown }
-        check("⌘V = Cmd↓ V↓ V↑ Cmd↑", codes == [55, 9, 9, 55] && downs == [true, true, false, false]
-              && ev[1].flags.contains(.maskCommand) && !ev[3].flags.contains(.maskCommand), "codes \(codes)")
+        let types = ev.map { $0.type }
+        // The Command key itself is a modifier: macOS may report it as .flagsChanged instead of keyDown/keyUp.
+        let cmdOK = ev.count == 4 && (types[0] == .keyDown || types[0] == .flagsChanged) && (types[3] == .keyUp || types[3] == .flagsChanged)
+            && ev[0].flags.contains(.maskCommand)
+        check("⌘V = Cmd↓ V↓ V↑ Cmd↑", codes == [55, 9, 9, 55] && cmdOK && types[1] == .keyDown && types[2] == .keyUp
+              && ev[1].flags.contains(.maskCommand) && ev[2].flags.contains(.maskCommand) && !ev[3].flags.contains(.maskCommand),
+              "codes \(codes) types \(types.map { $0.rawValue }) flags \(ev.map { $0.flags.rawValue })")
         // Overlay never takes focus.
-        let rules: (Bool, Bool, Bool)? = await MainActor.run {
+        let rules: (Bool, Bool, Bool)? = await onMainThread {
             let o = OverlayPanel()
             o.show(OverlayCapsule(mode: .transcribing, tape: LevelTape()))
             defer { o.hide() }
@@ -80,7 +92,7 @@ extension SelfTest {
         check("overlay panel is non-activating and never key/main",
               rules.map { $0.0 && !$0.1 && !$0.2 } ?? false, "\(String(describing: rules))")
         // Target capture (on CI: whatever is in front; never Scribe itself).
-        let target: (String?, Bool) = await MainActor.run {
+        let target: (String?, Bool) = await onMainThread {
             FocusTracker.start()
             let t = FocusTracker.capture()
             return (t?.summary, t.map { $0.pid == ProcessInfo.processInfo.processIdentifier } ?? false)
