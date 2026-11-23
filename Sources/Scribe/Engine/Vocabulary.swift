@@ -54,8 +54,10 @@ enum Vocabulary {
         set { UserDefaults.standard.set(newValue, forKey: key) }
     }
 
-    /// Acoustic matching with the helper model (Settings › Vocabulary). Default on.
-    static var acousticBoost: Bool { UserDefaults.standard.object(forKey: boostKey) as? Bool ?? true }
+    /// Acoustic matching with the helper model (Settings › Vocabulary). Default OFF since 0.5:
+    /// on the CI runner (LibriSpeech, 40 clips) it put "CAD" into ordinary sentences and raised
+    /// WER 1.59% → 1.99%, while the text pass alone already got every term right.
+    static var acousticBoost: Bool { UserDefaults.standard.object(forKey: boostKey) as? Bool ?? false }
 
     static var terms: [VocabularyTerm] { terms(from: words) }
 

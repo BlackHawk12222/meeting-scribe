@@ -191,7 +191,7 @@ struct VocabularySettingsTab: View {
     @State private var words: [String] = Vocabulary.words
     @State private var newWord = ""
     @State private var selection: String?
-    @AppStorage(Vocabulary.boostKey) private var acoustic = true
+    @AppStorage(Vocabulary.boostKey) private var acoustic = false
 
     var body: some View {
         Form {
@@ -222,7 +222,7 @@ struct VocabularySettingsTab: View {
                     Text(store.vocabularyBoostStatus).font(.caption).foregroundStyle(.secondary)
                 }
             } footer: {
-                Text("Uses a small extra model (about 100 MB, downloaded once) to check your words against how they sounded, so misheard names can be fixed even when the spelling is far off.")
+                Text("Uses a small extra model (about 100 MB, downloaded once) to check your words against how they sounded, so misheard names can be fixed even when the spelling is far off. Off by default: it can sometimes swap an ordinary word for one of yours.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
