@@ -49,8 +49,7 @@ extension SelfTest {
         return out
     }
 
-    /// Runs `body` on the real main thread. In --selftest the app has no NSApplication run loop
-    /// (dispatchMain), and AppKit windows must be created on thread 1, so hop explicitly.
+    /// Runs `body` on the main thread (the self-test runs NSApplication's run loop on thread 1).
     static func onMainThread<T: Sendable>(_ body: @escaping @MainActor () -> T) async -> T {
         await withCheckedContinuation { (c: CheckedContinuation<T, Never>) in
             DispatchQueue.main.async { c.resume(returning: MainActor.assumeIsolated { body() }) }

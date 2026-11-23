@@ -26,11 +26,18 @@ import FluidAudio
 
 enum SelfTest {
     static func runAndExit() -> Never {
-        Task.detached {
-            let code = await run()
-            exit(code)
+        // Keep thread 1 as the real main thread (dispatchMain() would retire it, and AppKit then
+        // refuses to create windows such as the recording overlay the paste test checks).
+        MainActor.assumeIsolated {
+            let app = NSApplication.shared
+            app.setActivationPolicy(.accessory)
+            Task.detached {
+                let code = await run()
+                exit(code)
+            }
+            app.run()
         }
-        dispatchMain()
+        exit(0)
     }
 
     /// Downloads the DICTATION models (Parakeet v2 + VAD) from scratch into a temporary
