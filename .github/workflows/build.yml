@@ -1,7 +1,8 @@
 # Builds Scribe.app on a GitHub-hosted Apple Silicon Mac, runs a headless
 # self-test, and uploads the .zip/.dmg. Add "[release]" to a commit message to
 # also publish a GitHub Release.
-# Private repo: macOS minutes count 10x, so the push build runs the QUICK self-test.
+# Public repo: Actions minutes are free. The push build runs the QUICK self-test.
+# Updates are served from this repo's releases (no separate mirror repo).
 name: build-mac-app
 on:
   push:
@@ -122,17 +123,3 @@ jobs:
           EOF
           gh release create "$TAG" dist/Scribe.dmg dist/Scribe.zip dist/Scribe.zip.sha256 dist/SHA256SUMS.txt dist/components.json \
             --title "Scribe $TAG" --notes-file release-notes.md
-      - name: Mirror release to the public updates repo (scribe-releases)
-        if: contains(github.event.head_commit.message, '[release]') || github.event.inputs.release == 'true'
-        env:
-          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: |
-          if [ -z "$RELEASES_TOKEN" ]; then
-            echo "::notice::RELEASES_TOKEN secret not set: skipping the public mirror (README → Updates)."
-            exit 0
-          fi
-          TAG="v0.5.${{ github.run_number }}"
-          GH_TOKEN="$RELEASES_TOKEN" gh release create "$TAG" -R BlackHawk12222/scribe-releases \
-            dist/Scribe.dmg dist/Scribe.zip dist/Scribe.zip.sha256 dist/SHA256SUMS.txt dist/components.json \
-            --title "Scribe $TAG" --notes-file release-notes.md \
-            || echo "::warning::Mirroring to scribe-releases failed (does the repo exist and can the token write to it?)"

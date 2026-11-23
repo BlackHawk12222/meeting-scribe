@@ -93,9 +93,9 @@ Think of it like an app store for the app's own parts:
   byte; damaged files are deleted and re-fetched alone).
 
 ## Updates (System/Updater.swift)
-Updates come from the **public releases-only repo** `BlackHawk12222/scribe-releases` (the code repo stays private;
-the app reads `https://api.github.com/repos/BlackHawk12222/scribe-releases/releases/latest`, set as
-`ScribeReleasesURL` in `project.yml`).
+Updates come from this repo's own releases (the repo is public): the app reads
+`https://api.github.com/repos/BlackHawk12222/meeting-scribe/releases/latest`, set as `ScribeReleasesURL` in
+`project.yml`.
 
 **Settings → General → “Update automatically”** (on by default): Scribe checks when it opens and every 6 hours,
 downloads **only `Scribe.zip`** (~15 MB, never the models) in the background, checks its **SHA-256**
@@ -104,16 +104,8 @@ Restart”** row in the menu bar panel. It installs when you press Restart or th
 restarts by itself, and the Restart button is disabled while a meeting records or you dictate. Each release also
 carries `components.json` (the model manifest); models download again only if a hash in it changed.
 
-**Publishing:** every `[release]` build creates the release in this repo and — if the secret **`RELEASES_TOKEN`**
-exists — the same release in `scribe-releases` (zip, dmg, `Scribe.zip.sha256`, `SHA256SUMS.txt`, `components.json`).
-Without the secret that step is skipped.
-
-**One-time setup (repo owner):**
-1. Create the public repo: https://github.com/new?name=scribe-releases&visibility=public (no README needed).
-2. Create a fine-grained token at https://github.com/settings/personal-access-tokens/new — Repository access:
-   *Only select repositories* → `scribe-releases`; Permissions → *Contents: Read and write*. Copy it.
-3. Add it as a secret named **`RELEASES_TOKEN`** at
-   https://github.com/BlackHawk12222/meeting-scribe/settings/secrets/actions.
+**Publishing:** every `[release]` build creates the release here (zip, dmg, `Scribe.zip.sha256`, `SHA256SUMS.txt`,
+`components.json`). No extra token or mirror repo is needed.
 
 ## Signing (keeps Accessibility across updates)
 Builds are **ad-hoc signed** by default. macOS then identifies Scribe by the exact build, so after every update the

@@ -46,12 +46,11 @@ final class Updater: ObservableObject {
 
     @Published private(set) var phase: Phase = .idle
 
-    /// Where to ask "what's the newest release?" (GitHub's API). 0.5: the PUBLIC releases-only
-    /// repo BlackHawk12222/scribe-releases (the code repo is private, so the app couldn't read
-    /// its releases). Info.plist key ScribeReleasesURL.
+    /// Where to ask "what's the newest release?" (GitHub's API). 0.5: this repo's own releases
+    /// (BlackHawk12222/meeting-scribe is public). Info.plist key ScribeReleasesURL.
     var feedURL: URL {
         if let s = Bundle.main.object(forInfoDictionaryKey: "ScribeReleasesURL") as? String, let u = URL(string: s) { return u }
-        return URL(string: "https://api.github.com/repos/BlackHawk12222/scribe-releases/releases/latest")!
+        return URL(string: "https://api.github.com/repos/BlackHawk12222/meeting-scribe/releases/latest")!
     }
 
     static var currentVersion: String {
