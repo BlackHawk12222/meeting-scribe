@@ -23,10 +23,39 @@ xcodebuild -project Scribe.xcodeproj -scheme Scribe -configuration Release \
 echo "warnings: $(grep -c "warning:" build/xcodebuild.log || true)"
 APP=build/DD/Build/Products/Release/Scribe.app
 test -d "$APP" || { echo "build failed: no app"; exit 1; }
-# Ad-hoc signature ("-") with the entitlements + hardened runtime. Not notarized:
-# first launch needs right-click > Open (or System Settings > Privacy & Security > Open Anyway).
-codesign --force --options runtime --entitlements Resources/Scribe.entitlements -s - "$APP"
+# Signing. Not notarized either way: first launch needs right-click > Open (or System Settings >
+# Privacy & Security > Open Anyway).
+#  • If SIGNING_CERT_P12 (base64 of a .p12) + SIGNING_CERT_PASSWORD are set (GitHub secrets), sign
+#    with that self-signed "Code Signing" certificate. The app's identity then stays the SAME
+#    across updates, so macOS keeps the Accessibility permission (README → Signing).
+#  • Otherwise: ad-hoc ("-"). macOS sees every build as a new app → Accessibility must be
+#    removed and re-added after each update.
+IDENTITY="-"
+if [ -n "${SIGNING_CERT_P12:-}" ] && [ -n "${SIGNING_CERT_PASSWORD:-}" ]; then
+  KC="$PWD/build/signing.keychain-db"; KCPW="scribe-$RANDOM-$RANDOM"
+  echo "$SIGNING_CERT_P12" | base64 --decode > build/signing.p12
+  security create-keychain -p "$KCPW" "$KC"
+  security set-keychain-settings -lut 21600 "$KC"
+  security unlock-keychain -p "$KCPW" "$KC"
+  if security import build/signing.p12 -k "$KC" -P "$SIGNING_CERT_PASSWORD" -T /usr/bin/codesign -f pkcs12; then
+    security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null
+    security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+    # Self-signed = not "valid" in the trust sense, so list ALL code-signing identities, take its SHA-1.
+    IDENTITY=$(security find-identity -p codesigning "$KC" | grep -Eo '[0-9A-F]{40}' | head -1 || true)
+  fi
+  rm -f build/signing.p12
+  [ -z "$IDENTITY" ] && IDENTITY="-"
+fi
+if [ "$IDENTITY" != "-" ] && codesign --force --options runtime --entitlements Resources/Scribe.entitlements \
+     --keychain "$KC" -s "$IDENTITY" "$APP"; then
+  echo "SIGNED with the stable self-signed certificate ($IDENTITY)"
+else
+  [ "$IDENTITY" != "-" ] && echo "::warning::Signing with SIGNING_CERT_P12 failed; falling back to ad-hoc"
+  codesign --force --options runtime --entitlements Resources/Scribe.entitlements -s - "$APP"
+  echo "SIGNED ad-hoc"
+fi
 codesign --verify --verbose=2 "$APP"
+codesign -d -r- "$APP" 2>&1 | grep designated || true
 # The app icon must be in the bundle (Dock/Finder): Assets.car + CFBundleIconName.
 test -f "$APP/Contents/Resources/Assets.car" || { echo "missing Assets.car (app icon)"; exit 1; }
 /usr/libexec/PlistBuddy -c "Print :CFBundleIconName" "$APP/Contents/Info.plist"
@@ -35,7 +64,10 @@ codesign -d --entitlements - "$APP" || true
 mkdir -p dist
 rm -rf dist/*
 ditto -c -k --keepParent "$APP" dist/Scribe.zip
+# Checksum the updater verifies before installing.
+(cd dist && shasum -a 256 Scribe.zip > Scribe.zip.sha256 && cat Scribe.zip.sha256)
 # DMG with an Applications shortcut so you can drag the app in.
 mkdir -p build/dmg && rm -rf build/dmg/* && cp -R "$APP" build/dmg/ && ln -s /Applications build/dmg/Applications
 hdiutil create -volname "Scribe" -srcfolder build/dmg -ov -format UDZO dist/Scribe.dmg
+(cd dist && shasum -a 256 Scribe.zip Scribe.dmg > SHA256SUMS.txt)
 ls -la dist

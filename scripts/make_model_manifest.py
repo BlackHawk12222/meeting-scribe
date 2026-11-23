@@ -33,6 +33,15 @@ COMPONENTS = [
          fluid_revision="df2625ac79a7ac6b65ad868fee6d80f320da4232",
          required=["Segmentation.mlmodelc", "FBank.mlmodelc", "Embedding.mlmodelc",
                    "PldaRho.mlmodelc", "plda-parameters.json"]),
+    # 0.5: "Accurate" speech model option (post-trained v3, 25 languages).
+    dict(id="asr-ultra", title="Speech model · Accurate (Parakeet Ultra)", group="optional",
+         repo="FluidInference/parakeet-ultra-coreml", fluid_revision="main",
+         required=["Preprocessor.mlmodelc", "Encoder.mlmodelc", "Decoder.mlmodelc",
+                   "JointDecisionv3.mlmodelc", "parakeet_vocab.json"]),
+    # 0.5: small CTC model that checks your vocabulary words against the audio.
+    dict(id="ctc-110m", title="Vocabulary helper (Parakeet CTC 110M)", group="optional",
+         repo="FluidInference/parakeet-ctc-110m-coreml", fluid_revision="main",
+         required=["MelSpectrogram.mlmodelc", "AudioEncoder.mlmodelc", "vocab.json", "tokenizer.json"]),
 ]
 
 
@@ -56,8 +65,18 @@ def tree(repo, commit, path):
 
 def main():
     root = os.path.join(os.path.dirname(__file__), "..")
+    path = os.path.join(root, "Resources", "ModelManifest.json")
+    # --add: keep every component already in the manifest EXACTLY as pinned (so nobody
+    # re-downloads a model) and only add the ones that are missing.
+    keep = {}
+    if "--add" in sys.argv and os.path.exists(path):
+        keep = {c["id"]: c for c in json.load(open(path))["components"]}
     comps = []
     for c in COMPONENTS:
+        if c["id"] in keep:
+            comps.append(keep[c["id"]])
+            print(f"{c['id']:9} kept as pinned ({keep[c['id']]['version']})")
+            continue
         rev = c["fluid_revision"]
         commit = get(f"{HF}/api/models/{c['repo']}/revision/{rev}")[0]["sha"]
         files = []
@@ -95,7 +114,6 @@ def main():
         })
         print(f"{c['id']:9} {commit[:10]} {len(entries):3} files {sum(e['size'] for e in entries)/1e6:8.1f} MB  hash {digest[:12]}")
     manifest = {"schema": 1, "fluidAudio": "0.18.3", "components": comps}
-    path = os.path.join(root, "Resources", "ModelManifest.json")
     with open(path, "w") as fh:
         json.dump(manifest, fh, indent=1)
         fh.write("\n")

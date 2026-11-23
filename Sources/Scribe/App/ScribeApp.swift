@@ -64,7 +64,15 @@ final class AppModel: ObservableObject {
             }
         }.store(in: &bag)
         Task { await store.prepareEngine() }
-        updater.checkInBackgroundIfDue()
+        // Updates never restart Scribe while a meeting records or you're dictating.
+        updater.isBusy = { [weak self] in
+            guard let self else { return false }
+            return self.recorder.isRecording || self.dictation.state.isBusy
+        }
+        updater.startAutomatic()
+        // Typing permission lost (e.g. after an update)? Explain how to fix it, once per build.
+        permissions.refresh()
+        AccessibilityHelp.showAtLaunchIfNeeded()
         GitHubSync.shared.kick()          // send anything left in the queue from last time
     }
 
@@ -102,6 +110,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated { AppModel.shared.start() }
     }
+    /// A downloaded update is swapped in when Scribe quits.
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { AppModel.shared.updater.installOnQuitIfReady() }
+    }
     /// Closing the window keeps Scribe running in the menu bar (dictation keeps working).
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }
@@ -137,6 +149,8 @@ struct ScribeApp: App {
                 .environmentObject(model.recorder)
                 .environmentObject(model.dictation)
                 .environmentObject(model.models)
+                .environmentObject(model.permissions)
+                .environmentObject(model.updater)
         } label: {
             MenuBarIcon(dictation: model.dictation, recorder: model.recorder)
         }

@@ -121,10 +121,33 @@ final class Store: ObservableObject {
             engineError = nil
             modelProgress = nil
             engineStatus = "Ready"
+            Task(priority: .utility) { await self.prepareVocabularyBoost() }
+            Task.detached(priority: .utility) { Vocabulary.preload() }
         } catch {
             modelProgress = nil
             engineError = "Model download/load failed: \(error.localizedDescription). Check your internet connection for the one-time download, then press Retry."
             return
+        }
+    }
+
+    /// Settings › Vocabulary: "" = off/not loaded, else a short status line.
+    @Published var vocabularyBoostStatus = ""
+
+    /// The vocabulary helper: download (100 MB, once) + load, or unload when switched off.
+    /// Never blocks dictation; the text pass works without it.
+    func prepareVocabularyBoost() async {
+        guard Vocabulary.acousticBoost else {
+            await SpeechEngine.shared.unloadVocabularyBoost()
+            vocabularyBoostStatus = ""
+            return
+        }
+        do {
+            vocabularyBoostStatus = "Getting the helper model ready…"
+            try await ModelStore.shared.ensure(ModelStore.shared.vocabularyComponents)
+            try await SpeechEngine.shared.loadVocabularyBoost(terms: Vocabulary.terms)
+            vocabularyBoostStatus = "Ready"
+        } catch {
+            vocabularyBoostStatus = "Helper model unavailable: \(error.localizedDescription)"
         }
     }
 

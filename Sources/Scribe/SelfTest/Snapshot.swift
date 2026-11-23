@@ -102,9 +102,17 @@ enum Snapshot {
         made += await capture(env(DictationSettingsTab().frame(width: SettingsView.size.width, height: 940)), size: nil,
                               name: "04b_settings_overlay_position", dir: dir)
         model.models.setPreview(["asr-v2": .downloaded, "vad": .downloaded, "diarizer": .updateAvailable(1_200_000),
-                                 "asr-v3": .missing])
+                                 "asr-v3": .missing, "ctc-110m": .downloaded])
         made += await capture(env(ModelSettingsTab().frame(width: 520, height: 640)), size: nil, name: "05_settings_model", dir: dir)
         made += await capture(env(GeneralSettingsTab().frame(width: 560, height: 460)), size: nil, name: "05b_settings_general", dir: dir)
+        // 0.5: Vocabulary tab, Permissions tab (Accessibility banner + typing test), the banner alone.
+        made += await capture(env(VocabularySettingsTab().frame(width: SettingsView.size.width, height: 600)), size: nil,
+                              name: "16_settings_vocabulary", dir: dir)
+        made += await capture(env(PermissionsTab().frame(width: SettingsView.size.width, height: 640)), size: nil,
+                              name: "17_settings_permissions", dir: dir)
+        made += await capture(env(AccessibilityBanner(permissions: model.permissions).padding(12).frame(width: 296)
+                                    .background(Color(nsColor: .windowBackgroundColor))), size: nil,
+                              name: "18_accessibility_banner", dir: dir, titled: false)
         made += await capture(env(SyncSettingsTab().frame(width: 520, height: 520)), size: nil, name: "05c_settings_sync", dir: dir)
         made += await capture(env(AboutView().frame(width: 560, height: 500)), size: nil, name: "06_about_credits", dir: dir)
         made += await capture(env(MenuBarView().background(Color(nsColor: .windowBackgroundColor))), size: nil,
@@ -121,6 +129,8 @@ enum Snapshot {
             ("10_overlay_transcribing", .transcribing, listenTape, nil),
             ("11_overlay_meeting", .recording, meetTape, 754),
             ("12_overlay_done", .message("Done", failure: false), listenTape, nil),
+            ("19_overlay_needs_accessibility", .needsAccess, listenTape, nil),
+            ("20_overlay_no_text_box", .message("Copied — no text box selected", failure: false), listenTape, nil),
         ]
         for (name, mode, tape, elapsed) in frames {
             let capsule = OverlayCapsule(mode: mode, tape: tape, elapsed: elapsed, previewSpin: 40)

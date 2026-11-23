@@ -65,6 +65,8 @@ struct ModelComponent: Codable, Sendable, Identifiable, Hashable {
         case "asr-v3": return .parakeetV3
         case "vad": return .vad
         case "diarizer": return .diarizer
+        case "asr-ultra": return .parakeetUltra
+        case "ctc-110m": return .parakeetCtc110m
         default: return nil
         }
     }
@@ -147,9 +149,23 @@ final class ModelStore: ObservableObject {
 
     /// Which components dictation needs with the chosen speech model.
     func dictationComponents(_ model: SpeechModel) -> [String] {
-        [model == .english ? "asr-v2" : "asr-v3", "vad"]
+        [model.componentID, "vad"]
     }
     let meetingComponents = ["diarizer"]
+    /// The vocabulary helper (fetched in the background after dictation works, only if
+    /// Settings › Vocabulary › "Match against the audio" is on).
+    let vocabularyComponents = ["ctc-110m"]
+
+    /// Optional components nobody chose (another speech model, the helper while it's off) are
+    /// hidden from the list unless they're on disk, so the list shows what matters.
+    func isRelevant(_ c: ModelComponent) -> Bool {
+        if states[c.id] == .downloaded { return true }
+        switch c.id {
+        case "asr-ultra": return SpeechModel.offerAccurate
+        case "ctc-110m": return Vocabulary.acousticBoost
+        default: return true
+        }
+    }
 
     nonisolated static func mb(_ bytes: Int64) -> String {
         bytes >= 1_000_000 ? String(format: "%.0f MB", Double(bytes) / 1_000_000)

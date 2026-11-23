@@ -93,21 +93,46 @@ Think of it like an app store for the app's own parts:
   byte; damaged files are deleted and re-fetched alone).
 
 ## Updates (System/Updater.swift)
-**Scribe → Check for Updates…** (or Settings → General → Updates) asks GitHub for the newest release and compares
-version numbers. It downloads **only `Scribe.zip`** (the app, ~15 MB) — never the models. Each release also carries
-`components.json` (the model manifest); Scribe compares it with what's installed and tells you which models (if any)
-would change — normally none. Then it checks the new app's signature and version, swaps it in, and restarts.
+Updates come from the **public releases-only repo** `BlackHawk12222/scribe-releases` (the code repo stays private;
+the app reads `https://api.github.com/repos/BlackHawk12222/scribe-releases/releases/latest`, set as
+`ScribeReleasesURL` in `project.yml`).
 
-**One-time things only the repo owner can do:**
-1. **Make the release feed reachable.** The repo is private, so the app can't read its releases (GitHub answers
-   404 without a login). Either make the repo public, or create a public repo just for releases (e.g.
-   `scribe-releases`) and point `ScribeReleasesURL` in `project.yml` at it.
-2. **Sparkle 2 + delta updates (next step).** Sparkle needs an EdDSA key pair: run Sparkle's `generate_keys` once on
-   your Mac, put the **public** key in `project.yml` (`SUPublicEDKey`), and add the **private** key as a repo secret
-   named `SPARKLE_ED_PRIVATE_KEY` at https://github.com/BlackHawk12222/meeting-scribe/settings/secrets/actions
-   (Hark can't create secrets — there's no API for it here, and generating the key inside CI would be unsafe).
-   Then CI can run `generate_appcast`, which makes *binary deltas* (only the changed bytes of the app) and an
-   appcast feed. Until then the simple updater above is what ships.
+**Settings → General → “Update automatically”** (on by default): Scribe checks when it opens and every 6 hours,
+downloads **only `Scribe.zip`** (~15 MB, never the models) in the background, checks its **SHA-256**
+(`Scribe.zip.sha256` in the release), its code signature and its version, then shows a small **“Update ready —
+Restart”** row in the menu bar panel. It installs when you press Restart or the next time Scribe quits. It never
+restarts by itself, and the Restart button is disabled while a meeting records or you dictate. Each release also
+carries `components.json` (the model manifest); models download again only if a hash in it changed.
+
+**Publishing:** every `[release]` build creates the release in this repo and — if the secret **`RELEASES_TOKEN`**
+exists — the same release in `scribe-releases` (zip, dmg, `Scribe.zip.sha256`, `SHA256SUMS.txt`, `components.json`).
+Without the secret that step is skipped.
+
+**One-time setup (repo owner):**
+1. Create the public repo: https://github.com/new?name=scribe-releases&visibility=public (no README needed).
+2. Create a fine-grained token at https://github.com/settings/personal-access-tokens/new — Repository access:
+   *Only select repositories* → `scribe-releases`; Permissions → *Contents: Read and write*. Copy it.
+3. Add it as a secret named **`RELEASES_TOKEN`** at
+   https://github.com/BlackHawk12222/meeting-scribe/settings/secrets/actions.
+
+## Signing (keeps Accessibility across updates)
+Builds are **ad-hoc signed** by default. macOS then identifies Scribe by the exact build, so after every update the
+Accessibility switch can look on while macOS no longer trusts it → remove Scribe (–) and add it again (+). With a
+**stable self-signed certificate**, every build has the same identity and macOS keeps the permission.
+
+Make the certificate once, on your Mac:
+1. Open **Keychain Access** → menu **Keychain Access › Certificate Assistant › Create a Certificate…**
+2. Name: `Scribe Signing` · Identity Type: **Self Signed Root** · Certificate Type: **Code Signing** → Create.
+3. In Keychain Access (login keychain, *My Certificates*), right-click **Scribe Signing** → **Export “Scribe Signing”…**
+   → format **Personal Information Exchange (.p12)** → save as `scribe-signing.p12` and choose a password.
+4. In Terminal: `base64 -i ~/Desktop/scribe-signing.p12 | pbcopy` (copies it).
+5. At https://github.com/BlackHawk12222/meeting-scribe/settings/secrets/actions add two secrets:
+   **`SIGNING_CERT_P12`** = paste · **`SIGNING_CERT_PASSWORD`** = the password from step 3.
+
+The next build signs with it (the CI log says “SIGNED with the stable self-signed certificate”); if anything fails it
+falls back to ad-hoc. The first update to a certificate-signed build changes the identity one last time (remove + re-add
+Scribe in Accessibility once); after that the permission sticks. It is still not notarized (that needs a paid Apple
+Developer account), so the very first open still needs *Open Anyway*.
 
 ## Voice learning (Engine/VoiceLibrary.swift)
 Name a speaker once; next meetings label them automatically (cosine similarity of voice embeddings: ≥ 0.55

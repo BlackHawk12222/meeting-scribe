@@ -66,23 +66,53 @@ struct DiarizerSetting: Hashable, Sendable {
     }
 }
 
-/// Which speech-to-text model to use (Settings > Model). Both are NVIDIA Parakeet TDT 0.6B
-/// converted to Core ML by FluidAudio. Why these and not Whisper: see BENCHMARKS.md.
+/// Which speech-to-text model to use (Settings > Model). All are NVIDIA Parakeet TDT 0.6B
+/// variants converted to Core ML by FluidAudio. Why these and not Whisper: see BENCHMARKS.md.
 enum SpeechModel: String, CaseIterable, Identifiable, Sendable {
-    case english = "v2"        // default: most accurate for English in our tests
+    case english = "v2"        // default ("Fast"): most accurate for English in our tests so far
     case multilingual = "v3"   // 25 European languages, auto-detected
+    case accurate = "ultra"    // Parakeet Ultra (post-trained v3); offered only if it measured better
 
     var id: String { rawValue }
-    var version: AsrModelVersion { self == .english ? .v2 : .v3 }
-    var title: String { self == .english ? "Parakeet v2 · English" : "Parakeet v3 · 25 languages" }
-    var detail: String {
-        self == .english
-            ? "Best for English. Measured 3.2% word errors on our test set (sandbox)."
-            : "Use if you speak Spanish, German, French… Measured 5.0% word errors on the same English test set (sandbox)."
+    var version: AsrModelVersion {
+        switch self {
+        case .english: return .v2
+        case .multilingual: return .v3
+        case .accurate: return .ultra
+        }
     }
+    var componentID: String {
+        switch self {
+        case .english: return "asr-v2"
+        case .multilingual: return "asr-v3"
+        case .accurate: return "asr-ultra"
+        }
+    }
+    var title: String {
+        switch self {
+        case .english: return "Fast · Parakeet v2 (English)"
+        case .multilingual: return "Parakeet v3 · 25 languages"
+        case .accurate: return "Accurate · Parakeet Ultra"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .english: return SpeechModel.fastDetail
+        case .multilingual: return "Use if you speak Spanish, German, French… Measured 5.0% word errors on our English test set (sandbox)."
+        case .accurate: return SpeechModel.accurateDetail
+        }
+    }
+    /// Filled in from the runner measurements (BENCHMARKS.md, section G).
+    static let fastDetail = "Best speed. Default for English."
+    static let accurateDetail = "Larger model (+630 MB download). Measured on GitHub's Mac runner — see BENCHMARKS.md."
+    /// Whether Settings shows the "Accurate" choice. Set from the measured comparison (0.5).
+    static let offerAccurate = false
+    static var choices: [SpeechModel] { offerAccurate ? [.english, .accurate, .multilingual] : [.english, .multilingual] }
+
     /// What the user picked in Settings (stored in UserDefaults under "speechModel").
     static var current: SpeechModel {
-        SpeechModel(rawValue: UserDefaults.standard.string(forKey: "speechModel") ?? "") ?? .english
+        let m = SpeechModel(rawValue: UserDefaults.standard.string(forKey: "speechModel") ?? "") ?? .english
+        return choices.contains(m) ? m : .english
     }
 }
 
@@ -113,7 +143,9 @@ struct DictationTranscript: Sendable {
     var speechSeconds: Double     // what was left after cutting silence
     var vadSeconds: Double        // time spent finding speech
     var asrSeconds: Double        // time spent transcribing
-    var vadMode: String = ""      // "live", "one pass" or "skipped (short clip)"
+    var vadMode: String = ""      // "single pass (live VAD)", "one pass", "incremental…" or "skipped (short clip)"
+    var boostSeconds: Double = 0  // time the vocabulary helper (CTC) took
+    var boostReplacements: [String] = []
 }
 
 actor SpeechEngine {
@@ -207,19 +239,40 @@ actor SpeechEngine {
     /// Sentences already transcribed WHILE the key was still held: (where it ended, its text).
     private var liveEarly: [(end: Int, task: Task<String, Error>)] = []
 
-    static let vadSegmentation: VadSegmentationConfig = {
+    /// How the voice detector cuts speech while you hold the key.
+    /// 0.5 ("I pause while thinking", default on): a split needs ≥ 1.3 s of silence (0.4 used
+    /// 0.5 s, which split sentences at every thinking pause), 0.3 s of audio is kept on each side
+    /// of every speech part, and no part is ever force-cut at 14 s (FluidAudio's default cut point
+    /// can fall inside a word). The parts are only used to trim silence: on release the whole
+    /// utterance is transcribed in ONE pass (see `dictate`).
+    static func segmentation(pauseTolerant: Bool = DictationSettings.pauseWhileThinking) -> VadSegmentationConfig {
         var seg = VadSegmentationConfig.default
-        seg.minSpeechDuration = 0.25
-        seg.speechPadding = 0.2          // keep 0.2 s around each part so first/last sounds aren't clipped
-        seg.minSilenceDuration = 0.5
+        seg.minSpeechDuration = 0.3
+        seg.speechPadding = 0.3
+        seg.minSilenceDuration = pauseTolerant ? 1.3 : 0.5
+        seg.maxSpeechDuration = 120
         return seg
-    }()
+    }
+    static var vadSegmentation: VadSegmentationConfig { segmentation() }
+    /// Silence put between speech parts when they're glued back together (pauses → ~0.3 s).
+    static let glueGapSamples = 16_000 * 3 / 10
+    /// Up to this much speech (after trimming), release = one pass over everything, so the model
+    /// sees the whole sentence across your pauses. Longer: sentences finished while you talked
+    /// are reused and joined with `TextCleanup.joinChunks` (splits only happen in ≥ 1.3 s silences).
+    static let singlePassMaxSpeechSeconds = 25.0
+    /// Sentences are transcribed early (while you still talk) only once this much audio exists,
+    /// because anything up to `singlePassMaxSpeechSeconds` is redone in one pass anyway.
+    static let earlyTranscribeAfterSeconds = 20.0
 
     /// Clips shorter than this skip the voice detector entirely (nothing much to trim, and
     /// running it would only add time).
     static let skipVadBelowSeconds = 5.0
 
+    /// Fixed per recording (so a Settings change mid-recording can't mix two configs).
+    private var liveConfig = SpeechEngine.segmentation()
+
     func liveVadStart(session: UUID? = nil) {
+        liveConfig = Self.segmentation()
         liveState = VadStreamState.initial()
         liveResults = []
         livePending = []
@@ -258,7 +311,7 @@ actor SpeechEngine {
     }
 
     private func vadStep(_ vad: VadManager, _ chunk: [Float]) async {
-        guard let r = try? await vad.processStreamingChunk(chunk, state: liveState, config: Self.vadSegmentation) else {
+        guard let r = try? await vad.processStreamingChunk(chunk, state: liveState, config: liveConfig) else {
             liveActive = false          // fall back to the one-pass VAD for this clip
             return
         }
@@ -272,9 +325,11 @@ actor SpeechEngine {
                 liveSegmentStart = ev.sampleIndex
             } else if ev.isEnd, let start = liveSegmentStart, let asr = dictationAsr {
                 liveSegmentStart = nil
-                let begin = max(liveEarly.last?.end ?? 0, start)
+                // From where the previous early part ended (or the start), so nothing is skipped.
+                _ = start
+                let begin = liveEarly.last?.end ?? 0
                 let end = min(ev.sampleIndex, liveAudio.count)
-                if end - begin >= 16_000 * 3 / 4 {
+                if end - begin >= 16_000 * 3 / 4, liveAudio.count >= Int(Self.earlyTranscribeAfterSeconds * 16_000) {
                     let audio = Array(liveAudio[begin..<end])
                     let task = Task { try await Self.transcribeShort(asr, audio) }
                     liveEarly.append((end: end, task: task))
@@ -299,49 +354,27 @@ actor SpeechEngine {
         return try await asr.transcribe(a, decoderState: &st).text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Hold-to-talk audio -> text. Steps: VAD trim (mostly done live) -> Parakeet.
+    /// Hold-to-talk audio -> text. Steps: VAD trim (mostly done live) -> Parakeet (one pass) ->
+    /// vocabulary helper.
     /// `live`: the clip's audio was also fed to liveVadFeed while recording.
-    func dictate(samples: [Float], live requestedLive: Bool = false, session: UUID? = nil) async throws -> DictationTranscript {
-        guard let dictationAsr else { throw EngineError.notReady }
+    func dictate(samples: [Float], live requestedLive: Bool = false, session: UUID? = nil,
+                 asrOverride: AsrManager? = nil) async throws -> DictationTranscript {
+        guard let dictationAsr = asrOverride ?? dictationAsr else { throw EngineError.notReady }
         // Live state from a different recording must never be used for this one.
         let live = requestedLive && (session == nil || session == liveSession)
         let audioSeconds = Double(samples.count) / 16_000
         let signpost = Perf.signposter.beginInterval("dictate")
         defer { Perf.signposter.endInterval("dictate", signpost) }
+        let config = live ? liveConfig : Self.segmentation()
 
-        // 1) Cut out silence with Silero VAD (like Handy does). Less audio = faster,
-        //    and the model can't "hear" words in background hiss.
+        // 1) Find the speech with Silero VAD (like Handy does). Less audio = faster, and the
+        //    model can't "hear" words in background hiss. Pauses are squeezed to ~0.3 s.
         let t0 = Date()
         var speech = samples
         var vadMode = "skipped (short clip)"
         while liveDraining { try? await Task.sleep(nanoseconds: 2_000_000) }   // let the queue finish
-        if live, liveActive, let vad, !liveEarly.isEmpty, (liveEarly.last?.end ?? 0) < samples.count {
-            // Sentences finished while you talked are already transcribed (or nearly).
-            // Only the tail after the last one is left: VAD-trim it, transcribe it, glue it all.
-            let early = liveEarly
-            liveEarly = []
-            let tailStart = early.last!.end
-            let tail = Array(samples[tailStart...])
-            let t1 = Date()
-            var tailText = ""
-            let parts = (try? await vad.segmentSpeechAudio(tail, config: Self.vadSegmentation)) ?? []
-            if !parts.isEmpty {
-                let gap = [Float](repeating: 0, count: 16_000 / 5)
-                tailText = try await Self.transcribeShort(dictationAsr, parts.dropFirst().reduce(parts[0]) { $0 + gap + $1 })
-            }
-            var texts: [String] = []
-            for e in early { texts.append(try await e.task.value) }
-            texts.append(tailText)
-            liveVadCancel()
-            let text = texts.filter { !$0.isEmpty }.joined(separator: " ")
-            let asrSeconds = Date().timeIntervalSince(t1)
-            Perf.log.info("dictate (incremental): \(early.count) early sentences, tail \(Double(tail.count) / 16_000, format: .fixed(precision: 1))s, after release \(asrSeconds * 1000, format: .fixed(precision: 0))ms")
-            return DictationTranscript(text: text, audioSeconds: audioSeconds, speechSeconds: audioSeconds,
-                                       vadSeconds: 0, asrSeconds: asrSeconds,
-                                       vadMode: "incremental (\(early.count) early + tail)")
-        }
+        var segments: [VadSegment] = []
         if let vad, audioSeconds >= Self.skipVadBelowSeconds {
-            let segments: [VadSegment]
             let chunk = VadManager.chunkSize
             if live, liveActive, liveResults.count * chunk <= samples.count {
                 // Only the slices recorded after the last live step are left.
@@ -350,24 +383,54 @@ actor SpeechEngine {
                     await vadStep(vad, Array(samples[offset..<min(samples.count, offset + chunk)]))
                     offset += chunk
                 }
-                segments = await vad.segmentSpeech(from: liveResults, totalSamples: samples.count, config: Self.vadSegmentation)
-                vadMode = "live"
+                segments = await vad.segmentSpeech(from: liveResults, totalSamples: samples.count, config: config)
+                vadMode = "single pass (live VAD)"
             } else {
-                segments = try await vad.segmentSpeech(samples, config: Self.vadSegmentation)
-                vadMode = "one pass"
+                segments = try await vad.segmentSpeech(samples, config: config)
+                vadMode = "single pass"
             }
-            let parts: [[Float]] = segments.map { seg in
-                let a = max(0, min(seg.startSample(sampleRate: 16_000), samples.count))
-                let b = max(a, min(seg.endSample(sampleRate: 16_000), samples.count))
-                return Array(samples[a..<b])
-            }.filter { !$0.isEmpty }
-            if !parts.isEmpty {
-                // Glue the speech parts together with a short gap so words don't run into each other.
-                let gap = [Float](repeating: 0, count: 16_000 / 5)
-                speech = parts.dropFirst().reduce(parts[0]) { $0 + gap + $1 }
-            }
-            // No speech found at all? Keep the raw audio rather than risk dropping a quiet voice.
         }
+        var parts: [(start: Int, audio: [Float])] = []
+        for seg in segments {
+            let a = max(0, min(seg.startSample(sampleRate: 16_000), samples.count))
+            let b = max(a, min(seg.endSample(sampleRate: 16_000), samples.count))
+            if b > a { parts.append((start: a, audio: Array(samples[a..<b]))) }
+        }
+        let speechSamples = parts.reduce(0) { $0 + $1.audio.count }
+
+        // Long dictation (> 25 s of speech) with sentences already transcribed while talking:
+        // reuse them, transcribe only the tail, and join without fake sentence breaks.
+        if live, liveActive, !liveEarly.isEmpty, (liveEarly.last?.end ?? 0) < samples.count,
+           Double(speechSamples) / 16_000 > Self.singlePassMaxSpeechSeconds {
+            let early = liveEarly
+            liveEarly = []
+            let tailStart = early.last!.end
+            let tail = Array(samples[tailStart...])
+            let t1 = Date()
+            var tailText = ""
+            let tailParts = parts.filter { $0.start + $0.audio.count > tailStart }.map { p -> [Float] in
+                p.start >= tailStart ? p.audio : Array(p.audio[(tailStart - p.start)...])
+            }.filter { !$0.isEmpty }
+            if !tailParts.isEmpty {
+                tailText = try await Self.transcribeShort(dictationAsr, Self.glue(tailParts))
+            } else if tail.count > 16_000 / 2 {
+                tailText = try await Self.transcribeShort(dictationAsr, tail)
+            }
+            var texts: [String] = []
+            for e in early { texts.append(try await e.task.value) }
+            texts.append(tailText)
+            liveVadCancel()
+            let text = TextCleanup.joinChunks(texts)
+            let asrSeconds = Date().timeIntervalSince(t1)
+            Perf.log.info("dictate (incremental): \(early.count) early parts, tail \(Double(tail.count) / 16_000, format: .fixed(precision: 1))s, after release \(asrSeconds * 1000, format: .fixed(precision: 0))ms")
+            return DictationTranscript(text: text, audioSeconds: audioSeconds, speechSeconds: Double(speechSamples) / 16_000,
+                                       vadSeconds: 0, asrSeconds: asrSeconds,
+                                       vadMode: "incremental (\(early.count) early + tail, joined)")
+        }
+        // Normal case: ONE pass over the whole utterance, so the model has the context on both
+        // sides of every pause (0.4 stitched separately transcribed pieces → stray capitals).
+        if !parts.isEmpty { speech = Self.glue(parts.map { $0.audio }) }
+        // No speech found at all? Keep the raw audio rather than risk dropping a quiet voice.
         liveVadCancel()
         let vadSeconds = Date().timeIntervalSince(t0)
 
@@ -378,12 +441,68 @@ actor SpeechEngine {
         let t1 = Date()
         var state = TdtDecoderState.make(decoderLayers: await dictationAsr.decoderLayerCount)
         let result = try await dictationAsr.transcribe(speech, decoderState: &state)
-        let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        var text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let asrSeconds = Date().timeIntervalSince(t1)
-        Perf.log.info("dictate: audio \(audioSeconds, format: .fixed(precision: 2))s, VAD \(vadMode, privacy: .public) \(vadSeconds * 1000, format: .fixed(precision: 0))ms, ASR \(asrSeconds * 1000, format: .fixed(precision: 0))ms")
+
+        // 3) Vocabulary helper: check the user's terms against the audio (optional, ~100 MB model).
+        var boostSeconds = 0.0
+        var replaced: [String] = []
+        if let boost = vocabularyBoost, Vocabulary.acousticBoost, let timings = result.tokenTimings, !timings.isEmpty {
+            let t2 = Date()
+            if let out = await boost.rescore(text: result.text, tokenTimings: timings, audioSamples: speech), out.wasModified {
+                text = out.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                replaced = out.replacements.map { "\($0)" }
+            }
+            boostSeconds = Date().timeIntervalSince(t2)
+        }
+        Perf.log.info("dictate: audio \(audioSeconds, format: .fixed(precision: 2))s, VAD \(vadMode, privacy: .public) \(vadSeconds * 1000, format: .fixed(precision: 0))ms, ASR \(asrSeconds * 1000, format: .fixed(precision: 0))ms, vocab \(boostSeconds * 1000, format: .fixed(precision: 0))ms")
         return DictationTranscript(text: text, audioSeconds: audioSeconds,
                                    speechSeconds: Double(speech.count) / 16_000,
-                                   vadSeconds: vadSeconds, asrSeconds: asrSeconds, vadMode: vadMode)
+                                   vadSeconds: vadSeconds, asrSeconds: asrSeconds, vadMode: vadMode,
+                                   boostSeconds: boostSeconds, boostReplacements: replaced)
+    }
+
+    /// Speech parts back to back with ~0.3 s of silence between them.
+    static func glue(_ parts: [[Float]]) -> [Float] {
+        guard let first = parts.first else { return [] }
+        let gap = [Float](repeating: 0, count: glueGapSamples)
+        return parts.dropFirst().reduce(first) { $0 + gap + $1 }
+    }
+
+    // MARK: Vocabulary helper (FluidAudio CTC keyword boosting)
+
+    private var vocabularyBoost: VocabularyBoostingSession?
+    private var vocabularyBoostTerms: [VocabularyTerm] = []
+    private var ctcModels: CtcModels?
+    var isVocabularyBoostReady: Bool { vocabularyBoost != nil }
+
+    /// Load the 100 MB CTC helper (already downloaded by ModelStore) and build a boosting
+    /// session for `terms`. Thresholds follow FluidAudio's advice for dictation (#967): a term
+    /// must beat the transcribed words on the audio alone (cbw 0) and be ≥ 70 % similar in
+    /// spelling, so correctly heard words are rarely replaced.
+    func loadVocabularyBoost(terms: [VocabularyTerm]) async throws {
+        if vocabularyBoost != nil, terms == vocabularyBoostTerms { return }
+        guard !terms.isEmpty else { vocabularyBoost = nil; vocabularyBoostTerms = []; return }
+        if ctcModels == nil { ctcModels = try await CtcModels.downloadAndLoad(variant: .ctc110m) }
+        guard let ctcModels else { return }
+        let context = CustomVocabularyContext(terms: terms.map {
+            CustomVocabularyTerm(text: $0.text, weight: nil, aliases: $0.aliases.isEmpty ? nil : $0.aliases)
+        })
+        vocabularyBoost = try await VocabularyBoostingSession(
+            vocabulary: context, ctcModels: ctcModels,
+            thresholds: .init(cbw: 0, minSimilarity: 0.7))
+        vocabularyBoostTerms = terms
+        Perf.log.info("vocabulary helper ready: \(terms.count) terms")
+    }
+
+    func unloadVocabularyBoost() { vocabularyBoost = nil; vocabularyBoostTerms = [] }
+
+    /// A separate Parakeet manager for another model (self-test model comparison).
+    static func loadManager(_ model: SpeechModel) async throws -> AsrManager {
+        let models = try await AsrModels.downloadAndLoad(version: model.version)
+        let m = AsrManager(config: .default)
+        try await m.loadModels(models)
+        return m
     }
 
     /// Run each dictation model once on silence so Core ML finishes its one-time setup

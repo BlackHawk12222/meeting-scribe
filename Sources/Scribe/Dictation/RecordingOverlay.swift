@@ -161,6 +161,13 @@ extension NSScreen {
 
 // MARK: - Panel
 
+/// The overlay window: NEVER becomes key or main, so the app you're typing in keeps keyboard
+/// focus the whole time (⌘V and Accessibility inserts land there, not in Scribe).
+final class NonActivatingPanel: NSPanel {
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+}
+
 /// Lets the first click on the (inactive) panel start a drag.
 private final class OverlayHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -169,7 +176,7 @@ private final class OverlayHostingView<Content: View>: NSHostingView<Content> {
 /// Sizes shared by the panel and the capsule (not actor-isolated).
 enum OverlayMetrics {
     /// Room for the widest message; the capsule sits inside it at the position's alignment.
-    static let panelSize = NSSize(width: 320, height: 44)
+    static let panelSize = NSSize(width: 360, height: 44)
     /// The capsule's usual width (used to keep it on screen when dragged).
     static let capsuleWidth: CGFloat = 140
     static let margin: CGFloat = 12
@@ -194,8 +201,9 @@ final class OverlayPanel {
                 .onChanged { [weak self] _ in self?.dragChanged() }
                 .onEnded { [weak self] _ in self?.dragEnded() })
         if panel == nil {
-            let p = NSPanel(contentRect: NSRect(origin: .zero, size: Self.size),
-                            styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
+            let p = NonActivatingPanel(contentRect: NSRect(origin: .zero, size: Self.size),
+                                       styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
+            p.becomesKeyOnlyIfNeeded = true
             p.level = .statusBar
             p.isOpaque = false
             p.backgroundColor = .clear
@@ -210,6 +218,11 @@ final class OverlayPanel {
     }
 
     func hide() { panel?.orderOut(nil) }
+    /// For the self-test: the panel's focus rules.
+    var focusRules: (nonActivating: Bool, canBecomeKey: Bool, canBecomeMain: Bool)? {
+        guard let p = panel else { return nil }
+        return (p.styleMask.contains(.nonactivatingPanel), p.canBecomeKey, p.canBecomeMain)
+    }
     var isVisible: Bool { panel?.isVisible ?? false }
 
     /// The panel's frame for `position` on `screen` (no drag).
@@ -281,6 +294,8 @@ enum OverlayMode: Equatable {
     case recording           // meeting (red dot)
     case transcribing
     case message(String, failure: Bool)
+    /// "Needs Accessibility to type · Fix"
+    case needsAccess
     case hidden
 }
 
@@ -315,7 +330,9 @@ struct OverlayCapsule: View {
         .accessibilityLabel(accessibilityText)
     }
 
-    private var isMessage: Bool { if case .message = mode { return true }; return false }
+    private var isMessage: Bool {
+        switch mode { case .message, .needsAccess: return true; default: return false }
+    }
 
     @ViewBuilder private func content(_ date: Date) -> some View {
         switch mode {
@@ -350,6 +367,20 @@ struct OverlayCapsule: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
+        case .needsAccess:
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.orange)
+                Text("Copied · needs Accessibility to type")
+                    .font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.92))
+                    .lineLimit(1).fixedSize()
+                Button("Fix") { AccessibilityHelp.fix() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Capsule().fill(Color.white.opacity(0.14)))
+            }
         case .hidden:
             EmptyView()
         }
@@ -367,6 +398,7 @@ struct OverlayCapsule: View {
         case .recording: return "Scribe is recording a meeting"
         case .transcribing: return "Scribe is transcribing"
         case .message(let t, _): return t
+        case .needsAccess: return "Text copied. Scribe needs Accessibility permission to type. Fix"
         case .hidden: return ""
         }
     }
@@ -419,6 +451,7 @@ struct DictationOverlayView: View {
         case .transcribing: return .transcribing
         case .done(let m): return .message(m, failure: false)
         case .failed(let m): return .message(m, failure: true)
+        case .needsAccess: return .needsAccess
         case .idle: return .hidden
         }
     }
