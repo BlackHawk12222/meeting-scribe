@@ -109,6 +109,28 @@ enum Snapshot {
         made += await serverCapture(env(ContentView(initialSelection: .people)), size: glassMain,
                                     name: "G02_people", dir: dir)
         made += await serverCapture(env(ContentView(), store: emptyStore), size: glassMain, name: "G13_main_empty", dir: dir)
+        // 0.6: People with the "Add person" button, then the guided enrollment sheet step by step
+        // (made-up name, no microphone: the view opens at a given step with preview state).
+        made += await serverCapture(env(ContentView(initialSelection: .people)), size: glassMain,
+                                    name: "E01_people_add_person", dir: dir)
+        made += await serverCapture(env(ContentView(initialSelection: .people)), size: glassMain,
+                                    name: "E01b_people_add_person_dark", dir: dir, dark: true)
+        made += await serverCapture(env(ContentView(initialSelection: .people), store: emptyStore), size: glassMain,
+                                    name: "E01c_people_empty_add_person", dir: dir)
+        let enrollSize = NSSize(width: VoiceEnrollmentView.size.width, height: VoiceEnrollmentView.size.height)
+        let enrollSteps: [(String, VoiceEnrollmentView.Preview, Bool)] = [
+            ("E02_enroll_intro", .init(step: .intro, name: ""), false),
+            ("E03_enroll_prompt", .init(step: .prompt), false),
+            ("E03b_enroll_prompt_dark", .init(step: .prompt), true),
+            ("E04_enroll_recording", .init(step: .recording, index: 3), false),
+            ("E05_enroll_redo", .init(step: .redo, index: 2), false),
+            ("E06_enroll_done", .init(step: .done), false),
+        ]
+        for (name, preview, dark) in enrollSteps {
+            made += await serverCapture(env(VoiceEnrollmentView(preview: preview)), size: enrollSize, name: name, dir: dir, dark: dark)
+        }
+        made += await capture(env(VoiceEnrollmentView(preview: .init(step: .prompt))), size: enrollSize,
+                              name: "E03c_enroll_prompt_cache", dir: dir)
         made += await serverCapture(env(SettingsView()), size: NSSize(width: SettingsView.size.width, height: SettingsView.size.height),
                                     name: "G04_settings_dictation", dir: dir)
         made += await serverCapture(env(MenuBarView().background(Warm.canvas)), size: nil, name: "G08_menu_bar_panel", dir: dir,

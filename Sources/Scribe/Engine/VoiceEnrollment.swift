@@ -98,13 +98,13 @@ enum VoiceEnrollment {
         let snr = speechDB - noiseDB
         var problem: String?
         if clippedFrac > maxClippedFraction {
-            problem = "Too loud — it distorted. Move back a little and try again."
+            problem = "Too loud, it distorted. Lean back a little and redo it."
         } else if speechSec < minSpeechSeconds {
-            problem = "Not enough speech (\(String(format: "%.1f", speechSec)) s). Please read the whole line."
+            problem = "Too short. Read the whole line, then press Stop."
         } else if speechDB < (style == .quiet ? minQuietLevelDB : minSpeechLevelDB) {
-            problem = "Too quiet. Move closer to the Mac and try again."
+            problem = "Too quiet. Move a little closer to the Mac."
         } else if snr < minSNRdB {
-            problem = "Too much background noise. Find a quieter spot and try again."
+            problem = "Too noisy. Try a quieter spot."
         }
         return ClipCheck(speechSeconds: speechSec, speechLevelDB: speechDB, noiseLevelDB: noiseDB,
                          snrDB: snr, clippedFraction: clippedFrac, problem: problem)

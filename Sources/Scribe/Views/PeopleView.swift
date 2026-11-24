@@ -7,18 +7,19 @@ struct PeopleView: View {
     @EnvironmentObject var store: Store
     @State private var renaming: Person?
     @State private var newName = ""
+    @State private var adding = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 PageHeader(title: "People",
-                           subtitle: "Name a speaker in a meeting and they show up here. Each meeting you confirm helps Scribe recognize their voice a little better.") {
+                           subtitle: "Add someone by voice, or name a speaker in a meeting. Each meeting you confirm helps Scribe recognize their voice a little better.") {
                     headerActions
                 }
                 if store.people.isEmpty {
                     CozyEmptyState(symbol: "person.2",
                                    title: "No one here yet",
-                                   message: "After your first meeting, click a speaker's name and choose “New person…”.")
+                                   message: "Choose Add person to teach Scribe a voice in about a minute, or click a speaker's name after a meeting and choose “New person…”.")
                         .frame(minHeight: 300)
                 } else {
                     VStack(spacing: 0) {
@@ -36,6 +37,9 @@ struct PeopleView: View {
             .frame(maxWidth: Brand.readingWidth + 80, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
+        .sheet(isPresented: $adding) {
+            VoiceEnrollmentView().environmentObject(store)
+        }
         .sheet(item: $renaming) { p in
             VStack(alignment: .leading, spacing: 12) {
                 Text("Rename \(p.name)").font(.headline)
@@ -51,11 +55,14 @@ struct PeopleView: View {
         }
     }
 
-    /// Buttons at the top right of the page. Slot for v0.6-dev's "Add voice" entry point
-    /// (VoiceEnrollmentView): add e.g. `Button { … } label: { Label("Add voice", systemImage:
-    /// "person.crop.circle.badge.plus") }.scribeButton(prominent: true)` here.
+    /// Buttons at the top right of the page: guided voice enrollment ("Add person").
     @ViewBuilder private var headerActions: some View {
-        EmptyView()
+        Button { adding = true } label: {
+            Label("Add person", systemImage: "person.crop.circle.badge.plus")
+        }
+        .scribeButton(prominent: true)
+        .controlSize(.large)
+        .help("Teach Scribe someone's voice: they read six short lines out loud")
     }
 
     private func row(_ p: Person) -> some View {

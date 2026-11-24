@@ -1,15 +1,43 @@
 // VoiceEnrollmentView.swift
-// "Add person": guided voice enrollment. Plain system controls on purpose (the app's look is being
-// redesigned separately); show it as a sheet, e.g.
-//     .sheet(isPresented: $showEnroll) { VoiceEnrollmentView().environmentObject(store) }
+// "Add person": guided voice enrollment, shown as a sheet from the People page:
+//     .sheet(isPresented: $adding) { VoiceEnrollmentView().environmentObject(store) }
 //
-// Flow: type a name → read 6 short prompts (≈ 30–45 s in total) → each clip is checked
+// Flow: type a name → read 6 short lines, one at a time (≈ 30–45 s in total) → each clip is checked
 // (level, clipping, background noise, at least 4 s of speech) and must be redone if it fails →
 // Save puts one voice sample per clip into the voice library.
+// Look: the 0.6 theme (warm canvas, scribeCard, glass buttons). Calm on purpose: one line on screen,
+// big readable text, a quiet hint for HOW to say it, a live level meter, and dots for progress.
 
 import SwiftUI
 
+extension EnrollmentStyle {
+    /// A short, friendly "how to say it" hint shown above the line.
+    var hint: String {
+        switch self {
+        case .reading: return "Read this in your normal voice"
+        case .question: return "Ask it like a real question"
+        case .loud: return "Say this a little louder, like across a table"
+        case .quiet: return "Now softer and relaxed, like to someone next to you"
+        case .numbers: return "Count at an easy, steady pace"
+        case .free: return "Talk freely for a few seconds. Anything works"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .reading: return "text.alignleft"
+        case .question: return "questionmark.bubble"
+        case .loud: return "speaker.wave.3"
+        case .quiet: return "speaker.wave.1"
+        case .numbers: return "number"
+        case .free: return "bubble.left"
+        }
+    }
+}
+
 struct VoiceEnrollmentView: View {
+    static let size = CGSize(width: 580, height: 520)
+
     @EnvironmentObject var store: Store
     @Environment(\.dismiss) private var dismiss
 
@@ -18,7 +46,7 @@ struct VoiceEnrollmentView: View {
     @State private var index = 0
     @State private var recording = false
     @State private var working = false
-    @State private var level: Float = 0
+    @State private var levels: [Float] = Array(repeating: 0, count: VoiceEnrollmentView.meterBars)
     @State private var seconds = 0.0
     @State private var message: String?
     @State private var good: [EnrollmentStyle: [Float]] = [:]
@@ -29,102 +57,268 @@ struct VoiceEnrollmentView: View {
     private let prompts = VoiceEnrollment.prompts
     /// At least this many good clips before Save is allowed (the free-talk one can be skipped).
     private let minimumClips = 5
+    static let meterBars = 32
+
+    /// For `Scribe --snapshot`: open the sheet at a given step with made-up state (no microphone).
+    struct Preview {
+        enum Step { case intro, prompt, recording, redo, done }
+        var step: Step
+        var name = "Jordan"
+        var index = 2
+        var problem = "Too noisy. Try a quieter spot."
+    }
+
+    init(preview: Preview? = nil) {
+        guard let p = preview else { return }
+        _name = State(initialValue: p.name)
+        _started = State(initialValue: p.step != .intro)
+        let done = p.step == .done ? prompts.count : p.index
+        _index = State(initialValue: done)
+        var g: [EnrollmentStyle: [Float]] = [:]
+        for k in 0..<min(done, prompts.count) { g[prompts[k].style] = [1] }
+        _good = State(initialValue: g)
+        if p.step == .recording {
+            _recording = State(initialValue: true)
+            _seconds = State(initialValue: 4.5)
+            _levels = State(initialValue: (0..<Self.meterBars).map { i in
+                let x = Float(i)
+                return max(0.08, min(0.95, 0.45 + 0.30 * sin(x * 0.9) + 0.15 * sin(x * 2.3)))
+            })
+        }
+        if p.step == .redo {
+            _message = State(initialValue: p.problem)
+            _lastCheck = State(initialValue: VoiceEnrollment.ClipCheck(speechSeconds: 6.2, speechLevelDB: -30, noiseLevelDB: -38,
+                                                                        snrDB: 8, clippedFraction: 0, problem: p.problem))
+        }
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 0) {
             if !started { intro } else if index < prompts.count { promptStep } else { finish }
         }
-        .padding(24)
-        .frame(width: 520)
+        .padding(28)
+        .frame(width: Self.size.width, height: Self.size.height, alignment: .topLeading)
+        .scribeCanvas()
         .onDisappear { stopTimer(); if recording { _ = mic.stop() } }
     }
 
-    // MARK: Steps
+    // MARK: Intro
 
     private var intro: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Add a person").font(.title2).bold()
-            Text("They read six short lines out loud in a quiet room (about 30–45 seconds). Each line asks for a different way of talking, so Scribe can recognize them in meetings, even in a noisy room.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder)
+        VStack(alignment: .leading, spacing: 20) {
+            PageHeader(title: "Add a person",
+                       subtitle: "They read six short lines out loud, about 30 to 45 seconds in all. Each line asks for a different way of talking, so Scribe can tell their voice apart in meetings, even in a busy room.")
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Name").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                TextField("Their name", text: $name)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 17))
+                    .padding(.horizontal, 12).padding(.vertical, 9)
+                    .background(Warm.well, in: RoundedRectangle(cornerRadius: Brand.rSmall, style: .continuous))
+                    .onSubmit { if canStart { started = true } }
+            }
+            VStack(alignment: .leading, spacing: 10) {
+                tip("waveform", "Find a quiet spot and sit where you normally would.")
+                tip("mic", "Speak toward the Mac, at an arm's length or so.")
+                tip("arrow.counterclockwise", "If a line doesn't come out right, you can redo it.")
+            }
+            .scribeCard()
+            Spacer(minLength: 0)
             HStack {
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { dismiss() }.buttonStyle(.plain).foregroundStyle(.secondary)
                 Spacer()
-                Button("Start") { started = true }
+                Button { started = true } label: { Text("Start").frame(minWidth: 80) }
+                    .scribeButton(prominent: true)
+                    .controlSize(.large)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(!canStart)
             }
         }
     }
+
+    private var canStart: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    private func tip(_ symbol: String, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: symbol).font(.system(size: 13, weight: .medium)).foregroundStyle(Warm.honey).frame(width: 18)
+            Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: Prompt
 
     private var promptStep: some View {
         let p = prompts[index]
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Line \(index + 1) of \(prompts.count)").foregroundStyle(.secondary)
+        let failed = lastCheck.map { !$0.ok } ?? false
+        let passed = good[p.style] != nil
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .center) {
+                stepDots
+                Text("\(index + 1) of \(prompts.count)")
+                    .font(.system(size: 12, weight: .medium)).monospacedDigit().foregroundStyle(.secondary)
                 Spacer()
-                Text(name).foregroundStyle(.secondary)
+                Text(name).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary).lineLimit(1)
             }
-            ProgressView(value: Double(index), total: Double(prompts.count))
-            Text(p.style.title).font(.headline)
-            GroupBox {
-                Text(p.text)
-                    .font(.title3)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(6)
-            }
-            if recording {
-                HStack {
-                    Image(systemName: "mic.fill").foregroundStyle(.red)
-                    ProgressView(value: Double(level))
-                    Text(String(format: "%.0f s", seconds)).monospacedDigit().foregroundStyle(.secondary)
-                }
-            }
-            if working { ProgressView("Checking…").controlSize(.small) }
-            if let message {
-                Label(message, systemImage: lastCheck?.ok == true ? "checkmark.circle" : "exclamationmark.triangle")
-                    .foregroundStyle(lastCheck?.ok == true ? Color.green : Color.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack {
-                Button("Cancel") { if recording { _ = mic.stop() }; dismiss() }
+            Label(p.style.hint, systemImage: p.style.symbol)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Warm.honey)
+            Text(p.text)
+                .font(.system(size: 24, weight: .medium))
+                .lineSpacing(5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .scribeCard(padding: 22)
+            levelMeter
+            status(failed: failed, passed: passed)
+            Spacer(minLength: 0)
+            HStack(spacing: 12) {
+                Button("Cancel") { if recording { _ = mic.stop() }; stopTimer(); dismiss() }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
                 Spacer()
-                if p.style == .free && !recording && good[p.style] == nil && good.count >= minimumClips {
-                    Button("Skip") { next() }
+                GlassGroup(spacing: 10) {
+                    HStack(spacing: 10) {
+                        if p.style == .free && !recording && !passed && good.count >= minimumClips {
+                            Button("Skip") { next() }.scribeButton()
+                        }
+                        if recording {
+                            Button { stop(style: p.style) } label: {
+                                Label("Stop", systemImage: "stop.fill").frame(minWidth: 80)
+                            }
+                            .scribeButton(prominent: true)
+                            .keyboardShortcut(.defaultAction)
+                        } else if passed {
+                            Button { redo(p.style) } label: { Label("Redo", systemImage: "arrow.counterclockwise") }
+                                .scribeButton()
+                            Button { next() } label: { Text(index + 1 < prompts.count ? "Next" : "Finish").frame(minWidth: 80) }
+                                .scribeButton(prominent: true)
+                                .keyboardShortcut(.defaultAction)
+                        } else {
+                            Button { start() } label: {
+                                Label(failed ? "Redo" : "Record", systemImage: failed ? "arrow.counterclockwise" : "mic.fill")
+                                    .frame(minWidth: 80)
+                            }
+                            .scribeButton(prominent: true)
+                            .keyboardShortcut(.defaultAction)
+                            .disabled(working)
+                        }
+                    }
                 }
-                if recording {
-                    Button("Stop") { stop(style: p.style) }.keyboardShortcut(.defaultAction)
-                } else if good[p.style] != nil {
-                    Button("Redo") { good[p.style] = nil; message = nil; lastCheck = nil }
-                    Button("Next") { next() }.keyboardShortcut(.defaultAction)
-                } else {
-                    Button(lastCheck == nil ? "Record" : "Try again") { start() }
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(working)
-                }
+                .controlSize(.large)
             }
         }
     }
 
-    private var finish: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Ready to save").font(.title2).bold()
-            Text("\(good.count) of \(prompts.count) lines recorded for \(name).")
-            ForEach(prompts) { p in
-                Label(p.style.title, systemImage: good[p.style] != nil ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(good[p.style] != nil ? Color.primary : Color.secondary)
+    /// One dot per line: filled = recorded, wide = this line, hollow = still to come.
+    private var stepDots: some View {
+        HStack(spacing: 6) {
+            ForEach(Array(prompts.enumerated()), id: \.offset) { k, p in
+                let current = k == index
+                let done = good[p.style] != nil
+                Capsule()
+                    .fill(current ? AnyShapeStyle(Brand.accent) : done ? AnyShapeStyle(Brand.accent.opacity(0.45)) : AnyShapeStyle(Warm.well))
+                    .overlay(Capsule().strokeBorder(Warm.hairline, lineWidth: done || current ? 0 : 0.5))
+                    .frame(width: current ? 20 : 8, height: 8)
             }
-            HStack {
-                Button("Back") { index = max(0, prompts.count - 1) }
+        }
+        .animation(.spring(duration: 0.3), value: index)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Line \(index + 1) of \(prompts.count)")
+    }
+
+    /// Live loudness as a row of bars (newest on the right), with the time recorded so far.
+    private var levelMeter: some View {
+        HStack(spacing: 12) {
+            Image(systemName: recording ? "mic.fill" : "mic")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(recording ? Brand.record : Color.secondary)
+                .frame(width: 18)
+            HStack(alignment: .center, spacing: 3) {
+                ForEach(0..<levels.count, id: \.self) { i in
+                    Capsule()
+                        .fill(recording ? AnyShapeStyle(Brand.accent.opacity(0.35 + 0.65 * Double(levels[i]))) : AnyShapeStyle(Warm.well))
+                        .frame(width: 4, height: recording ? max(4, CGFloat(levels[i]) * 28) : 4)
+                }
+            }
+            .frame(height: 28)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .animation(.easeOut(duration: 0.1), value: levels)
+            Text(recording ? String(format: "%.0f s", seconds) : "")
+                .font(.system(size: 13, weight: .medium)).monospacedDigit().foregroundStyle(.secondary)
+                .frame(width: 36, alignment: .trailing)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(Warm.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: Brand.rSmall, style: .continuous))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(recording ? "Recording, \(Int(seconds)) seconds" : "Not recording")
+    }
+
+    @ViewBuilder
+    private func status(failed: Bool, passed: Bool) -> some View {
+        Group {
+            if working {
+                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Checking…").foregroundStyle(.secondary) }
+            } else if recording {
+                Text("Read the line, then press Stop.").foregroundStyle(.secondary)
+            } else if failed, let message {
+                Label(message, systemImage: "exclamationmark.circle")
+                    .foregroundStyle(Color.orange)
+            } else if passed {
+                Label(message ?? "Got it.", systemImage: "checkmark.circle")
+                    .foregroundStyle(Color.green)
+            } else if let message {
+                Text(message).foregroundStyle(.secondary)
+            } else {
+                Text("Press Record when you're ready.").foregroundStyle(.secondary)
+            }
+        }
+        .font(.callout)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(minHeight: 20, alignment: .leading)
+    }
+
+    // MARK: Done
+
+    private var finish: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 14) {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Warm.honey)
+                    .frame(width: 52, height: 52)
+                    .background(Warm.honey.opacity(0.12), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(name) is ready").font(.system(size: 24, weight: .bold))
+                    Text("\(good.count) of \(prompts.count) lines recorded. Scribe will suggest their name in meetings.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(prompts.enumerated()), id: \.offset) { k, p in
+                    if k > 0 { Divider().overlay(Warm.hairline) }
+                    HStack(spacing: 10) {
+                        Image(systemName: good[p.style] != nil ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(good[p.style] != nil ? AnyShapeStyle(Brand.accent) : AnyShapeStyle(.tertiary))
+                        Text(p.style.hint).foregroundStyle(good[p.style] != nil ? .primary : .secondary)
+                        Spacer()
+                    }
+                    .font(.callout)
+                    .padding(.vertical, 7)
+                }
+            }
+            .scribeCard(padding: 12)
+            Spacer(minLength: 0)
+            HStack(spacing: 12) {
+                Button("Back") { index = max(0, prompts.count - 1); message = nil; lastCheck = nil }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
                 Spacer()
-                Button("Save") {
+                Button {
                     let clips = prompts.compactMap { p in good[p.style].map { (p.style, $0) } }
                     store.enrollPerson(named: name, clips: clips)
                     dismiss()
-                }
+                } label: { Text("Save").frame(minWidth: 80) }
+                .scribeButton(prominent: true)
+                .controlSize(.large)
                 .keyboardShortcut(.defaultAction)
                 .disabled(good.count < minimumClips)
             }
@@ -136,7 +330,11 @@ struct VoiceEnrollmentView: View {
     private func start() {
         message = nil
         lastCheck = nil
-        mic.onLevel = { level = $0 }
+        levels = Array(repeating: 0, count: Self.meterBars)
+        mic.onLevel = { l in
+            levels.removeFirst()
+            levels.append(l)
+        }
         do {
             try mic.start()
             recording = true
@@ -165,18 +363,24 @@ struct VoiceEnrollmentView: View {
                     lastCheck = r.check
                     if let e = r.embedding {
                         good[style] = e
-                        message = String(format: "Good — %.1f s of speech, %.0f dB above the room.", r.check.speechSeconds, r.check.snrDB)
+                        message = "Got it. Sounds clear."
                     } else {
-                        message = r.check.problem ?? "Please try again."
+                        message = r.check.problem ?? "That didn't come through. Try once more."
                     }
                 }
             } catch {
                 await MainActor.run {
                     working = false
-                    message = "Couldn't check that clip: \(error.localizedDescription). The speaker models may still be loading."
+                    message = "Couldn't check that clip. The voice models may still be loading; try again in a moment."
                 }
             }
         }
+    }
+
+    private func redo(_ style: EnrollmentStyle) {
+        good[style] = nil
+        message = nil
+        lastCheck = nil
     }
 
     private func next() {
