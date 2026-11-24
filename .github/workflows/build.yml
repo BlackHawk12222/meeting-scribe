@@ -54,8 +54,9 @@ jobs:
           SCRIBE_VERSION: 0.5.${{ github.run_number }}
           SCRIBE_BUILD: ${{ github.run_number }}
           # Optional stable signing identity (README → Signing). Empty = ad-hoc.
-          SIGNING_CERT_P12: ${{ secrets.SIGNING_CERT_P12 }}
-          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+          # Dev-branch test builds (release=false, not main) stay ad-hoc signed and skip the cert.
+          SIGNING_CERT_P12: ${{ (github.ref == 'refs/heads/main' || github.event.inputs.release == 'true') && secrets.SIGNING_CERT_P12 || '' }}
+          SIGNING_CERT_PASSWORD: ${{ (github.ref == 'refs/heads/main' || github.event.inputs.release == 'true') && secrets.SIGNING_CERT_PASSWORD || '' }}
         run: ./scripts/build.sh
       - name: Upload build log
         if: always()
