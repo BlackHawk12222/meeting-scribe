@@ -289,7 +289,7 @@ struct VoiceEnrollmentView: View {
                     .background(Warm.honey.opacity(0.12), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(name) is ready").font(.system(size: 24, weight: .bold))
-                    Text("\(good.count) of \(prompts.count) lines recorded. Scribe will suggest their name in meetings.")
+                    Text("\(good.count) of \(prompts.count) lines recorded. Scribe will put their name on their voice in meetings.")
                         .font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
