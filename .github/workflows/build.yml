@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       selftest:
-        description: "Self-test suite: quick, full, or none"
+        description: "Self-test suite: quick, full, noisy, or none"
         default: "quick"
       release:
         description: "Publish a release"
@@ -19,15 +19,19 @@ on:
       compare_models:
         description: "Also measure Parakeet Ultra vs v2 (downloads ~630 MB)"
         default: "false"
+      noisy_args:
+        description: "Extra arguments for the noisy suite, e.g. --variants overlap,gate --snrs 5,0"
+        default: ""
 permissions:
   contents: write
 concurrency:
-  group: build
+  # One group per branch, so a dev-branch run never cancels a main/release build.
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
       - name: Pick Xcode (newest 26.x if installed, for the Apple Intelligence SDK)
@@ -74,12 +78,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/Library/Application Support/FluidAudio
-          key: models-fluidaudio-0.18.3-unsandboxed-v2-${{ github.event.inputs.compare_models == 'true' && 'ultra' || 'base' }}
+          key: models-fluidaudio-0.18.3-unsandboxed-v2-${{ github.event.inputs.selftest == 'noisy' && 'noisy' || (github.event.inputs.compare_models == 'true' && 'ultra' || 'base') }}
           restore-keys: |
             models-fluidaudio-0.18.3-unsandboxed-
       - name: Self-test (dictation clip + AMI meeting, real models, this runner's CPU/GPU)
         if: github.event_name == 'push' || github.event.inputs.selftest != 'none'
-        timeout-minutes: 25
+        timeout-minutes: 85
         run: |
           set -o pipefail
           # If it crashes, the Swift runtime prints a symbolicated backtrace to stderr.
@@ -88,7 +92,7 @@ jobs:
           echo "SWIFT_BACKTRACE=$SWIFT_BACKTRACE"
           SUITE="${{ github.event.inputs.selftest }}"; [ -z "$SUITE" ] && SUITE=quick
           EXTRA=""; [ "${{ github.event.inputs.compare_models }}" = "true" ] && EXTRA="--compare-models"
-          ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --selftest --suite "$SUITE" --seconds 300 --meeting-wav "$PWD/Tests/ES2004a_first300s.wav" --libri-dir "$PWD/Tests/librispeech" $EXTRA --measure-download | tee selftest.out
+          ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --selftest --suite "$SUITE" --seconds 300 --meeting-wav "$PWD/Tests/ES2004a_first300s.wav" --libri-dir "$PWD/Tests/librispeech" --noise-wav "$PWD/Tests/noise/crowd_noise_16k.wav" $EXTRA ${{ github.event.inputs.noisy_args }} --measure-download | tee selftest.out
           grep '^SELFTEST_JSON:' selftest.out | sed 's/^SELFTEST_JSON://' > selftest.json
           python3 -m json.tool selftest.json
           sysctl -n machdep.cpu.brand_string >> selftest-machine.txt; sysctl -n hw.memsize >> selftest-machine.txt

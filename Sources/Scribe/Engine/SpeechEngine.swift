@@ -37,6 +37,10 @@ struct DiarizerSetting: Hashable, Sendable {
     var threshold: Double? = nil
     var fa: Double? = nil
     var fb: Double? = nil
+    /// true = one speaker at a time (every word maps to exactly one person). false = keep
+    /// overlapping speech (two people at once), which scores better but needs a "main speaker"
+    /// pick before words are attached.
+    var exclusive: Bool = true
 
     static let auto = DiarizerSetting()
     static let defaultFa = 0.2
@@ -47,13 +51,14 @@ struct DiarizerSetting: Hashable, Sendable {
         if let t = threshold { parts.append("thr\(t)") }
         if let a = fa { parts.append("Fa\(a)") }
         if let b = fb { parts.append("Fb\(b)") }
+        if !exclusive { parts.append("overlap") }
         return parts.isEmpty ? "auto" : parts.joined(separator: "_")
     }
 
     var config: OfflineDiarizerConfig {
         var c = OfflineDiarizerConfig()
         // One speaker at a time, so every word maps to exactly one person.
-        c.exclusiveSegments = true
+        c.exclusiveSegments = exclusive
         if let t = threshold { c.clusteringThreshold = t }
         // Fa = how much the clustering trusts the voice evidence. FluidAudio's default (0.07)
         // merged different people into one speaker on our 5-minute test meetings; 0.2 found
@@ -527,6 +532,13 @@ actor SpeechEngine {
         try await d.prepareModels()      // loads from the on-disk cache after the first time
         diarizers[setting] = d
         return d
+    }
+
+    /// Voice embeddings for arbitrary time spans (self-test: re-scoring turns against the library).
+    func embedSpans(samples: [Float], spans: [Range<Double>]) async throws -> [[Float]] {
+        guard !spans.isEmpty else { return [] }
+        let d = try await diarizer(.auto)
+        return try await d.embedSpans(audioSource: ArrayAudioSampleSource(samples: samples), spans: spans)
     }
 
     // MARK: - Pipeline
