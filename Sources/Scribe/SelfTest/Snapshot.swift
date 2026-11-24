@@ -105,6 +105,11 @@ enum Snapshot {
                                  "asr-v3": .missing, "ctc-110m": .downloaded])
         made += await capture(env(ModelSettingsTab().frame(width: 520, height: 640)), size: nil, name: "05_settings_model", dir: dir)
         made += await capture(env(GeneralSettingsTab().frame(width: 560, height: 460)), size: nil, name: "05b_settings_general", dir: dir)
+        // voice-test: Test my voice (made-up numbers, labelled "Sample numbers" on the screen).
+        made += await capture(env(VoiceTestView(model: VoiceTestModel.preview(results: false)).frame(width: 620, height: 520)), size: nil,
+                              name: "19a_test_my_voice_prompt", dir: dir)
+        made += await capture(env(VoiceTestView(model: VoiceTestModel.preview(results: true)).frame(width: 620, height: 520)), size: nil,
+                              name: "19b_test_my_voice_results", dir: dir)
         // 0.5: Vocabulary tab, Permissions tab (Accessibility banner + typing test), the banner alone.
         made += await capture(env(VocabularySettingsTab().frame(width: SettingsView.size.width, height: 600)), size: nil,
                               name: "16_settings_vocabulary", dir: dir)

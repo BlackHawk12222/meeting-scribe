@@ -19,6 +19,9 @@ on:
       compare_models:
         description: "Also measure Parakeet Ultra vs v2 (downloads ~630 MB)"
         default: "false"
+      voicebench:
+        description: "Also run the dictation engine benchmark (Parakeet v2/v3, Whisper turbo/distil; ~1 h, downloads ~1.7 GB)"
+        default: "false"
 permissions:
   contents: write
 concurrency:
@@ -28,7 +31,7 @@ concurrency:
 jobs:
   build:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: ${{ github.event.inputs.voicebench == 'true' && 130 || 45 }}
     steps:
       - uses: actions/checkout@v4
       - name: Pick Xcode (newest 26.x if installed, for the Apple Intelligence SDK)
@@ -110,6 +113,26 @@ jobs:
             selftest.out
             selftest-machine.txt
             Scribe*.ips
+          if-no-files-found: ignore
+      - name: Voice benchmark (dictation engines; GitHub runner = virtual M1, no Neural Engine)
+        if: always() && github.event.inputs.voicebench == 'true'
+        timeout-minutes: 75
+        run: |
+          set -o pipefail
+          ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --selftest --suite voicebench \
+            --libri-dir "$PWD/Tests/librispeech" --noise-wav "$PWD/Tests/noise/crowd_noise_16k.wav" --budget-minutes 62 | tee voicebench.out
+          grep '^SELFTEST_JSON:' voicebench.out | sed 's/^SELFTEST_JSON://' > voicebench.json
+          grep '^VOICEBENCH_ROWS:' voicebench.out | sed 's/^VOICEBENCH_ROWS://' > voicebench-rows.jsonl
+          python3 -m json.tool voicebench.json > /dev/null && echo "voicebench.json OK"
+      - name: Upload voice benchmark
+        if: always() && github.event.inputs.voicebench == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: voicebench
+          path: |
+            voicebench.out
+            voicebench.json
+            voicebench-rows.jsonl
           if-no-files-found: ignore
       - name: Publish release
         if: contains(github.event.head_commit.message, '[release]') || github.event.inputs.release == 'true'

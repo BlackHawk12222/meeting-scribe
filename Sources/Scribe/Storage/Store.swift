@@ -121,10 +121,27 @@ final class Store: ObservableObject {
             engineStatus = "Ready"
             Task(priority: .utility) { await self.prepareVocabularyBoost() }
             Task.detached(priority: .utility) { Vocabulary.preload() }
+            Task(priority: .utility) { await self.prepareWhisperIfChosen() }
         } catch {
             modelProgress = nil
             engineError = "Model download/load failed: \(error.localizedDescription). Check your internet connection for the one-time download, then press Retry."
             return
+        }
+    }
+
+    /// A Whisper dictation engine (Settings › Model): download (once) + load in the background.
+    /// Until it's ready, dictation keeps using Parakeet.
+    @Published var whisperStatus = ""
+    func prepareWhisperIfChosen() async {
+        let engine = DictationEngine.current
+        guard engine.isWhisper else { whisperStatus = ""; return }
+        do {
+            whisperStatus = "Getting \(engine.shortTitle) ready…"
+            try await ModelStore.shared.ensure(engine.componentIDs)
+            try await WhisperEngine.shared.load(engine)
+            whisperStatus = "\(engine.shortTitle) ready"
+        } catch {
+            whisperStatus = "\(engine.shortTitle) unavailable (\(error.localizedDescription)); using Parakeet"
         }
     }
 

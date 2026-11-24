@@ -271,7 +271,12 @@ actor SpeechEngine {
     /// Fixed per recording (so a Settings change mid-recording can't mix two configs).
     private var liveConfig = SpeechEngine.segmentation()
 
-    func liveVadStart(session: UUID? = nil) {
+    /// false = don't transcribe finished sentences while you talk (a Whisper engine is chosen:
+    /// it always does one pass after release, so early Parakeet work would be wasted).
+    private var liveEarlyEnabled = true
+
+    func liveVadStart(session: UUID? = nil, earlyParts: Bool = true) {
+        liveEarlyEnabled = earlyParts
         liveConfig = Self.segmentation()
         liveState = VadStreamState.initial()
         liveResults = []
@@ -329,7 +334,7 @@ actor SpeechEngine {
                 _ = start
                 let begin = liveEarly.last?.end ?? 0
                 let end = min(ev.sampleIndex, liveAudio.count)
-                if end - begin >= 16_000 * 3 / 4, liveAudio.count >= Int(Self.earlyTranscribeAfterSeconds * 16_000) {
+                if liveEarlyEnabled, end - begin >= 16_000 * 3 / 4, liveAudio.count >= Int(Self.earlyTranscribeAfterSeconds * 16_000) {
                     let audio = Array(liveAudio[begin..<end])
                     let task = Task { try await Self.transcribeShort(asr, audio) }
                     liveEarly.append((end: end, task: task))
@@ -357,9 +362,13 @@ actor SpeechEngine {
     /// Hold-to-talk audio -> text. Steps: VAD trim (mostly done live) -> Parakeet (one pass) ->
     /// vocabulary helper.
     /// `live`: the clip's audio was also fed to liveVadFeed while recording.
+    /// `external`: another engine (Whisper) does step 2 on the trimmed speech instead of Parakeet;
+    /// then everything is always ONE pass (no early sentences) and the vocabulary helper is skipped.
     func dictate(samples: [Float], live requestedLive: Bool = false, session: UUID? = nil,
-                 asrOverride: AsrManager? = nil) async throws -> DictationTranscript {
-        guard let dictationAsr = asrOverride ?? dictationAsr else { throw EngineError.notReady }
+                 asrOverride: AsrManager? = nil,
+                 external: (@Sendable ([Float]) async throws -> String)? = nil) async throws -> DictationTranscript {
+        let resolvedAsr = asrOverride ?? dictationAsr
+        guard external != nil || resolvedAsr != nil else { throw EngineError.notReady }
         // Live state from a different recording must never be used for this one.
         let live = requestedLive && (session == nil || session == liveSession)
         let audioSeconds = Double(samples.count) / 16_000
@@ -400,7 +409,8 @@ actor SpeechEngine {
 
         // Long dictation (> 25 s of speech) with sentences already transcribed while talking:
         // reuse them, transcribe only the tail, and join without fake sentence breaks.
-        if live, liveActive, !liveEarly.isEmpty, (liveEarly.last?.end ?? 0) < samples.count,
+        if external == nil, let dictationAsr = resolvedAsr,
+           live, liveActive, !liveEarly.isEmpty, (liveEarly.last?.end ?? 0) < samples.count,
            Double(speechSamples) / 16_000 > Self.singlePassMaxSpeechSeconds {
             let early = liveEarly
             liveEarly = []
@@ -437,6 +447,17 @@ actor SpeechEngine {
         // Parakeet needs a little audio to work with: pad very short clips to 1 s.
         if speech.count < 16_000 { speech += [Float](repeating: 0, count: 16_000 - speech.count) }
 
+        // 2b) Another engine (Whisper): one pass over the trimmed speech, nothing else.
+        if let external {
+            let t1 = Date()
+            let text = try await external(speech).trimmingCharacters(in: .whitespacesAndNewlines)
+            let asrSeconds = Date().timeIntervalSince(t1)
+            return DictationTranscript(text: text, audioSeconds: audioSeconds,
+                                       speechSeconds: Double(speech.count) / 16_000,
+                                       vadSeconds: vadSeconds, asrSeconds: asrSeconds, vadMode: vadMode)
+        }
+        guard let dictationAsr = resolvedAsr else { throw EngineError.notReady }
+
         // 2) Speech -> text.
         let t1 = Date()
         var state = TdtDecoderState.make(decoderLayers: await dictationAsr.decoderLayerCount)
@@ -466,6 +487,13 @@ actor SpeechEngine {
                                    speechSeconds: Double(speech.count) / 16_000,
                                    vadSeconds: vadSeconds, asrSeconds: asrSeconds, vadMode: vadMode,
                                    boostSeconds: boostSeconds, boostReplacements: replaced)
+    }
+
+    /// The voice benchmark's "one full-utterance pass": the whole clip, no voice detector, no
+    /// early parts, straight into the loaded dictation Parakeet model.
+    func transcribeFull(_ samples: [Float]) async throws -> String {
+        guard let dictationAsr else { throw EngineError.notReady }
+        return try await Self.transcribeShort(dictationAsr, samples)
     }
 
     /// Speech parts back to back with ~0.3 s of silence between them.

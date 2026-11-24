@@ -9,6 +9,10 @@ packages:
   FluidAudio:
     url: https://github.com/FluidInference/FluidAudio.git
     exactVersion: 0.18.3
+  # voice-test: optional Whisper dictation engines (Argmax WhisperKit, MIT). Only Engine/WhisperEngine.swift uses it.
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit.git
+    exactVersion: 1.1.1
 targets:
   Scribe:
     type: application
@@ -26,6 +30,8 @@ targets:
         buildPhase: resources
     dependencies:
       - package: FluidAudio
+      - package: WhisperKit
+        product: WhisperKit
     info:
       path: Resources/Info.plist
       properties:

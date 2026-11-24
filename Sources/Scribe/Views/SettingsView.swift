@@ -251,22 +251,33 @@ struct VocabularySettingsTab: View {
 
 struct ModelSettingsTab: View {
     @EnvironmentObject var store: Store
-    @AppStorage("speechModel") private var speechModel = SpeechModel.english.rawValue
+    @EnvironmentObject var models: ModelStore
+    @AppStorage(DictationEngine.key) private var engineRaw = DictationEngine.current.rawValue
     @AppStorage("aiNotes") private var aiNotes = true
+    @State private var showVoiceTest = false
+    @StateObject private var voiceTest = VoiceTestModel()
 
     var body: some View {
         Form {
             Section("Speech to text") {
-                Picker("Model", selection: $speechModel) {
-                    ForEach(SpeechModel.choices) { m in
+                Picker("Dictation model", selection: $engineRaw) {
+                    ForEach(DictationEngine.allCases) { e in
                         VStack(alignment: .leading) {
-                            Text(m.title)
-                            Text(m.detail).font(.caption).foregroundStyle(.secondary)
+                            Text(e.title)
+                            Text(e.detail + (e.componentIDs.allSatisfy { models.isInstalled($0) } ? "" : " Downloads \(ModelStore.mb(e.downloadBytes)) when picked."))
+                                .font(.caption).foregroundStyle(.secondary)
                         }
-                        .tag(m.rawValue)
+                        .tag(e.rawValue)
                     }
                 }
                 .pickerStyle(.radioGroup)
+                HStack {
+                    Button("Test my voice…") { showVoiceTest = true }
+                    Text("Read 20 sentences; see which model gets your voice right.").font(.caption).foregroundStyle(.secondary)
+                }
+                if !store.whisperStatus.isEmpty {
+                    Text(store.whisperStatus).font(.caption).foregroundStyle(.secondary)
+                }
                 HStack {
                     if store.engineReady {
                         Label("Loaded and working offline", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
@@ -296,7 +307,13 @@ struct ModelSettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .onChange(of: speechModel) { _, _ in Task { await store.prepareEngine() } }
+        .onChange(of: engineRaw) { _, new in
+            if let e = DictationEngine(rawValue: new) { DictationEngine.select(e) }
+            Task { await store.prepareEngine() }
+        }
+        .sheet(isPresented: $showVoiceTest) {
+            VoiceTestView(model: voiceTest).environmentObject(store).environmentObject(models)
+        }
     }
 }
 
