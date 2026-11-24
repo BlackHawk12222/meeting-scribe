@@ -33,7 +33,13 @@ test -d "$APP" || { echo "build failed: no app"; exit 1; }
 IDENTITY="-"
 if [ -n "${SIGNING_CERT_P12:-}" ] && [ -n "${SIGNING_CERT_PASSWORD:-}" ]; then
   KC="$PWD/build/signing.keychain-db"; KCPW="scribe-$RANDOM-$RANDOM"
-  echo "$SIGNING_CERT_P12" | base64 --decode > build/signing.p12
+  # The secret may be hex (preferred: no "/" or "+" for a browser to mangle) or base64.
+  P12CLEAN=$(printf '%s' "$SIGNING_CERT_P12" | tr -d ' \n\r\t')
+  if printf '%s' "$P12CLEAN" | grep -Eq '^[0-9a-fA-F]+$'; then
+    printf '%s' "$P12CLEAN" | xxd -r -p > build/signing.p12
+  else
+    printf '%s' "$P12CLEAN" | base64 --decode > build/signing.p12 || { echo "::warning::SIGNING_CERT_P12 is not valid hex/base64"; : > build/signing.p12; }
+  fi
   security create-keychain -p "$KCPW" "$KC"
   security set-keychain-settings -lut 21600 "$KC"
   security unlock-keychain -p "$KCPW" "$KC"
