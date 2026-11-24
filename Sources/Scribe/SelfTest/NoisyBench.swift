@@ -335,8 +335,18 @@ enum NoisyBench {
                         // Enrollment clips come from the WHOLE clean ES2004a (all 4 people talk in it).
                         do {
                             let full = dir.appendingPathComponent("ES2004a_full.wav")
-                            try await SelfTest.download(URL(string: "\(SelfTest.base)/ES2004a/audio/ES2004a.Mix-Headset.wav")!, to: full)
-                            let fullAudio = try SpeechEngine.loadSamples(full)
+                            var fullAudio = clean          // fallback: the local 300 s copy (only 3 of the 4 people talk)
+                            for attempt in 1...4 {
+                                do {
+                                    try await SelfTest.download(URL(string: "\(SelfTest.base)/ES2004a/audio/ES2004a.Mix-Headset.wav")!, to: full)
+                                    fullAudio = try SpeechEngine.loadSamples(full)
+                                    break
+                                } catch {
+                                    out["enroll_download_attempt_\(attempt)"] = "\(error)"
+                                    try? await Task.sleep(nanoseconds: 10_000_000_000)
+                                }
+                            }
+                            out["enroll_source_seconds"] = Double(fullAudio.count) / Double(sr)
                             let fullRef = SelfTest.parseRTTM(rttm, limit: Double(fullAudio.count) / Double(sr))
                             let (libs, info) = try await EnrollBench.build(audio: fullAudio, ref: fullRef)
                             enrollLibs = libs + [EnrollBench.Library(name: "meeting", people: library)]
