@@ -532,7 +532,8 @@ struct OverlayCapsule: View {
     @ViewBuilder private func content(_ date: Date, vertical: Bool) -> some View {
         switch mode {
         case .listening, .recording:
-            stack(vertical, h: 10, v: 9) {
+            let layout = stack(vertical, h: 10, v: 9)
+            layout {
                 if mode == .recording {
                     Circle().fill(Brand.record).frame(width: 8, height: 8)
                         .opacity(0.88 + 0.12 * sin(tape.now(date) * 3))
@@ -551,7 +552,8 @@ struct OverlayCapsule: View {
                     .fixedSize(horizontal: !vertical, vertical: false)
             }
         case .transcribing:
-            stack(vertical, h: 8, v: 10) {
+            let layout = stack(vertical, h: 8, v: 10)
+            layout {
                 Spinner(angle: previewSpin ?? (date.timeIntervalSinceReferenceDate * 360).truncatingRemainder(dividingBy: 360))
                 if vertical {
                     Image(systemName: "text.alignleft")
@@ -565,7 +567,8 @@ struct OverlayCapsule: View {
                 }
             }
         case .message(let text, let failure):
-            stack(vertical, h: 6, v: 5) {
+            let layout = stack(vertical, h: 6, v: 5)
+            layout {
                 Image(systemName: failure ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(failure ? Color.orange : Color.green)
