@@ -5,7 +5,9 @@
 // Flow: type a name → read 6 short lines, one at a time (≈ 30–45 s in total) → each clip is checked
 // (level, clipping, background noise, at least 4 s of speech) and must be redone if it fails →
 // Save puts one voice sample per clip into the voice library.
-// Look: the 0.6 theme (warm canvas, scribeCard, glass buttons). Calm on purpose: one line on screen,
+// Look: built only from Theme.swift tokens (Warm.*, Brand.*, scribeCard, scribeButton, PageHeader,
+// scribeCanvas) and no glass-specific code, so a new visual theme can reskin it by changing Theme.swift.
+// Calm on purpose: one line on screen,
 // big readable text, a quiet hint for HOW to say it, a live level meter, and dots for progress.
 
 import SwiftUI
@@ -176,8 +178,7 @@ struct VoiceEnrollmentView: View {
                 Button("Cancel") { if recording { _ = mic.stop() }; stopTimer(); dismiss() }
                     .buttonStyle(.plain).foregroundStyle(.secondary)
                 Spacer()
-                GlassGroup(spacing: 10) {
-                    HStack(spacing: 10) {
+                HStack(spacing: 10) {
                         if p.style == .free && !recording && !passed && good.count >= minimumClips {
                             Button("Skip") { next() }.scribeButton()
                         }
@@ -202,7 +203,6 @@ struct VoiceEnrollmentView: View {
                             .keyboardShortcut(.defaultAction)
                             .disabled(working)
                         }
-                    }
                 }
                 .controlSize(.large)
             }
