@@ -266,21 +266,31 @@ enum Vocabulary {
     }
 
     /// May the acoustic helper replace the heard words `original` with the term `replacement`?
-    static func acousticReplacementAllowed(original: String, replacement: String, dict: Set<String>) -> Bool {
+    static func acousticReplacementAllowed(original: String, replacement: String, dict: Set<String>,
+                                           terms: [VocabularyTerm] = Vocabulary.terms) -> Bool {
         let term = core(replacement).lowercased()
         guard term.count >= acousticMinTermLength else { return false }      // "CAD", "VEX", "V5": text pass only
         let words = original.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "\n" || $0 == "\t" })
             .map(String.init).filter { $0.contains(where: { $0.isLetter || $0.isNumber }) }
         guard !words.isEmpty else { return false }
+        // Never overwrite another term that was already heard ("Vex V5" → "Xcode").
+        let otherTerms = Set(terms.filter { core($0.text).lowercased() != term }
+            .flatMap { t in [t.text] + t.aliases.filter { !$0.contains(" ") } }
+            .map { core($0).lowercased() }.filter { !$0.isEmpty })
+        if words.contains(where: { otherTerms.contains(core($0).lowercased()) }) { return false }
         // The term split into pieces ("Swift UI", "fig ma", "on shade"): a respelling, not a new word.
         let joined = core(words.joined()).lowercased()
         if words.count >= 2 {
             let limit = term.count >= 6 ? 1 : 0
             if editDistance(joined, term, limit: limit) <= limit { return true }
         }
-        // Otherwise only when something heard isn't a real word ("OnShade" → "Onshape").
-        // "cute", "head", "practise", "notion" are real words: keep what was said.
-        return words.contains { !isEnglishWord($0, dict: dict) }
+        // Otherwise only when something heard isn't a real word ("OnShade" → "Onshape"): a word of
+        // 3+ letters (no digits) missing from the word list. "cute", "head", "practise", "notion"
+        // are real words: keep what was said.
+        return words.contains { w in
+            let c = core(w)
+            return c.count >= 3 && c.allSatisfy(\.isLetter) && !isEnglishWord(w, dict: dict)
+        }
     }
 
     /// Apply only the helper's swaps that pass `acousticReplacementAllowed`.
