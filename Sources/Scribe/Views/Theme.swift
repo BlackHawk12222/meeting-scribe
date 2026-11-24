@@ -282,10 +282,11 @@ struct CozyEmptyState<Actions: View>: View {
                 .background(Warm.honey.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             VStack(spacing: 6) {
                 Text(title).font(.title3.weight(.semibold))
+                // No fixedSize here: it would make the window's minimum height huge.
                 Text(message).font(.callout).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
-                    .frame(maxWidth: 360)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(6)
+                    .frame(maxWidth: 380)
             }
             actions.padding(.top, 4)
         }

@@ -14,6 +14,8 @@ struct MeetingDetailView: View {
     @State private var namingKey: String?
     @State private var newName = ""
     @State private var editingTitle = false
+    @State private var chipKey: String?
+    @FocusState private var titleFocused: Bool
     @State private var tab = DetailTab.notes
     enum DetailTab: String, CaseIterable { case notes = "Notes", transcript = "Transcript" }
 
@@ -61,18 +63,36 @@ struct MeetingDetailView: View {
 
     private func header(_ m: Meeting) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            TextField("Untitled meeting", text: Binding(
-                get: { m.title },
-                set: { new in if let i = store.index(of: m.id) { store.meetings[i].title = new } }
-            ), onCommit: { store.save() })
-            .textFieldStyle(.plain)
-            .font(.system(size: 30, weight: .bold))
+            if editingTitle {
+                TextField("Untitled meeting", text: Binding(
+                    get: { m.title },
+                    set: { new in if let i = store.index(of: m.id) { store.meetings[i].title = new } }
+                ))
+                .textFieldStyle(.plain)
+                .font(.system(size: 30, weight: .bold))
+                .focused($titleFocused)
+                .onSubmit { store.save(); editingTitle = false }
+                .onChange(of: titleFocused) { _, f in if !f { store.save(); editingTitle = false } }
+                .onAppear { titleFocused = true }
+            } else {
+                Text(m.title.isEmpty ? "Untitled meeting" : m.title)
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(m.title.isEmpty ? .secondary : .primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .onTapGesture { editingTitle = true }
+                    .help("Click to rename")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Rename this meeting")
+            }
             HStack(spacing: 14) {
                 Label(m.date.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")
+                    .lineLimit(1).fixedSize()
                 Label(Exporter.clock(m.duration), systemImage: "clock").monospacedDigit()
                 if let p = m.processingSeconds, p > 0 {
                     // Measured on this Mac for this recording.
                     Label(String(format: "processed in %.0f s (%.0f× real time)", p, m.duration / p), systemImage: "bolt")
+                        .lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if m.status == .done {
@@ -115,40 +135,21 @@ struct MeetingDetailView: View {
 
     private func speakersBar(_ m: Meeting) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            GlassGroup(spacing: 8) {
-                HStack(spacing: 8) {
-                    ForEach(m.clusters) { c in speakerChip(m, c) }
-                }
-                .padding(.vertical, 4)
-                .padding(.horizontal, 2)
+            HStack(spacing: 8) {
+                ForEach(m.clusters) { c in speakerChip(m, c) }
             }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 2)
         }
     }
 
+    /// A speaker chip: a glass pill (dot, name, match, talk time). Clicking it opens a small
+    /// popover with the naming choices. (A SwiftUI Menu would flatten this label to plain text.)
     private func speakerChip(_ m: Meeting, _ c: SpeakerCluster) -> some View {
         let person = store.person(c.personID)
         let suggestion = store.person(c.suggestedPersonID)
         let color = person.map { Palette.color($0.colorIndex) } ?? .gray
-        return Menu {
-            if let s = suggestion {
-                Button("Yes, this is \(s.name)") { store.assign(meetingID: m.id, clusterKey: c.key, to: s.id) }
-            }
-            if person != nil && !c.confirmed {
-                Button("Confirm \(person!.name) (teach the library)") {
-                    store.assign(meetingID: m.id, clusterKey: c.key, to: person!.id)
-                }
-            }
-            Button("Play a sample") { playSample(m, c.key) }
-            Divider()
-            ForEach(store.people) { p in
-                Button(p.name) { store.assign(meetingID: m.id, clusterKey: c.key, to: p.id) }
-            }
-            Button("New person…") { newName = ""; namingKey = c.key }
-            if person != nil {
-                Divider()
-                Button("Not them / unknown") { store.clearSpeaker(meetingID: m.id, clusterKey: c.key) }
-            }
-        } label: {
+        return Button { chipKey = c.key } label: {
             HStack(spacing: 7) {
                 Circle().fill(color).frame(width: 9, height: 9)
                 Text(store.displayName(m, key: c.key)).fontWeight(.semibold)
@@ -156,20 +157,62 @@ struct MeetingDetailView: View {
                 if c.confirmed {
                     Image(systemName: "checkmark.seal.fill").foregroundStyle(Brand.accent)
                 } else if let score = c.matchScore, person != nil {
-                    Text(String(format: "%.0f%% match", score * 100)).font(.caption).foregroundStyle(.secondary)
+                    Text(String(format: "%.0f%%", score * 100)).font(.caption).foregroundStyle(.secondary)
                 }
-                Text(Exporter.clock(c.talkSeconds)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                Text(Exporter.clock(c.talkSeconds)).font(.caption).monospacedDigit().foregroundStyle(.tertiary)
                 Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
             }
+            .font(.callout)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .contentShape(Capsule())
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .buttonStyle(.plain)
         .fixedSize()
-        .scribeGlass(Capsule(), tint: person == nil ? nil : color.opacity(0.10), interactive: true)
+        .scribeGlass(Capsule(), tint: person == nil ? nil : color.opacity(0.12), interactive: true)
         .help("Click to name this speaker. Naming teaches the voice library.")
+        .popover(isPresented: Binding(get: { chipKey == c.key }, set: { if !$0 { chipKey = nil } }), arrowEdge: .bottom) {
+            speakerChoices(m, c, person: person, suggestion: suggestion)
+        }
+    }
+
+    private func choiceRow(_ title: String, _ symbol: String, _ action: @escaping () -> Void) -> some View {
+        Button { chipKey = nil; action() } label: {
+            Label(title, systemImage: symbol).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+        }
+        .buttonStyle(MenuRowStyle())
+    }
+
+    private func speakerChoices(_ m: Meeting, _ c: SpeakerCluster, person: Person?, suggestion: Person?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let s = suggestion {
+                choiceRow("Yes, this is \(s.name)", "checkmark") { store.assign(meetingID: m.id, clusterKey: c.key, to: s.id) }
+            }
+            if let p = person, !c.confirmed {
+                choiceRow("Confirm \(p.name)", "checkmark.seal") { store.assign(meetingID: m.id, clusterKey: c.key, to: p.id) }
+            }
+            choiceRow("Play a sample", "play") { playSample(m, c.key) }
+            Divider().padding(.vertical, 4)
+            ForEach(store.people) { p in
+                Button { chipKey = nil; store.assign(meetingID: m.id, clusterKey: c.key, to: p.id) } label: {
+                    HStack(spacing: 8) {
+                        Circle().fill(Palette.color(p.colorIndex)).frame(width: 8, height: 8)
+                        Text(p.name)
+                        Spacer()
+                        if p.id == person?.id { Image(systemName: "checkmark").foregroundStyle(.secondary) }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(MenuRowStyle())
+            }
+            choiceRow("New person…", "person.badge.plus") { newName = ""; namingKey = c.key }
+            if person != nil {
+                Divider().padding(.vertical, 4)
+                choiceRow("Not them / unknown", "person.fill.questionmark") { store.clearSpeaker(meetingID: m.id, clusterKey: c.key) }
+            }
+        }
+        .padding(8)
+        .frame(width: 240)
     }
 
     private func nameSheet(_ m: Meeting) -> some View {
@@ -220,7 +263,7 @@ struct MeetingDetailView: View {
                             ForEach(n.keyPoints, id: \.self) { p in
                                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                                     Circle().fill(Color.secondary.opacity(0.6)).frame(width: 5, height: 5)
-                                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] + 4 }
                                     Text(p).font(.system(size: 15)).textSelection(.enabled)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }

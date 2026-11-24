@@ -406,8 +406,8 @@ private struct CapsuleGlass: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *) {
             content
-                .background(Capsule().fill(Color(white: 0.06).opacity(0.42)))
-                .glassEffect(.regular.tint(Color(white: 0.08).opacity(0.55)), in: Capsule())
+                .background(Capsule().fill(Color(white: 0.06).opacity(0.30)))
+                .glassEffect(.regular.tint(Color(white: 0.10).opacity(0.50)), in: Capsule())
                 .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
         } else {
             content
