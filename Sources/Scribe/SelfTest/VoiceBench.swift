@@ -155,6 +155,36 @@ enum VoiceBench {
         return parts.filter { $0.count > 1_600 }
     }
 
+    /// Who swaps short everyday phrases for terms ("almost done" → "Xcode.", "cute" → "CAD")?
+    /// The same clips with the OPTIONAL acoustic vocabulary helper switched on (it's off by default),
+    /// so each row has: raw model text, + rules, + vocabulary text pass, + helper (with its swaps).
+    static func helperCheck(_ clips: [Clip]) async -> [String: Any] {
+        let ms = await MainActor.run { ModelStore.shared }
+        do {
+            try await ms.ensure(await MainActor.run { ms.vocabularyComponents })
+            try await SpeechEngine.shared.loadVocabularyBoost(terms: Vocabulary.terms(from: Vocabulary.defaults))
+        } catch { return ["error": "helper unavailable: \(error)"] }
+        UserDefaults.standard.set(true, forKey: Vocabulary.boostKey)
+        defer { UserDefaults.standard.removeObject(forKey: Vocabulary.boostKey) }
+        var rows: [[String: Any]] = []
+        for c in clips {
+            var row: [String: Any] = ["set": "helper", "id": c.id, "voice": c.voice, "engine": "parakeet-v2",
+                                      "path": "app+acoustic_helper", "ref": c.reference]
+            do {
+                let (t, r) = try await appPass(c.samples, engine: .parakeetV2)
+                row["ms"] = (t * 1000).rounded()
+                row["raw"] = r.transcript.text
+                row["rules_only"] = TextCleanup.rules(r.transcript.text)
+                row["final"] = r.text
+                row["helper_swaps"] = r.transcript.boostReplacements
+            } catch { row["error"] = "\(error)" }
+            rows.append(row)
+        }
+        await SpeechEngine.shared.unloadVocabularyBoost()
+        emit(rows, section: "parakeet-v2/helper")
+        return ["clips": rows.count, "rows_with_swaps": rows.filter { !(($0["helper_swaps"] as? [String]) ?? []).isEmpty }.count]
+    }
+
     // MARK: Run
 
     static func emit(_ rows: [[String: Any]], section: String) {
@@ -204,6 +234,11 @@ enum VoiceBench {
                 let url = tmp.appendingPathComponent("d\(n).wav"); n += 1
                 guard synth(sentence, voice: v, to: url), let s = try? SpeechEngine.loadSamples(url) else { continue }
                 dictation.append(Clip(set: "dictation", id: "d\(i + 1)", voice: v, reference: sentence, samples: silence + s + silence))
+            }
+            for (i, sentence) in VoicePrompts.short.enumerated() {
+                let url = tmp.appendingPathComponent("d\(n).wav"); n += 1
+                guard synth(sentence, voice: v, to: url), let s = try? SpeechEngine.loadSamples(url) else { continue }
+                dictation.append(Clip(set: "dictation", id: "s\(i + 1)", voice: v, reference: sentence, samples: silence + s + silence))
             }
             for (id, spoken) in pauseScripts where vs.firstIndex(of: v)! < 2 {
                 let url = tmp.appendingPathComponent("p\(n).wav"); n += 1
@@ -281,6 +316,7 @@ enum VoiceBench {
                         let (t, r) = try await appPass(c.samples, engine: engine)
                         row["ms"] = (t * 1000).rounded()
                         row["raw"] = r.transcript.text
+                        row["rules_only"] = TextCleanup.rules(r.transcript.text)   // cleanup without the vocabulary pass
                         row["final"] = r.text
                         row["mode"] = r.transcript.vadMode
                     } catch { row["error"] = "\(error)" }
@@ -321,6 +357,9 @@ enum VoiceBench {
                 }
                 e[setName] = summary
                 SelfTest.log("voicebench \(engine.rawValue) \(setName): \(summary)")
+            }
+            if engine == .parakeetV2, !overBudget() {
+                e["acoustic_helper_short"] = await helperCheck(dictation.filter { $0.id.hasPrefix("s") || $0.reference.contains("cute") })
             }
             engines[engine.rawValue] = e
             if engine.isWhisper { await WhisperEngine.shared.unload(engine) }

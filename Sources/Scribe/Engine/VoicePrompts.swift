@@ -39,6 +39,19 @@ enum VoicePrompts {
         "First, sketch the part in Onshape, then export it for the 3D printer.",
     ]
 
+    /// Very short replies (real reports: "almost done" came out as "Xcode.", "cute" as "CAD").
+    /// Benchmark only; they check whether a short clip gets swapped for a vocabulary term.
+    static let short: [String] = [
+        "Almost done.",
+        "Almost done, sorry.",
+        "That's so cute.",
+        "Okay, almost done.",
+        "So cute!",
+        "Sounds good.",
+        "Done.",
+        "One sec.",
+    ]
+
     /// Test my voice: 20 prompts, read one at a time.
     static var forTest: [String] { Array(all.prefix(20)) }
 }
