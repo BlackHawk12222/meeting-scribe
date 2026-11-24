@@ -22,7 +22,8 @@ on:
 permissions:
   contents: write
 concurrency:
-  group: build
+  # One group per branch, so a push to a dev branch never cancels a main/release build.
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   build:

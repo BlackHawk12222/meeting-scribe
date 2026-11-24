@@ -16,7 +16,13 @@
 //  2. ACOUSTIC pass (optional, Settings › Vocabulary): FluidAudio's CTC keyword spotter
 //     (a 100 MB Parakeet CTC 110M helper model) checks each term against the AUDIO and
 //     swaps in the term only when the sound matches better than what was transcribed.
-//     See SpeechEngine.loadVocabularyBoost.
+//     See SpeechEngine.loadVocabularyBoost. Every swap it proposes goes through
+//     `guardAcoustic` first (0.5 hotfix): its "spotter rescue" pass replaced plain words
+//     with short terms on sound alone ("cute" → "CAD", "practise" → "CAD", "head" → "CAD").
+//     Now a swap is refused when the heard word(s) are real English words (unless they're
+//     just the term split up, "Swift UI" → "SwiftUI"), and terms of 3 characters or fewer
+//     ("CAD", "VEX", "V5") are never given to the helper at all: they come only from the
+//     text pass, which needs the exact spoken spelling ("cad", "c a d", "v five").
 
 import Foundation
 
@@ -57,6 +63,7 @@ enum Vocabulary {
     /// Acoustic matching with the helper model (Settings › Vocabulary). Default OFF since 0.5:
     /// on the CI runner (LibriSpeech, 40 clips) it put "CAD" into ordinary sentences and raised
     /// WER 1.59% → 1.99%, while the text pass alone already got every term right.
+    /// (Those swaps are now blocked by `guardAcoustic`, but it stays off by default.)
     static var acousticBoost: Bool { UserDefaults.standard.object(forKey: boostKey) as? Bool ?? false }
 
     static var terms: [VocabularyTerm] { terms(from: words) }
@@ -209,6 +216,106 @@ enum Vocabulary {
         }
         flush()
         return out
+    }
+
+    // MARK: - Guard for the acoustic helper
+
+    /// Terms the acoustic helper may insert: longer than 3 letters/digits. Short acronyms
+    /// ("CAD", "VEX", "V5") sound like too many everyday words; the text pass handles them.
+    static let acousticMinTermLength = 4
+    /// Always on in the app. Only the self-test turns it off, to show what 0.5.21 did.
+    nonisolated(unsafe) static var acousticGuard = true
+    static func core(_ s: String) -> String { String(s.filter { $0.isLetter || $0.isNumber }) }
+    static func acousticTerms(_ terms: [VocabularyTerm]) -> [VocabularyTerm] {
+        guard acousticGuard else { return terms }
+        return terms.filter { core($0.text).count >= acousticMinTermLength }
+    }
+
+    /// Is `word` a real English word (macOS's word list, plus simple inflections and
+    /// British spellings the list lacks: "nods", "practise", "colours", "it's")?
+    /// With no word list every word counts as English, so the helper can't guess.
+    static func isEnglishWord(_ word: String, dict: Set<String>) -> Bool {
+        var w = word.lowercased().replacingOccurrences(of: "’", with: "'")
+        w = String(w.drop(while: { !$0.isLetter && !$0.isNumber }))
+        while let l = w.last, !l.isLetter, !l.isNumber { w.removeLast() }
+        guard w.contains(where: \.isLetter) else { return false }
+        if dict.isEmpty { return true }
+        if dict.contains(w) { return true }
+        for c in ["'s", "'re", "'ll", "'ve", "'d", "'m", "n't"] where w.hasSuffix(c) && w.count > c.count + 1 {
+            w = String(w.dropLast(c.count)); if dict.contains(w) { return true }
+        }
+        var stems: [String] = []
+        func cut(_ suffix: String, _ adds: [String] = [""]) {
+            guard w.hasSuffix(suffix), w.count >= suffix.count + 2 else { return }
+            let base = String(w.dropLast(suffix.count))
+            for a in adds { stems.append(base + a) }
+            // "running" → "run", "nodded" → "nod"
+            if let l = base.last, base.count >= 3, base.dropLast().last == l { stems.append(String(base.dropLast())) }
+        }
+        cut("ies", ["y"]); cut("ied", ["y"]); cut("es"); cut("s")
+        cut("ed", ["", "e"]); cut("ing", ["", "e"]); cut("er", ["", "e"]); cut("est", ["", "e"])
+        cut("ly"); cut("ness")
+        // British spellings: practise → practice / practize, colour → color, centre → center.
+        let british: [(String, [String])] = [("ise", ["ice", "ize"]), ("ised", ["ized", "iced", "ize", "ice"]), ("ising", ["izing", "icing", "ize", "ice"]),
+                        ("ises", ["izes", "ices", "ize", "ice"]), ("our", ["or"]), ("ours", ["ors", "or"]), ("re", ["er"])]
+        for (b, us) in british where w.hasSuffix(b) {
+            let base = String(w.dropLast(b.count))
+            for u in us { stems.append(base + u) }
+        }
+        return stems.contains { $0.count >= 2 && dict.contains($0) }
+    }
+
+    /// May the acoustic helper replace the heard words `original` with the term `replacement`?
+    static func acousticReplacementAllowed(original: String, replacement: String, dict: Set<String>) -> Bool {
+        let term = core(replacement).lowercased()
+        guard term.count >= acousticMinTermLength else { return false }      // "CAD", "VEX", "V5": text pass only
+        let words = original.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "\n" || $0 == "\t" })
+            .map(String.init).filter { $0.contains(where: { $0.isLetter || $0.isNumber }) }
+        guard !words.isEmpty else { return false }
+        // The term split into pieces ("Swift UI", "fig ma", "on shade"): a respelling, not a new word.
+        let joined = core(words.joined()).lowercased()
+        if words.count >= 2 {
+            let limit = term.count >= 6 ? 1 : 0
+            if editDistance(joined, term, limit: limit) <= limit { return true }
+        }
+        // Otherwise only when something heard isn't a real word ("OnShade" → "Onshape").
+        // "cute", "head", "practise", "notion" are real words: keep what was said.
+        return words.contains { !isEnglishWord($0, dict: dict) }
+    }
+
+    /// Apply only the helper's swaps that pass `acousticReplacementAllowed`.
+    /// `original` = the speech model's text, `rescored` = the helper's text with all its swaps,
+    /// `replacements` = (heard words, term) for each swap it made.
+    static func guardAcoustic(original: String, rescored: String, replacements: [(from: String, to: String)],
+                              dict: Set<String>? = nil) -> (text: String, accepted: [(from: String, to: String)], rejected: [(from: String, to: String)]) {
+        guard acousticGuard else { return (rescored, replacements, []) }
+        let d = dict ?? englishWords()
+        var accepted: [(from: String, to: String)] = []
+        var rejected: [(from: String, to: String)] = []
+        for r in replacements {
+            if !r.to.isEmpty, acousticReplacementAllowed(original: r.from, replacement: r.to, dict: d) { accepted.append(r) } else { rejected.append(r) }
+        }
+        if accepted.isEmpty { return (original, [], rejected) }
+        if rejected.isEmpty { return (rescored, accepted, []) }
+        // Mixed: redo the accepted swaps on the speech model's own text.
+        var s = original
+        var cursor = 0
+        var kept: [(from: String, to: String)] = []
+        for r in accepted {
+            let parts = r.from.split(whereSeparator: { $0 == " " || $0 == "-" }).map { core(String($0)) }.filter { !$0.isEmpty }
+            guard !parts.isEmpty else { rejected.append(r); continue }
+            let pattern = "(?i)(?<![\\p{L}\\p{N}])" + parts.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: "[\\s\\-]+") + "(?![\\p{L}\\p{N}])"
+            let ns = s as NSString
+            guard cursor <= ns.length, let re = try? NSRegularExpression(pattern: pattern),
+                  let m = re.firstMatch(in: s, range: NSRange(location: cursor, length: ns.length - cursor)) else {
+                rejected.append(r); continue
+            }
+            let to = core(r.to).isEmpty ? r.to : r.to.trimmingCharacters(in: .punctuationCharacters.union(.whitespaces))
+            s = ns.replacingCharacters(in: m.range, with: to)
+            cursor = m.range.location + (to as NSString).length
+            kept.append(r)
+        }
+        return (s, kept, rejected)
     }
 
     /// Damerau-Levenshtein (optimal string alignment) with an early exit.
