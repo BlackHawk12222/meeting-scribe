@@ -122,3 +122,181 @@ enum MenuBarGlyph {
     static let live = image(.live)
     static let busy = image(.busy)
 }
+
+// MARK: - 0.6 look: Liquid Glass + warm, calm neutrals
+//
+// Apple structure, Notion calm, a little cozier: warm off-white paper in light mode and a
+// warm charcoal in dark mode, soft continuous corners, quiet hairlines, one gentle warm
+// accent ("honey") beside the indigo nib. On macOS 26 the floating chrome (buttons, chips,
+// the dictation capsule, banners) is Liquid Glass; on macOS 14/15 the same views fall back
+// to the system's regular material with a hairline edge.
+
+extension Color {
+    /// A color with separate light and dark values (follows the window's appearance).
+    static func scribe(light: (CGFloat, CGFloat, CGFloat, CGFloat), dark: (CGFloat, CGFloat, CGFloat, CGFloat)) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let c = isDark ? dark : light
+            return NSColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: c.3)
+        })
+    }
+}
+
+enum Warm {
+    /// The page behind content (warm paper / warm charcoal).
+    static let canvas = Color.scribe(light: (0.984, 0.976, 0.965, 1), dark: (0.118, 0.110, 0.102, 1))
+    /// Cards and grouped blocks sitting on the canvas.
+    static let surface = Color.scribe(light: (1.000, 0.996, 0.990, 1), dark: (0.160, 0.149, 0.140, 1))
+    /// Subtle filled areas (pills, wells, hover).
+    static let well = Color.scribe(light: (0.945, 0.931, 0.912, 1), dark: (0.212, 0.198, 0.186, 1))
+    /// Quiet dividers and card edges.
+    static let hairline = Color.scribe(light: (0.42, 0.34, 0.26, 0.13), dark: (1, 0.96, 0.90, 0.08))
+    /// The gentle warm accent (used sparingly: section marks, empty states, highlights).
+    static let honey = Color.scribe(light: (0.78, 0.49, 0.22, 1), dark: (0.90, 0.64, 0.38, 1))
+    /// Soft, warm-tinted shadow for cards.
+    static let shadow = Color.scribe(light: (0.33, 0.22, 0.12, 0.07), dark: (0, 0, 0, 0.35))
+}
+
+extension Brand {
+    /// Corner radii: small controls, cards, big panels.
+    static let rSmall: CGFloat = 8, rCard: CGFloat = 14, rPanel: CGFloat = 20
+    /// Comfortable reading width for notes and transcripts.
+    static let readingWidth: CGFloat = 720
+}
+
+extension View {
+    /// Liquid Glass on macOS 26; regular material + hairline on macOS 14/15.
+    @ViewBuilder
+    func scribeGlass<S: InsettableShape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+        if #available(macOS 26.0, *) {
+            self.glassEffect(Self.glass(tint: tint, interactive: interactive), in: shape)
+        } else {
+            self.background {
+                shape.fill(.regularMaterial)
+                if let tint { shape.fill(tint.opacity(0.18)) }
+            }
+            .overlay(shape.strokeBorder(Warm.hairline, lineWidth: 0.5))
+        }
+    }
+
+    @available(macOS 26.0, *)
+    private static func glass(tint: Color?, interactive: Bool) -> Glass {
+        var g = Glass.regular
+        if let tint { g = g.tint(tint) }
+        if interactive { g = g.interactive() }
+        return g
+    }
+
+    /// A calm card: warm surface, soft corners, hairline edge, a whisper of shadow.
+    func scribeCard(radius: CGFloat = Brand.rCard, padding: CGFloat = Brand.s2) -> some View {
+        self.padding(padding)
+            .background(Warm.surface, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(Warm.hairline, lineWidth: 0.5))
+            .shadow(color: Warm.shadow, radius: 10, y: 3)
+    }
+
+    /// `.glass` / `.glassProminent` buttons on macOS 26, bordered ones before.
+    func scribeButton(prominent: Bool = false) -> some View { modifier(ScribeButtonStyle(prominent: prominent)) }
+
+    /// The warm page background (content area of the main window, settings panes).
+    func scribeCanvas() -> some View { self.background(Warm.canvas) }
+}
+
+struct ScribeButtonStyle: ViewModifier {
+    var prominent: Bool
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            if prominent { content.buttonStyle(.glassProminent) } else { content.buttonStyle(.glass) }
+        } else {
+            if prominent { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
+        }
+    }
+}
+
+/// Groups nearby glass shapes so they blend like one piece of glass (macOS 26 only).
+struct GlassGroup<Content: View>: View {
+    var spacing: CGFloat = 10
+    @ViewBuilder var content: Content
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else {
+            content
+        }
+    }
+}
+
+/// A page title block: big title, one calm line under it (Notion-style page header).
+struct PageHeader<Trailing: View>: View {
+    var title: String
+    var subtitle: String?
+    @ViewBuilder var trailing: Trailing
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title).font(.system(size: 28, weight: .bold))
+                if let subtitle {
+                    Text(subtitle).font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 16)
+            trailing
+        }
+    }
+}
+
+extension PageHeader where Trailing == EmptyView {
+    init(title: String, subtitle: String? = nil) {
+        self.init(title: title, subtitle: subtitle) { EmptyView() }
+    }
+}
+
+/// A small heading with a quiet symbol, used for blocks inside a page ("Summary", "Action items").
+struct BlockHeading: View {
+    var title: String
+    var symbol: String
+    var body: some View {
+        Label {
+            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
+                .textCase(nil)
+        } icon: {
+            Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundStyle(Warm.honey)
+        }
+        .labelStyle(.titleAndIcon)
+    }
+}
+
+/// A friendly empty state: a soft symbol tile, a short human line, an optional action.
+struct CozyEmptyState<Actions: View>: View {
+    var symbol: String
+    var title: String
+    var message: String
+    @ViewBuilder var actions: Actions
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: symbol)
+                .font(.system(size: 26, weight: .medium))
+                .foregroundStyle(Warm.honey)
+                .frame(width: 64, height: 64)
+                .background(Warm.honey.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            VStack(spacing: 6) {
+                Text(title).font(.title3.weight(.semibold))
+                Text(message).font(.callout).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            actions.padding(.top, 4)
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+extension CozyEmptyState where Actions == EmptyView {
+    init(symbol: String, title: String, message: String) {
+        self.init(symbol: symbol, title: title, message: message) { EmptyView() }
+    }
+}

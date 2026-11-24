@@ -32,7 +32,7 @@ struct AboutView: View {
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(Warm.well, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
             }
             .padding(24)

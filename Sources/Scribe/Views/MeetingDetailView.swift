@@ -1,5 +1,6 @@
 // MeetingDetailView.swift
 // One meeting: the speakers found in it (name them here!), the notes, and the transcript.
+// 0.6: one content-first page (Notion-like), glass speaker chips, notes as calm blocks.
 
 import SwiftUI
 import AVFoundation
@@ -20,23 +21,33 @@ struct MeetingDetailView: View {
 
     var body: some View {
         if let m = meeting {
-            VStack(alignment: .leading, spacing: 0) {
-                header(m)
-                Divider()
+            Group {
                 if m.status == .done {
-                    speakersBar(m)
-                    Divider()
-                    Picker("", selection: $tab) {
-                        ForEach(DetailTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    // One calm, content-first page: title, people, then notes or transcript.
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 22) {
+                            header(m)
+                            speakersBar(m)
+                            Picker("", selection: $tab) {
+                                ForEach(DetailTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                            .frame(width: 220)
+                            Divider().overlay(Warm.hairline)
+                            if tab == .notes { notesView(m) } else { transcript(m) }
+                        }
+                        .padding(.horizontal, 40)
+                        .padding(.top, 28)
+                        .padding(.bottom, 40)
+                        .frame(maxWidth: Brand.readingWidth + 80, alignment: .leading)
+                        .frame(maxWidth: .infinity)
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: 240)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity)
-                    if tab == .notes { notesView(m) } else { transcript(m) }
                 } else {
-                    statusView(m)
+                    VStack(alignment: .leading, spacing: 0) {
+                        header(m).padding(.horizontal, 40).padding(.top, 28)
+                        statusView(m)
+                    }
                 }
             }
             .toolbar { toolbar(m) }
@@ -49,16 +60,21 @@ struct MeetingDetailView: View {
     // MARK: Header
 
     private func header(_ m: Meeting) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            TextField("Title", text: Binding(
+        VStack(alignment: .leading, spacing: 10) {
+            TextField("Untitled meeting", text: Binding(
                 get: { m.title },
                 set: { new in if let i = store.index(of: m.id) { store.meetings[i].title = new } }
             ), onCommit: { store.save() })
             .textFieldStyle(.plain)
-            .font(.title2.bold())
-            HStack(spacing: 12) {
-                Text(m.date.formatted(date: .abbreviated, time: .shortened))
-                Text(Exporter.clock(m.duration)).monospacedDigit()
+            .font(.system(size: 30, weight: .bold))
+            HStack(spacing: 14) {
+                Label(m.date.formatted(date: .abbreviated, time: .shortened), systemImage: "calendar")
+                Label(Exporter.clock(m.duration), systemImage: "clock").monospacedDigit()
+                if let p = m.processingSeconds, p > 0 {
+                    // Measured on this Mac for this recording.
+                    Label(String(format: "processed in %.0f s (%.0f× real time)", p, m.duration / p), systemImage: "bolt")
+                }
+                Spacer(minLength: 0)
                 if m.status == .done {
                     Picker("People talking", selection: Binding(
                         get: { m.speakerCount ?? 0 },
@@ -67,17 +83,13 @@ struct MeetingDetailView: View {
                         Text("Auto").tag(0)
                         ForEach(2...10, id: \.self) { n in Text("\(n)").tag(n) }
                     }
-                    .frame(width: 170)
+                    .fixedSize()
                     .help("If two people got merged into one speaker (or one person got split), tell the app how many people were talking.")
                 }
-                if let p = m.processingSeconds, p > 0 {
-                    // Measured on this Mac for this recording.
-                    Text(String(format: "processed in %.0f s (%.0f× real time)", p, m.duration / p))
-                }
             }
-            .font(.caption).foregroundStyle(.secondary)
+            .labelStyle(.titleAndIcon)
+            .font(.callout).foregroundStyle(.secondary)
         }
-        .padding()
     }
 
     @ViewBuilder
@@ -103,10 +115,13 @@ struct MeetingDetailView: View {
 
     private func speakersBar(_ m: Meeting) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                ForEach(m.clusters) { c in speakerChip(m, c) }
+            GlassGroup(spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(m.clusters) { c in speakerChip(m, c) }
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 2)
             }
-            .padding(.horizontal).padding(.vertical, 10)
         }
     }
 
@@ -134,20 +149,26 @@ struct MeetingDetailView: View {
                 Button("Not them / unknown") { store.clearSpeaker(meetingID: m.id, clusterKey: c.key) }
             }
         } label: {
-            HStack(spacing: 6) {
-                Circle().fill(color).frame(width: 10, height: 10)
-                Text(store.displayName(m, key: c.key)).bold()
+            HStack(spacing: 7) {
+                Circle().fill(color).frame(width: 9, height: 9)
+                Text(store.displayName(m, key: c.key)).fontWeight(.semibold)
                 if let s = suggestion, person == nil { Text("maybe \(s.name)?").foregroundStyle(.secondary) }
                 if c.confirmed {
-                    Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
+                    Image(systemName: "checkmark.seal.fill").foregroundStyle(Brand.accent)
                 } else if let score = c.matchScore, person != nil {
                     Text(String(format: "%.0f%% match", score * 100)).font(.caption).foregroundStyle(.secondary)
                 }
                 Text(Exporter.clock(c.talkSeconds)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .contentShape(Capsule())
         }
-        .menuStyle(.borderedButton)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
+        .scribeGlass(Capsule(), tint: person == nil ? nil : color.opacity(0.10), interactive: true)
         .help("Click to name this speaker. Naming teaches the voice library.")
     }
 
@@ -176,81 +197,126 @@ struct MeetingDetailView: View {
     @ViewBuilder
     private func notesView(_ m: Meeting) -> some View {
         if store.notesInProgress.contains(m.id) {
-            VStack(spacing: 10) {
-                ProgressView()
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
                 Text("Writing notes on this Mac…").foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.vertical, 40)
+            .frame(maxWidth: .infinity)
         } else if let n = m.notes {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Summary").font(.headline)
-                        Text(n.summary).textSelection(.enabled)
-                    }
-                    if !n.keyPoints.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Key points").font(.headline)
+            VStack(alignment: .leading, spacing: 28) {
+                VStack(alignment: .leading, spacing: 8) {
+                    BlockHeading(title: "Summary", symbol: "text.alignleft")
+                    Text(n.summary)
+                        .font(.system(size: 15))
+                        .lineSpacing(4)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if !n.keyPoints.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        BlockHeading(title: "Key points", symbol: "list.bullet")
+                        VStack(alignment: .leading, spacing: 7) {
                             ForEach(n.keyPoints, id: \.self) { p in
-                                Label { Text(p).textSelection(.enabled) } icon: { Image(systemName: "circle.fill").font(.system(size: 5)) }
-                            }
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Action items").font(.headline)
-                        if n.actionItems.isEmpty { Text("None found.").foregroundStyle(.secondary) }
-                        ForEach(n.actionItems) { a in
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Button { store.toggleActionItem(meetingID: m.id, itemID: a.id) } label: {
-                                    Image(systemName: a.done ? "checkmark.circle.fill" : "circle")
+                                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                    Circle().fill(Color.secondary.opacity(0.6)).frame(width: 5, height: 5)
+                                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
+                                    Text(p).font(.system(size: 15)).textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
                                 }
-                                .buttonStyle(.borderless)
-                                Text(a.task).strikethrough(a.done).textSelection(.enabled)
-                                Spacer()
-                                Text(a.owner).font(.caption.bold())
-                                    .padding(.horizontal, 8).padding(.vertical, 2)
-                                    .background(.quaternary, in: Capsule())
                             }
                         }
-                    }
-                    HStack {
-                        Text((n.note ?? "") + " " + (n.method == .appleIntelligence ? "Written by Apple Intelligence on this Mac — check it against the transcript." : ""))
-                            .font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Redo notes") { Task { await store.makeNotes(m.id) } }
-                            .help("Redo after naming speakers, so action items get the right names.")
                     }
                 }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 8) {
+                    BlockHeading(title: "Action items", symbol: "checklist")
+                    if n.actionItems.isEmpty {
+                        Text("Nothing to follow up on.").foregroundStyle(.secondary)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(Array(n.actionItems.enumerated()), id: \.element.id) { i, a in
+                                if i > 0 { Divider().overlay(Warm.hairline).padding(.leading, 34) }
+                                actionRow(m, a)
+                            }
+                        }
+                        .scribeCard(padding: 6)
+                    }
+                }
+                HStack(alignment: .center) {
+                    Text((n.note ?? "") + " " + (n.method == .appleIntelligence ? "Written by Apple Intelligence on this Mac — check it against the transcript." : ""))
+                        .font(.caption).foregroundStyle(.tertiary)
+                    Spacer()
+                    Button { Task { await store.makeNotes(m.id) } } label: {
+                        Label("Redo notes", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .scribeButton()
+                    .help("Redo after naming speakers, so action items get the right names.")
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else {
-            VStack(spacing: 10) {
-                Text("No notes yet.").foregroundStyle(.secondary)
-                Button("Make notes") { Task { await store.makeNotes(m.id) } }
+            CozyEmptyState(symbol: "note.text", title: "No notes yet",
+                           message: "Scribe can write a summary, key points and action items from the transcript.") {
+                Button("Make notes") { Task { await store.makeNotes(m.id) } }.scribeButton(prominent: true)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minHeight: 260)
         }
+    }
+
+    private func actionRow(_ m: Meeting, _ a: ActionItem) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Button { store.toggleActionItem(meetingID: m.id, itemID: a.id) } label: {
+                Image(systemName: a.done ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 16))
+                    .foregroundStyle(a.done ? AnyShapeStyle(Warm.honey) : AnyShapeStyle(.secondary))
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(a.done ? "Done" : "Not done")
+            Text(a.task)
+                .font(.system(size: 14))
+                .strikethrough(a.done, color: .secondary)
+                .foregroundStyle(a.done ? .secondary : .primary)
+                .textSelection(.enabled)
+            Spacer(minLength: 12)
+            ownerPill(m, a.owner)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 9)
+    }
+
+    /// The owner's name on a soft pill, tinted with their speaker color when we know them.
+    private func ownerPill(_ m: Meeting, _ owner: String) -> some View {
+        let person = store.people.first { $0.name == owner }
+        let color = person.map { Palette.color($0.colorIndex) } ?? Color.secondary
+        return Text(owner)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(person == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(color))
+            .padding(.horizontal, 9).padding(.vertical, 3)
+            .background(person == nil ? AnyShapeStyle(Warm.well) : AnyShapeStyle(color.opacity(0.13)), in: Capsule())
     }
 
     // MARK: Transcript
 
     private func transcript(_ m: Meeting) -> some View {
-        List(m.utterances) { u in
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Button(Exporter.clock(u.start)) { play(m, from: u.start) }
-                    .buttonStyle(.link).monospacedDigit().font(.caption)
-                    .help("Play from here")
+        LazyVStack(alignment: .leading, spacing: 14) {
+            ForEach(m.utterances) { u in
                 let c = m.clusters.first { $0.key == u.speakerKey }
                 let color = store.person(c?.personID).map { Palette.color($0.colorIndex) } ?? .gray
-                Text(store.displayName(m, key: u.speakerKey))
-                    .bold().foregroundStyle(color)
-                    .frame(width: 110, alignment: .leading)
-                Text(u.text).textSelection(.enabled)
+                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                    Button(Exporter.clock(u.start)) { play(m, from: u.start) }
+                        .buttonStyle(.link).monospacedDigit().font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 52, alignment: .leading)
+                        .help("Play from here")
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(store.displayName(m, key: u.speakerKey))
+                            .font(.callout.weight(.semibold)).foregroundStyle(color)
+                        Text(u.text).font(.system(size: 14.5)).lineSpacing(3).textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
-            .padding(.vertical, 2)
         }
-        .listStyle(.inset)
     }
 
     // MARK: Toolbar / export

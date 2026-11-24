@@ -1,5 +1,6 @@
 // ContentView.swift
 // The main window: sidebar (search, record button, dictation, people, meetings) + detail pane.
+// 0.6: warm canvas behind content, glass record button and banner, friendly empty states.
 
 import SwiftUI
 
@@ -34,12 +35,13 @@ struct ContentView: View {
         NavigationSplitView {
             VStack(spacing: 0) {
                 recordPanel
-                Divider()
                 List(selection: $selection) {
                     Section("Library") {
-                        Label("Dictation (\(store.dictations.count))", systemImage: "mic")
+                        Label("Dictation", systemImage: "mic")
+                            .badge(store.dictations.count)
                             .tag(SidebarItem.dictation)
-                        Label("People (\(store.people.count))", systemImage: "person.2.wave.2")
+                        Label("People", systemImage: "person.2")
+                            .badge(store.people.count)
                             .tag(SidebarItem.people)
                     }
                     Section(query.isEmpty ? "Meetings" : "Meetings matching “\(query)”") {
@@ -57,7 +59,7 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 250, ideal: 280)
         } detail: {
             VStack(spacing: 0) {
-                if !store.engineReady { ModelBanner() }
+                if !store.engineReady { ModelBanner().padding(.top, 10).padding(.horizontal, 16) }
                 switch selection {
                 case .people:
                     PeopleView()
@@ -73,6 +75,8 @@ struct ContentView: View {
                     placeholder
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scribeCanvas()
         }
         .alert("Heads up", isPresented: Binding(get: { model.alertText != nil }, set: { if !$0 { model.alertText = nil } })) {
             Button("OK") { model.alertText = nil }
@@ -96,39 +100,41 @@ struct ContentView: View {
         }
     }
 
-    /// Empty state (native ContentUnavailableView).
+    /// Empty states: short, friendly, one clear next step.
     @ViewBuilder private var placeholder: some View {
         if store.meetings.isEmpty {
-            ContentUnavailableView {
-                Label("No Meetings Yet", systemImage: "waveform")
-            } description: {
-                Text("Press Record (⌘R) and Scribe writes the transcript, who said what, and the notes. Or hold \(DictationSettings.holdKey.title) in any app to dictate. Everything stays on this Mac.")
-            } actions: {
-                Button("Record a Meeting") { model.toggleMeetingRecording() }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+            CozyEmptyState(symbol: "waveform",
+                           title: "Nothing here yet",
+                           message: "When you're ready, press Record and Scribe will write the transcript, who said what, and the notes. You can also hold \(DictationSettings.holdKey.title) in any app to dictate. It all stays on this Mac.") {
+                Button { model.toggleMeetingRecording() } label: {
+                    Label("Record a Meeting", systemImage: "record.circle").padding(.horizontal, 6)
+                }
+                .scribeButton(prominent: true)
+                .controlSize(.large)
             }
         } else {
-            ContentUnavailableView("Select a Meeting", systemImage: "doc.text",
-                                   description: Text("Pick a meeting in the sidebar, or press ⌘R to record a new one."))
+            CozyEmptyState(symbol: "doc.text",
+                           title: "Pick a meeting",
+                           message: "Choose one from the list, or press ⌘R to start a new one.")
         }
     }
 
-    // The record button at the top of the sidebar.
+    // The record button at the top of the sidebar: one glass capsule, red while recording.
     private var recordPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Button(action: { model.toggleMeetingRecording() }) {
                 Label {
                     Text(recorder.isRecording ? "Stop · \(Exporter.clock(recorder.elapsed))" : "Record Meeting")
+                        .fontWeight(.medium)
                         .monospacedDigit()
                 } icon: {
                     Image(systemName: recorder.isRecording ? "stop.fill" : "record.circle")
-                        .foregroundStyle(Brand.record)
+                        .foregroundStyle(recorder.isRecording ? Color.white : Brand.record)
                 }
                 .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
-            .buttonStyle(.bordered)
+            .scribeButton(prominent: recorder.isRecording)
             .tint(recorder.isRecording ? Brand.record : nil)
             .keyboardShortcut("r", modifiers: [.command])
 
@@ -142,11 +148,13 @@ struct ContentView: View {
                 Toggle("Noise cleanup", isOn: $noiseCleanup)
                     .font(.caption)
                     .toggleStyle(.checkbox)
+                    .foregroundStyle(.secondary)
                     .help("Apple voice processing: reduces background noise while recording.")
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.top, 10)
+        .padding(.bottom, 12)
     }
 }
 
@@ -156,18 +164,27 @@ struct MeetingRow: View {
     var snippet: String? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(meeting.title).lineLimit(1)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(meeting.title).fontWeight(.medium).lineLimit(1)
             HStack(spacing: 6) {
+                Text(meeting.date.formatted(.relative(presentation: .named)))
+                Text("·")
                 Text(Exporter.clock(meeting.duration)).monospacedDigit()
                 switch meeting.status {
                 case .processing: ProgressView().controlSize(.mini)
                 case .failed: Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
                 case .recorded: Image(systemName: "clock")
                 case .done:
-                    let names = meeting.clusters.compactMap { store.person($0.personID)?.name }
-                    Text(names.isEmpty ? "\(meeting.clusters.count) speakers" : names.joined(separator: ", "))
-                        .lineLimit(1)
+                    // A few soft dots: one per named speaker, in their color.
+                    HStack(spacing: -3) {
+                        ForEach(meeting.clusters.prefix(4)) { c in
+                            Circle()
+                                .fill(store.person(c.personID).map { Palette.color($0.colorIndex) } ?? Color.secondary.opacity(0.5))
+                                .frame(width: 7, height: 7)
+                                .overlay(Circle().strokeBorder(Warm.surface, lineWidth: 1))
+                        }
+                    }
+                    .accessibilityLabel("\(meeting.clusters.count) speakers")
                 }
             }
             .font(.caption).foregroundStyle(.secondary)
@@ -175,30 +192,35 @@ struct MeetingRow: View {
                 Text(snippet).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
             }
         }
+        .padding(.vertical, 3)
     }
 }
 
-/// Shown until the speech models are downloaded and loaded.
+/// Shown until the speech models are downloaded and loaded: a small floating glass pill.
 struct ModelBanner: View {
     @EnvironmentObject var store: Store
     var body: some View {
         HStack(spacing: 10) {
             if store.engineError == nil {
                 if let p = store.modelProgress {
-                    ProgressView(value: p).frame(width: 120).controlSize(.small)
+                    ProgressView(value: p).frame(width: 110).controlSize(.small)
                 } else {
                     ProgressView().controlSize(.small)
                 }
+            } else {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
             }
-            Text(store.engineError ?? store.engineStatus).font(.callout).foregroundStyle(.secondary).monospacedDigit()
-            Spacer()
+            Text(store.engineError ?? store.engineStatus).font(.callout).foregroundStyle(.secondary)
+                .monospacedDigit().lineLimit(1)
             if store.engineError != nil {
                 Button("Retry") { Task { await store.prepareEngine() } }
+                    .scribeButton()
+                    .controlSize(.small)
             }
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(.bar)
-        .overlay(alignment: .bottom) { Divider() }
+        .scribeGlass(Capsule())
+        .shadow(color: Warm.shadow, radius: 8, y: 2)
     }
 }

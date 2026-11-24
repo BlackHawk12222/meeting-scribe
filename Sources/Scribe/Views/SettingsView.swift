@@ -22,6 +22,13 @@ struct SettingsView: View {
     static let size = CGSize(width: 560, height: 500)
 }
 
+extension View {
+    /// Settings panes: grouped form on the warm canvas.
+    func scribeForm() -> some View {
+        self.formStyle(.grouped).scrollContentBackground(.hidden).background(Warm.canvas)
+    }
+}
+
 // MARK: - Dictation
 
 struct DictationSettingsTab: View {
@@ -93,7 +100,7 @@ struct DictationSettingsTab: View {
                 Toggle("Play start/stop sounds", isOn: $sounds)
             }
         }
-        .formStyle(.grouped)
+        .scribeForm()
         .onAppear { hasDragged = OverlayPosition.hasDragged }
         .onChange(of: holdKey) { _, _ in dictation.hotkeys.reload() }
         .onChange(of: mode) { _, _ in dictation.hotkeys.reload() }
@@ -107,16 +114,20 @@ struct OverlayPositionPreview: View {
         HStack {
             Spacer()
             ZStack(alignment: alignment) {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.primary.opacity(0.05))
-                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.primary.opacity(0.15), lineWidth: 1))
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Warm.well)
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Warm.hairline, lineWidth: 1))
                 // Menu bar and Dock, so the safe areas read at a glance.
                 VStack(spacing: 0) {
-                    Rectangle().fill(Color.primary.opacity(0.10)).frame(height: 6)
+                    UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12, style: .continuous)
+                        .fill(Color.primary.opacity(0.08)).frame(height: 7)
                     Spacer()
                     RoundedRectangle(cornerRadius: 2).fill(Color.primary.opacity(0.10)).frame(width: 60, height: 6).padding(.bottom, 3)
                 }
-                Capsule().fill(Color.accentColor).frame(width: 30, height: 7)
+                Capsule().fill(Color(white: 0.16).opacity(0.85))
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.35), lineWidth: 0.5))
+                    .frame(width: 30, height: 8)
+                    .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
                     .padding(.horizontal, 8)
                     .padding(.top, 12)
                     .padding(.bottom, 13)
@@ -229,7 +240,7 @@ struct VocabularySettingsTab: View {
                 Button("Restore Defaults") { words = Vocabulary.defaults; save() }
             }
         }
-        .formStyle(.grouped)
+        .scribeForm()
         .onChange(of: acoustic) { _, _ in Task { await store.prepareVocabularyBoost() } }
     }
 
@@ -295,7 +306,7 @@ struct ModelSettingsTab: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
+        .scribeForm()
         .onChange(of: speechModel) { _, _ in Task { await store.prepareEngine() } }
     }
 }
@@ -413,7 +424,7 @@ struct PermissionsTab: View {
                 }
             }
         }
-        .formStyle(.grouped)
+        .scribeForm()
         .onAppear { permissions.startWatching() }
         .onDisappear { permissions.stopWatching() }
     }
@@ -478,7 +489,7 @@ struct GeneralSettingsTab: View {
                 UpdateSection()
             }
         }
-        .formStyle(.grouped)
+        .scribeForm()
     }
 
     /// SMAppService is Apple's modern "login item" API (macOS 13+).
@@ -517,14 +528,14 @@ struct UpdateSection: View {
                 Text(r.modelChanges.isEmpty ? "Models: no change (nothing else to download)."
                                             : "Models that changed: " + r.modelChanges.joined(separator: ", "))
                     .font(.caption).foregroundStyle(.secondary)
-                Button("Download and Restart") { updater.install(r) }.buttonStyle(.borderedProminent)
+                Button("Download and Restart") { updater.install(r) }.scribeButton(prominent: true)
             }
         case .downloading: HStack { ProgressView().controlSize(.small); Text("Downloading the app…") }
         case .ready(let r):
             HStack {
                 Label("Scribe \(r.version) is ready.", systemImage: "arrow.down.circle.fill")
                 Spacer()
-                Button("Restart Now") { updater.restartNow() }.buttonStyle(.borderedProminent)
+                Button("Restart Now") { updater.restartNow() }.scribeButton(prominent: true)
             }
         case .installing: HStack { ProgressView().controlSize(.small); Text("Installing…") }
         case .failed(let e): Text(e).font(.caption).foregroundStyle(.orange)
@@ -593,7 +604,7 @@ struct SyncSettingsTab: View {
                 }
             }
         }
-        .formStyle(.grouped)
+        .scribeForm()
     }
 
     private var statusText: String {

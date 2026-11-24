@@ -317,12 +317,7 @@ struct OverlayCapsule: View {
                 .frame(minWidth: isMessage ? nil : OverlayMetrics.capsuleWidth, maxWidth: 300)
                 .fixedSize(horizontal: true, vertical: false)
                 .frame(height: Self.height)
-                .background {
-                    Capsule().fill(.ultraThinMaterial)
-                    Capsule().fill(Color(white: 0.09).opacity(0.78))
-                }
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5))
-                .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+                .modifier(CapsuleGlass())
         }
         .opacity(mode == .hidden ? 0 : 1)
         .environment(\.colorScheme, .dark)
@@ -400,6 +395,28 @@ struct OverlayCapsule: View {
         case .message(let t, _): return t
         case .needsAccess: return "Text copied. Scribe needs Accessibility permission to type. Fix"
         case .hidden: return ""
+        }
+    }
+}
+
+/// The capsule's surface. macOS 26: a dark-tinted Liquid Glass capsule (a soft smoky backing
+/// keeps the white bars and text readable over any wallpaper or document). macOS 14/15: the
+/// 0.4 HUD look (thin material + dark fill + hairline).
+private struct CapsuleGlass: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                .background(Capsule().fill(Color(white: 0.06).opacity(0.42)))
+                .glassEffect(.regular.tint(Color(white: 0.08).opacity(0.55)), in: Capsule())
+                .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+        } else {
+            content
+                .background {
+                    Capsule().fill(.ultraThinMaterial)
+                    Capsule().fill(Color(white: 0.09).opacity(0.78))
+                }
+                .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
         }
     }
 }

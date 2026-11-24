@@ -97,6 +97,22 @@ enum Snapshot {
         made += await capture(env(ContentView(), store: emptyStore), size: main, name: "13_main_empty_state", dir: dir)
         made += await capture(env(SettingsView()), size: NSSize(width: SettingsView.size.width, height: SettingsView.size.height),
                               name: "04_settings_dictation", dir: dir)
+        // 0.6: the same screens grabbed by the window server (screencapture -l <window>), so Liquid
+        // Glass and materials look exactly as on screen (cacheDisplay can't draw them).
+        let glassMain = NSSize(width: 1000, height: 680)
+        made += await serverCapture(env(ContentView(initialSelection: .meeting(meetingID))), size: glassMain,
+                                    name: "G01_main_notes", dir: dir)
+        made += await serverCapture(env(ContentView(initialSelection: .meeting(meetingID))), size: glassMain,
+                                    name: "G01b_main_notes_dark", dir: dir, dark: true)
+        made += await serverCapture(env(ContentView(initialSelection: .dictation)), size: glassMain,
+                                    name: "G03_dictation_history", dir: dir)
+        made += await serverCapture(env(ContentView(initialSelection: .people)), size: glassMain,
+                                    name: "G02_people", dir: dir)
+        made += await serverCapture(env(ContentView(), store: emptyStore), size: glassMain, name: "G13_main_empty", dir: dir)
+        made += await serverCapture(env(SettingsView()), size: NSSize(width: SettingsView.size.width, height: SettingsView.size.height),
+                                    name: "G04_settings_dictation", dir: dir)
+        made += await serverCapture(env(MenuBarView().background(Warm.canvas)), size: nil, name: "G08_menu_bar_panel", dir: dir,
+                                    titled: false)
         // The whole Dictation tab (it scrolls in the real window), to show Overlay > Position.
         UserDefaults.standard.set(OverlayPosition.bottomCenter.rawValue, forKey: OverlayPosition.key)
         made += await capture(env(DictationSettingsTab().frame(width: SettingsView.size.width, height: 940)), size: nil,
@@ -137,6 +153,15 @@ enum Snapshot {
             made += await capture(overlayStage(capsule, zoom: 1), size: NSSize(width: 360, height: 120), name: name, dir: dir, titled: false)
             made += await capture(overlayStage(capsule, zoom: 3), size: NSSize(width: 900, height: 240), name: name + "_zoom", dir: dir, titled: false)
         }
+        // 0.6: the capsule through the window server (real glass), on a wallpaper and on a white page.
+        made += await serverCapture(overlayStage(OverlayCapsule(mode: .listening, tape: listenTape, previewSpin: 40), zoom: 3),
+                                    size: NSSize(width: 900, height: 240), name: "G09_capsule_listening_zoom", dir: dir, titled: false)
+        made += await serverCapture(overlayStage(OverlayCapsule(mode: .recording, tape: meetTape, elapsed: 754, previewSpin: 40), zoom: 3),
+                                    size: NSSize(width: 900, height: 240), name: "G11_capsule_meeting_zoom", dir: dir, titled: false)
+        made += await serverCapture(ZStack {
+                                        Color.white
+                                        OverlayCapsule(mode: .transcribing, tape: listenTape, previewSpin: 40).scaleEffect(3)
+                                    }, size: NSSize(width: 900, height: 240), name: "G10_capsule_transcribing_on_white", dir: dir, titled: false)
         made += await capture(screenMock(position: .bottomCenter,
                                          capsule: OverlayCapsule(mode: .listening, tape: listenTape, previewSpin: 40)),
                               size: NSSize(width: 1280, height: 800), name: "09s_overlay_screen_bottom_center", dir: dir, titled: false)
@@ -161,7 +186,9 @@ enum Snapshot {
         if FileManager.default.fileExists(atPath: full.path) { made.append(full.lastPathComponent) }
         w.close()
 
-        let note = ["note": "SAMPLE data (made-up meeting/people/dictations), rendered by Scribe --snapshot on the CI Mac runner.",
+        var osInfo = ProcessInfo.processInfo.operatingSystemVersionString
+        if #available(macOS 26.0, *) { osInfo += " (Liquid Glass active)" } else { osInfo += " (pre-26: material fallback)" }
+        let note = ["os": osInfo, "note": "SAMPLE data (made-up meeting/people/dictations), rendered by Scribe --snapshot on the CI Mac runner.",
                     "files": made.joined(separator: ", ")]
         if let d = try? JSONSerialization.data(withJSONObject: note, options: [.prettyPrinted]) {
             try? d.write(to: dir.appendingPathComponent("index.json"))
@@ -273,6 +300,26 @@ enum Snapshot {
             }
         }) { out.append("14_menubar_glyphs.png") }
         return out
+    }
+
+    /// Shows `view` in a real window and lets the window server photograph it (`screencapture -l`),
+    /// so glass and materials are composited exactly as on screen.
+    private static func serverCapture<V: View>(_ view: V, size: NSSize?, name: String, dir: URL, titled: Bool = true,
+                                               dark: Bool = false) async -> [String] {
+        let w = window(for: view, size: size, titled: titled, dark: dark)
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        let url = dir.appendingPathComponent("\(name).png")
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        p.arguments = ["-x", "-o", "-l\(w.windowNumber)", url.path]
+        try? p.run()
+        p.waitUntilExit()
+        w.close()
+        let ok = FileManager.default.fileExists(atPath: url.path)
+        print("snapshot \(name) (window server): \(ok)")
+        return ok ? [url.lastPathComponent] : []
     }
 
     private static func savePNG(size: NSSize, to url: URL, draw: (NSRect) -> Void) -> Bool {

@@ -99,7 +99,7 @@ struct MenuBarView: View {
                     .frame(maxWidth: .infinity)
             }
             .controlSize(.large)
-            .buttonStyle(.borderedProminent)
+            .scribeButton(prominent: true)
             .tint(dictation.state == .listening ? Brand.record : Brand.accent)
             .disabled(!store.engineReady || dictation.state == .transcribing)
             Text(hint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -118,7 +118,7 @@ struct MenuBarView: View {
             .frame(maxWidth: .infinity)
         }
         .controlSize(.large)
-        .buttonStyle(.bordered)
+        .scribeButton()
         .disabled(!store.engineReady && !recorder.isRecording)
     }
 
@@ -140,8 +140,8 @@ struct MenuBarView: View {
             }
             Text(last.text).font(.callout).lineLimit(3).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
-                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .padding(10)
+                .background(Warm.well, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }
 
@@ -222,7 +222,7 @@ struct MenuRowStyle: ButtonStyle {
             configuration.label
                 .padding(.horizontal, 6)
                 .padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .fill(Color.primary.opacity(configuration.isPressed ? 0.12 : (hover ? 0.07 : 0))))
                 .onHover { hover = $0 }
         }

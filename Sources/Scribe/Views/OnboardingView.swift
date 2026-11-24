@@ -56,7 +56,7 @@ struct OnboardingView: View {
                 .padding(.vertical, 16)
         }
         .frame(width: Self.size.width, height: Self.size.height)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .background(Warm.canvas)
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
@@ -202,7 +202,8 @@ struct OnboardingView: View {
             content()
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background(Warm.surface, in: RoundedRectangle(cornerRadius: Brand.rCard, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Brand.rCard, style: .continuous).strokeBorder(Warm.hairline, lineWidth: 0.5))
         }
         .frame(maxWidth: 440)
     }
@@ -255,10 +256,11 @@ struct OnboardingView: View {
             }
             if allReady {
                 Button("Start Using Scribe") { onboarded = true }
-                    .buttonStyle(.borderedProminent).controlSize(.large)
+                    .scribeButton(prominent: true).controlSize(.large)
                     .keyboardShortcut(.defaultAction)
             } else {
                 Button("Continue in Background") { onboarded = true }
+                    .scribeButton()
                     .controlSize(.large)
                     .help("Downloads keep going; the menu bar shows progress.")
             }
