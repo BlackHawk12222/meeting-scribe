@@ -12,7 +12,9 @@ struct PeopleView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 PageHeader(title: "People",
-                           subtitle: "Name a speaker in a meeting and they show up here. Each meeting you confirm helps Scribe recognize their voice a little better.")
+                           subtitle: "Name a speaker in a meeting and they show up here. Each meeting you confirm helps Scribe recognize their voice a little better.") {
+                    headerActions
+                }
                 if store.people.isEmpty {
                     CozyEmptyState(symbol: "person.2",
                                    title: "No one here yet",
@@ -47,6 +49,13 @@ struct PeopleView: View {
             }
             .padding().frame(width: 300)
         }
+    }
+
+    /// Buttons at the top right of the page. Slot for v0.6-dev's "Add voice" entry point
+    /// (VoiceEnrollmentView): add e.g. `Button { … } label: { Label("Add voice", systemImage:
+    /// "person.crop.circle.badge.plus") }.scribeButton(prominent: true)` here.
+    @ViewBuilder private var headerActions: some View {
+        EmptyView()
     }
 
     private func row(_ p: Person) -> some View {
