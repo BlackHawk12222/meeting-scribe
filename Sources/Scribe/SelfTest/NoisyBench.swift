@@ -360,6 +360,13 @@ enum NoisyBench {
                             return (s.start, s.end, (mt?.isConfident == true) ? (nameOf[mt!.personID] ?? "unknown") : "unknown")
                         }
                         m["id_accuracy_shipped_rule"] = SelfTest.idAccuracy(ref: ref, hyp: shipped, limit: limit)
+                        // Proposed: also auto-name a split cluster that scores ≥ the auto threshold for an
+                        // already-named person (0.5 only SUGGESTS it).
+                        let split = segs(dBase).map { (s: Seg) -> (Double, Double, String) in
+                            let mt = matches[s.label]
+                            return (s.start, s.end, (mt.map { $0.score >= VoiceMatcher.autoMatchThreshold } ?? false) ? (nameOf[mt!.personID] ?? "unknown") : "unknown")
+                        }
+                        m["id_accuracy_split_merge_rule"] = SelfTest.idAccuracy(ref: ref, hyp: split, limit: limit)
                         variants["lib_merge"] = m
                     }
                     if on("lib_segments") {

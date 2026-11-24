@@ -148,6 +148,16 @@ enum EnrollBench {
                      matches[s.speakerId].flatMap { nameOf[$0.personID] } ?? s.speakerId)
                 }
                 r["cluster_id_accuracy_\(mode.rawValue)"] = SelfTest.idAccuracy(ref: ref, hyp: confident, limit: limit)
+                let split = diarized.segments.map { s -> (Double, Double, String) in
+                    let m = matches[s.speakerId]
+                    let ok = m.map { $0.score >= VoiceMatcher.autoMatchThreshold } ?? false
+                    return (Double(s.startTimeSeconds), Double(s.endTimeSeconds), ok ? (nameOf[m!.personID] ?? "unknown") : "unknown")
+                }
+                let anyName = diarized.segments.map { s -> (Double, Double, String) in
+                    (Double(s.startTimeSeconds), Double(s.endTimeSeconds), matches[s.speakerId].flatMap { nameOf[$0.personID] } ?? "unknown")
+                }
+                r["cluster_id_accuracy_split_merge_\(mode.rawValue)"] = SelfTest.idAccuracy(ref: ref, hyp: split, limit: limit)
+                r["cluster_id_accuracy_all_suggestions_\(mode.rawValue)"] = SelfTest.idAccuracy(ref: ref, hyp: anyName, limit: limit)
                 r["cluster_named_\(mode.rawValue)"] = matches.values.filter(\.isConfident).count
                 r["der_after_merge_\(mode.rawValue)"] = NoisyBench.score(ref: ref, hyp: merged, limit: limit)["der"]
             }
