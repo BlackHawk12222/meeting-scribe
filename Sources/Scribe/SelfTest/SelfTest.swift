@@ -342,6 +342,14 @@ enum SelfTest {
             report["models_states"] = await MainActor.run {
                 Dictionary(uniqueKeysWithValues: ms.components.map { ($0.id, ms.states[$0.id]?.label ?? "?") })
             }
+            // Noisy-room suite (0.6): VAD + diarization on AMI mixed with crowd noise. Runs alone.
+            if suite == "noisy" {
+                log("noisy-room suite")
+                report["noisy"] = try await NoisyBench.run(seconds: seconds)
+                let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
+                print("SELFTEST_JSON:" + String(data: data, encoding: .utf8)!)
+                return 0
+            }
             if CommandLine.arguments.contains("--measure-download") {
                 report["download_measurement"] = await measureDownload()
             }

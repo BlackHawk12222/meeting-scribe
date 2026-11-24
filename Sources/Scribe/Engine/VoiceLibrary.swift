@@ -52,12 +52,37 @@ enum VoiceMatcher {
     /// Score = average of the K most similar samples (a "k-nearest-neighbours" vote).
     static let topK = 5
 
+    /// How a voice is compared with a person's set of samples.
+    enum ScoreMode: String, CaseIterable, Sendable {
+        case topK        // mean of the K most similar samples (default)
+        case max         // the single most similar sample
+        case mean        // mean over all samples
+        case centroid    // similarity to the average of all samples
+    }
+    static var scoreMode: ScoreMode = .topK
+
     /// How much does voice `query` sound like `person`?
     static func score(_ query: [Float], person: Person) -> Float {
-        guard !person.samples.isEmpty else { return 0 }
-        let sims = person.samples.map { VoiceMath.cosine(query, $0.vector) }.sorted(by: >)
-        let k = min(topK, sims.count)
-        return sims.prefix(k).reduce(0, +) / Float(k)
+        score(query, samples: person.samples.map(\.vector), mode: scoreMode)
+    }
+
+    static func score(_ query: [Float], samples: [[Float]], mode: ScoreMode) -> Float {
+        guard !samples.isEmpty else { return 0 }
+        if mode == .centroid { return VoiceMath.cosine(query, VoiceMath.mean(samples)) }
+        let sims = samples.map { VoiceMath.cosine(query, $0) }.sorted(by: >)
+        switch mode {
+        case .max: return sims[0]
+        case .mean: return sims.reduce(0, +) / Float(sims.count)
+        default:
+            let k = min(topK, sims.count)
+            return sims.prefix(k).reduce(0, +) / Float(k)
+        }
+    }
+
+    /// Guided enrollment ("Add person"): replace this person's earlier enrollment clips with new ones.
+    static func enroll(person: inout Person, samples: [VoiceSample]) {
+        person.samples.removeAll { $0.isEnrollment }
+        person.samples.append(contentsOf: samples)
     }
 
     struct Match {
@@ -104,8 +129,10 @@ enum VoiceMatcher {
             person.samples.append(VoiceSample(vector: VoiceMath.normalize(v), meetingID: meetingID,
                                               clusterKey: cluster.key, addedAt: Date()))
         }
-        if person.samples.count > maxSamplesPerPerson {
-            person.samples.removeFirst(person.samples.count - maxSamplesPerPerson)
+        // Over the limit: drop the oldest MEETING samples first; guided-enrollment clips are kept.
+        while person.samples.count > maxSamplesPerPerson,
+              let oldest = person.samples.firstIndex(where: { !$0.isEnrollment }) {
+            person.samples.remove(at: oldest)
         }
     }
 

@@ -37,6 +37,10 @@ struct DiarizerSetting: Hashable, Sendable {
     var threshold: Double? = nil
     var fa: Double? = nil
     var fb: Double? = nil
+    /// true = one speaker at a time (every word maps to exactly one person). false = keep
+    /// overlapping speech (two people at once), which scores better but needs a "main speaker"
+    /// pick before words are attached.
+    var exclusive: Bool = true
 
     static let auto = DiarizerSetting()
     static let defaultFa = 0.2
@@ -47,13 +51,14 @@ struct DiarizerSetting: Hashable, Sendable {
         if let t = threshold { parts.append("thr\(t)") }
         if let a = fa { parts.append("Fa\(a)") }
         if let b = fb { parts.append("Fb\(b)") }
+        if !exclusive { parts.append("overlap") }
         return parts.isEmpty ? "auto" : parts.joined(separator: "_")
     }
 
     var config: OfflineDiarizerConfig {
         var c = OfflineDiarizerConfig()
         // One speaker at a time, so every word maps to exactly one person.
-        c.exclusiveSegments = true
+        c.exclusiveSegments = exclusive
         if let t = threshold { c.clusteringThreshold = t }
         // Fa = how much the clustering trusts the voice evidence. FluidAudio's default (0.07)
         // merged different people into one speaker on our 5-minute test meetings; 0.2 found
@@ -527,6 +532,32 @@ actor SpeechEngine {
         try await d.prepareModels()      // loads from the on-disk cache after the first time
         diarizers[setting] = d
         return d
+    }
+
+    /// Where the speech is (Silero VAD), as sample ranges. Used by voice enrollment's quality check.
+    func speechRanges(_ samples: [Float]) async throws -> [Range<Int>] {
+        if vad == nil { vad = try await VadManager(config: VadConfig(defaultThreshold: 0.75)) }
+        guard let vad else { return [] }
+        var cfg = VadSegmentationConfig.default
+        cfg.minSpeechDuration = 0.2
+        cfg.minSilenceDuration = 0.3
+        cfg.maxSpeechDuration = 600
+        cfg.speechPadding = 0.05
+        cfg.negativeThreshold = 0.35        // enter speech at 0.5, leave below 0.35
+        cfg.negativeThresholdOffset = 0.15
+        let segs = try await vad.segmentSpeech(samples, config: cfg)
+        return segs.compactMap { seg -> Range<Int>? in
+            let a = max(0, min(seg.startSample(sampleRate: 16_000), samples.count))
+            let b = max(a, min(seg.endSample(sampleRate: 16_000), samples.count))
+            return b > a ? a..<b : nil
+        }
+    }
+
+    /// Voice embeddings for arbitrary time spans (self-test: re-scoring turns against the library).
+    func embedSpans(samples: [Float], spans: [Range<Double>]) async throws -> [[Float]] {
+        guard !spans.isEmpty else { return [] }
+        let d = try await diarizer(.auto)
+        return try await d.embedSpans(audioSource: ArrayAudioSampleSource(samples: samples), spans: spans)
     }
 
     // MARK: - Pipeline
