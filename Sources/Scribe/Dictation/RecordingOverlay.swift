@@ -7,9 +7,14 @@
 //   • done/failed:  a symbol + a short message, then it hides
 //
 // Where it appears: Settings › Dictation › Overlay position (bottom center by default, or
-// top center / any corner), on the screen with the active window (else the mouse). It stays
-// inside the screen's visible frame, so it never sits under the menu bar or the Dock.
-// Drag it anywhere; Scribe remembers that spot per screen until you pick a position again.
+// top center / any corner / the left or right edge), on the screen with the active window
+// (else the mouse). It stays inside the screen's visible frame, so it never sits under the
+// menu bar or the Dock. Drag it anywhere; Scribe remembers that spot (and its orientation)
+// per screen until you pick a position again.
+//
+// Against the left or right edge (a side preset, or dropped within ~80 pt of a side and away
+// from the corners) the capsule stands up: a tall narrow pill, bars stacked down the long axis,
+// status icon on top and timer below. It springs between the two shapes in ~0.3 s.
 //
 // The panel is NON-ACTIVATING (the app you're typing in keeps focus, so ⌘V lands there),
 // floats above other windows and shows on every Space.
@@ -78,7 +83,8 @@ final class LevelTape {
 // MARK: - Position
 
 enum OverlayPosition: String, CaseIterable, Identifiable {
-    case bottomCenter, topCenter, topLeft, topRight, bottomLeft, bottomRight
+    // Declaration order = order in the Settings picker (raw values are what's stored).
+    case topLeft, topCenter, topRight, middleLeft, middleRight, bottomLeft, bottomCenter, bottomRight
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -88,13 +94,17 @@ enum OverlayPosition: String, CaseIterable, Identifiable {
         case .topRight: return "Top right"
         case .bottomLeft: return "Bottom left"
         case .bottomRight: return "Bottom right"
+        case .middleLeft: return "Left edge"
+        case .middleRight: return "Right edge"
         }
     }
     var isTop: Bool { self == .topCenter || self == .topLeft || self == .topRight }
+    /// Left/right edge presets: the capsule stands up (vertical layout).
+    var isSide: Bool { self == .middleLeft || self == .middleRight }
     var alignment: Alignment {
         switch self {
-        case .topLeft, .bottomLeft: return .leading
-        case .topRight, .bottomRight: return .trailing
+        case .topLeft, .bottomLeft, .middleLeft: return .leading
+        case .topRight, .bottomRight, .middleRight: return .trailing
         default: return .center
         }
     }
@@ -105,23 +115,34 @@ enum OverlayPosition: String, CaseIterable, Identifiable {
         set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
     }
 
-    /// Dragged spots, one per screen: "overlayDragged.<display id>" = [x, y] of the panel's
-    /// origin relative to that screen's visible frame.
-    private static let draggedPrefix = "overlayDragged."
+    /// A dragged spot: the capsule's center relative to the screen's visible frame (without
+    /// any stacking lift), plus whether it stood vertical against a side edge.
+    struct DraggedSpot: Equatable {
+        var center: CGPoint
+        var vertical: Bool
+    }
+
+    /// Dragged spots, one per screen: "overlayDragged2.<display id>" = [cx, cy, vertical 0/1].
+    /// (0.5's "overlayDragged.<id>" stored the panel origin; it is ignored and cleared.)
+    private static let draggedPrefix = "overlayDragged2."
+    private static let legacyPrefix = "overlayDragged."
     @MainActor
-    static func dragged(for screen: NSScreen) -> CGPoint? {
-        guard let a = UserDefaults.standard.array(forKey: draggedPrefix + screen.scribeID) as? [Double], a.count == 2 else { return nil }
-        return CGPoint(x: a[0], y: a[1])
+    static func dragged(for screen: NSScreen) -> DraggedSpot? {
+        guard let a = UserDefaults.standard.array(forKey: draggedPrefix + screen.scribeID) as? [Double], a.count >= 2 else { return nil }
+        return DraggedSpot(center: CGPoint(x: a[0], y: a[1]), vertical: a.count > 2 && a[2] > 0.5)
     }
     @MainActor
-    static func setDragged(_ p: CGPoint?, for screen: NSScreen) {
-        if let p { UserDefaults.standard.set([Double(p.x), Double(p.y)], forKey: draggedPrefix + screen.scribeID) }
-        else { UserDefaults.standard.removeObject(forKey: draggedPrefix + screen.scribeID) }
+    static func setDragged(_ spot: DraggedSpot?, for screen: NSScreen) {
+        if let s = spot {
+            UserDefaults.standard.set([Double(s.center.x), Double(s.center.y), s.vertical ? 1 : 0], forKey: draggedPrefix + screen.scribeID)
+        } else {
+            UserDefaults.standard.removeObject(forKey: draggedPrefix + screen.scribeID)
+        }
     }
     /// Picking a position in Settings forgets every dragged spot.
     @MainActor
     static func clearDragged() {
-        for k in UserDefaults.standard.dictionaryRepresentation().keys where k.hasPrefix(draggedPrefix) {
+        for k in UserDefaults.standard.dictionaryRepresentation().keys where k.hasPrefix(draggedPrefix) || k.hasPrefix(legacyPrefix) {
             UserDefaults.standard.removeObject(forKey: k)
         }
     }
@@ -177,29 +198,88 @@ private final class OverlayHostingView<Content: View>: NSHostingView<Content> {
 enum OverlayMetrics {
     /// Room for the widest message; the capsule sits inside it at the position's alignment.
     static let panelSize = NSSize(width: 360, height: 44)
+    /// Against a side edge the panel is taller, so the standing capsule (and a message that
+    /// still needs a horizontal line) both fit, anchored to that edge.
+    static let verticalPanelSize = NSSize(width: 360, height: 200)
     /// The capsule's usual width (used to keep it on screen when dragged).
     static let capsuleWidth: CGFloat = 140
+    /// The standing capsule: its width, and its usual height (listening/meeting).
+    static let verticalThickness: CGFloat = 36
+    static let verticalLength: CGFloat = 120
     static let margin: CGFloat = 12
+    /// A capsule whose side is this close to the left/right edge stands up (unless it is also
+    /// near the top or bottom: corners stay horizontal).
+    static let sideSnap: CGFloat = 80
+    static let cornerZone: CGFloat = 120
+    /// The orientation change: a short spring.
+    static let springDuration: Double = 0.3
+}
+
+/// Tells the capsule to use its standing (vertical) layout.
+private struct OverlayVerticalKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var overlayVertical: Bool {
+        get { self[OverlayVerticalKey.self] }
+        set { self[OverlayVerticalKey.self] = newValue }
+    }
+}
+
+/// Where the panel goes and how the capsule sits inside it.
+struct OverlayTarget: Equatable {
+    var frame: CGRect
+    var alignment: Alignment
+    var vertical: Bool
+}
+
+/// Live layout shared by OverlayPanel (AppKit) and the panel's SwiftUI root.
+@MainActor
+final class OverlayLayout: ObservableObject {
+    @Published var vertical = false
+    @Published var alignment: Alignment = .center
+    /// Only non-zero while an orientation change animates inside a temporarily larger panel.
+    @Published var offset: CGSize = .zero
+    /// The capsule's frame in the panel's content (top-left origin), measured by the root.
+    var capsuleRect: CGRect = .zero
+}
+
+private struct OverlayRoot<Content: View>: View {
+    @ObservedObject var layout: OverlayLayout
+    var content: Content
+    var onDrag: () -> Void
+    var onDragEnd: () -> Void
+
+    var body: some View {
+        content
+            .environment(\.overlayVertical, layout.vertical)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("overlayPanel")) } action: { layout.capsuleRect = $0 }
+            .offset(layout.offset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: layout.alignment)
+            .coordinateSpace(.named("overlayPanel"))
+            .gesture(DragGesture(minimumDistance: 2)
+                .onChanged { _ in onDrag() }
+                .onEnded { _ in onDragEnd() })
+    }
 }
 
 @MainActor
 final class OverlayPanel {
     private var panel: NSPanel?
     private var screen: NSScreen?
+    let layout = OverlayLayout()
     static let size = OverlayMetrics.panelSize
+    static let verticalSize = OverlayMetrics.verticalPanelSize
     static let capsuleWidth = OverlayMetrics.capsuleWidth
     static let margin = OverlayMetrics.margin
     /// Stack this overlay away from the screen edge (dictation over a meeting capsule).
     var lift: CGFloat = 0
     private var dragStart: (mouse: NSPoint, origin: NSPoint)?
+    /// Bumped on every placement, so a stale "settle" after an animation is skipped.
+    private var generation = 0
 
     func show<V: View>(_ content: @autoclosure () -> V) {
-        let position = OverlayPosition.current
-        let root = content()
-            .frame(width: Self.size.width, height: Self.size.height, alignment: position.alignment)
-            .gesture(DragGesture(minimumDistance: 2)
-                .onChanged { [weak self] _ in self?.dragChanged() }
-                .onEnded { [weak self] _ in self?.dragEnded() })
+        let root = OverlayRoot(layout: layout, content: content(),
+                               onDrag: { [weak self] in self?.dragChanged() },
+                               onDragEnd: { [weak self] in self?.dragEnded() })
         if panel == nil {
             let p = NonActivatingPanel(contentRect: NSRect(origin: .zero, size: Self.size),
                                        styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
@@ -213,7 +293,7 @@ final class OverlayPanel {
             panel = p
         }
         panel?.contentView = OverlayHostingView(rootView: root)
-        if panel?.isVisible != true { place(position) }
+        if panel?.isVisible != true { place() }
         panel?.orderFrontRegardless()
     }
 
@@ -225,8 +305,20 @@ final class OverlayPanel {
     }
     var isVisible: Bool { panel?.isVisible ?? false }
 
-    /// The panel's frame for `position` on `screen` (no drag).
+    // MARK: Geometry (pure, AppKit coordinates)
+
+    /// The panel's frame for `position` on a screen with this visible frame (no drag).
     static func frame(for position: OverlayPosition, in visible: CGRect, lift: CGFloat = 0) -> CGRect {
+        target(for: position, in: visible, lift: lift).frame
+    }
+
+    /// Frame, alignment and orientation for a preset.
+    static func target(for position: OverlayPosition, in visible: CGRect, lift: CGFloat = 0) -> OverlayTarget {
+        if position.isSide {
+            let half = OverlayMetrics.verticalThickness / 2
+            let cx = position == .middleLeft ? visible.minX + margin + half : visible.maxX - margin - half
+            return target(center: CGPoint(x: cx, y: visible.midY), vertical: true, in: visible, lift: lift)
+        }
         let w = size.width, h = size.height
         let x: CGFloat
         switch position.alignment {
@@ -235,33 +327,119 @@ final class OverlayPanel {
         default: x = visible.midX - w / 2
         }
         let y = position.isTop ? visible.maxY - margin - h - lift : visible.minY + margin + lift
-        return CGRect(x: x, y: y, width: w, height: h)
+        return OverlayTarget(frame: CGRect(x: x, y: y, width: w, height: h), alignment: position.alignment, vertical: false)
     }
 
-    private func place(_ position: OverlayPosition) {
+    /// Frame, alignment and orientation for a dragged spot (capsule center `c`, no lift).
+    /// Vertical: snapped to the nearer side edge, kept clear of the top and bottom. Horizontal:
+    /// kept inside the visible frame; near a side it anchors to that side so wider messages grow
+    /// inward instead of off screen.
+    static func target(center c: CGPoint, vertical: Bool, in visible: CGRect, lift: CGFloat = 0) -> OverlayTarget {
+        let w = size.width
+        if vertical {
+            let left = c.x < visible.midX
+            let h = verticalSize.height
+            let half = OverlayMetrics.verticalLength / 2
+            let cy = min(max(c.y, visible.minY + 4 + half), visible.maxY - 4 - half)
+            let x = left ? visible.minX + margin + lift : visible.maxX - margin - lift - w
+            return OverlayTarget(frame: CGRect(x: x, y: cy - h / 2, width: w, height: h),
+                                 alignment: left ? .leading : .trailing, vertical: true)
+        }
+        let h = size.height, cw = capsuleWidth
+        let top = c.y > visible.midY
+        let cy = min(max(c.y + (top ? -lift : lift), visible.minY + 4 + h / 2), visible.maxY - 4 - h / 2)
+        let cx = min(max(c.x, visible.minX + 4 + cw / 2), visible.maxX - 4 - cw / 2)
+        let alignment: Alignment
+        let x: CGFloat
+        if cx - cw / 2 - visible.minX < OverlayMetrics.sideSnap {
+            alignment = .leading; x = cx - cw / 2
+        } else if visible.maxX - (cx + cw / 2) < OverlayMetrics.sideSnap {
+            alignment = .trailing; x = cx + cw / 2 - w
+        } else {
+            alignment = .center; x = cx - w / 2
+        }
+        return OverlayTarget(frame: CGRect(x: x, y: cy - h / 2, width: w, height: h), alignment: alignment, vertical: false)
+    }
+
+    /// Should a capsule dropped at `r` stand up? Its side is within ~80 pt of the left or right
+    /// edge, and it is not in a top/bottom corner zone.
+    static func wantsVertical(capsule r: CGRect, in visible: CGRect) -> Bool {
+        let side = r.minX - visible.minX < OverlayMetrics.sideSnap || visible.maxX - r.maxX < OverlayMetrics.sideSnap
+        let corner = r.midY - visible.minY < OverlayMetrics.cornerZone || visible.maxY - r.midY < OverlayMetrics.cornerZone
+        return side && !corner
+    }
+
+    /// The point of `rect` that `alignment` pins (AppKit coordinates, y up).
+    private static func anchor(_ alignment: Alignment, of r: CGRect) -> CGPoint {
+        let x: CGFloat = alignment.horizontal == .leading ? r.minX : alignment.horizontal == .trailing ? r.maxX : r.midX
+        let y: CGFloat = alignment.vertical == .top ? r.maxY : alignment.vertical == .bottom ? r.minY : r.midY
+        return CGPoint(x: x, y: y)
+    }
+
+    // MARK: Placement
+
+    /// Where the capsule is on screen right now (from the root's measurement).
+    private var capsuleScreenRect: CGRect? {
+        guard let p = panel, layout.capsuleRect.width > 1, layout.capsuleRect.height > 1 else { return nil }
+        let r = layout.capsuleRect
+        return CGRect(x: p.frame.minX + r.minX, y: p.frame.maxY - r.maxY, width: r.width, height: r.height)
+    }
+
+    private func place() {
         guard let s = NSScreen.forOverlay else { return }
         screen = s
         let visible = s.visibleFrame
-        var origin = Self.frame(for: position, in: visible, lift: lift).origin
+        let t: OverlayTarget
         if let d = OverlayPosition.dragged(for: s) {
-            origin = clamp(NSPoint(x: visible.minX + d.x, y: visible.minY + d.y + (position.isTop ? -lift : lift)),
-                           position: position, visible: visible)
+            t = Self.target(center: CGPoint(x: visible.minX + d.center.x, y: visible.minY + d.center.y),
+                            vertical: d.vertical, in: visible, lift: lift)
+        } else {
+            t = Self.target(for: OverlayPosition.current, in: visible, lift: lift)
         }
-        panel?.setFrameOrigin(origin)
+        apply(t, animated: false)
     }
 
-    /// Keep the capsule (not the whole transparent panel) inside the visible frame.
-    private func clamp(_ o: NSPoint, position: OverlayPosition, visible: CGRect) -> NSPoint {
-        let w = Self.size.width, cw = Self.capsuleWidth
-        let capLeft: CGFloat
-        switch position.alignment {
-        case .leading: capLeft = 0
-        case .trailing: capLeft = w - cw
-        default: capLeft = (w - cw) / 2
+    private func withoutAnimation(_ body: () -> Void) {
+        var tr = Transaction()
+        tr.disablesAnimations = true
+        withTransaction(tr, body)
+    }
+
+    /// Moves the panel to `t`. Animated: the panel briefly grows to cover the old and new spots,
+    /// the capsule springs from where it was to its new place and shape (~0.3 s), then the panel
+    /// shrinks back to the new frame.
+    private func apply(_ t: OverlayTarget, animated: Bool) {
+        guard let p = panel else { return }
+        generation += 1
+        guard animated, p.isVisible, let old = capsuleScreenRect else {
+            withoutAnimation {
+                layout.vertical = t.vertical
+                layout.alignment = t.alignment
+                layout.offset = .zero
+            }
+            p.setFrame(t.frame, display: true)
+            return
         }
-        let x = min(max(o.x, visible.minX + 4 - capLeft), visible.maxX - 4 - capLeft - cw)
-        let y = min(max(o.y, visible.minY + 4), visible.maxY - 4 - Self.size.height)
-        return NSPoint(x: x, y: y)
+        let union = p.frame.union(t.frame)
+        let a = t.alignment
+        let start = Self.anchor(a, of: old), end = Self.anchor(a, of: t.frame), base = Self.anchor(a, of: union)
+        withoutAnimation {
+            layout.alignment = a
+            layout.offset = CGSize(width: start.x - base.x, height: -(start.y - base.y))
+        }
+        p.setFrame(union, display: true)
+        p.contentView?.layoutSubtreeIfNeeded()
+        withAnimation(.spring(duration: OverlayMetrics.springDuration, bounce: 0.12)) {
+            layout.vertical = t.vertical
+            layout.offset = CGSize(width: end.x - base.x, height: -(end.y - base.y))
+        }
+        let gen = generation
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64((OverlayMetrics.springDuration + 0.08) * 1_000_000_000))
+            guard let self, self.generation == gen, let p = self.panel else { return }
+            self.withoutAnimation { self.layout.offset = .zero }
+            p.setFrame(t.frame, display: true)
+        }
     }
 
     private func dragChanged() {
@@ -274,15 +452,17 @@ final class OverlayPanel {
 
     private func dragEnded() {
         defer { dragStart = nil }
-        guard let p = panel else { return }
-        let center = NSPoint(x: p.frame.midX, y: p.frame.midY)
+        guard panel != nil, let cap = capsuleScreenRect else { return }
+        let center = CGPoint(x: cap.midX, y: cap.midY)
         guard let s = NSScreen.screens.first(where: { $0.frame.contains(center) }) ?? screen else { return }
         let visible = s.visibleFrame
-        let position = OverlayPosition.current
-        let o = clamp(p.frame.origin, position: position, visible: visible)
-        p.setFrameOrigin(o)
+        let vertical = Self.wantsVertical(capsule: cap, in: visible)
+        // Remember the spot without this overlay's stacking lift.
+        var base = center
+        if !vertical { base.y += center.y > visible.midY ? lift : -lift }
         screen = s
-        OverlayPosition.setDragged(CGPoint(x: o.x - visible.minX, y: o.y - visible.minY + (position.isTop ? lift : -lift)), for: s)
+        OverlayPosition.setDragged(.init(center: CGPoint(x: base.x - visible.minX, y: base.y - visible.minY), vertical: vertical), for: s)
+        apply(Self.target(center: base, vertical: vertical, in: visible, lift: lift), animated: true)
     }
 }
 
@@ -306,19 +486,24 @@ struct OverlayCapsule: View {
     var elapsed: TimeInterval? = nil
     /// Snapshot: fixed spinner angle (degrees).
     var previewSpin: Double? = nil
+    /// Set by the panel when the capsule sits against a left/right screen edge.
+    @Environment(\.overlayVertical) private var verticalEdge
 
     static let height: CGFloat = 32
     static let bars = 9
 
     var body: some View {
+        let v = vertical
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: mode == .hidden || isMessage || previewSpin != nil)) { tl in
-            content(tl.date)
-                .padding(.horizontal, 14)
-                .frame(minWidth: isMessage ? nil : OverlayMetrics.capsuleWidth, maxWidth: 300)
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(height: Self.height)
+            content(tl.date, vertical: v)
+                .padding(.horizontal, v ? 4 : 14)
+                .padding(.vertical, v ? 12 : 0)
+                .frame(minWidth: v || isMessage ? nil : OverlayMetrics.capsuleWidth, maxWidth: v ? nil : 300)
+                .fixedSize(horizontal: !v, vertical: v)
+                .frame(width: v ? OverlayMetrics.verticalThickness : nil, height: v ? nil : Self.height)
                 .modifier(CapsuleGlass())
         }
+        .animation(.spring(duration: OverlayMetrics.springDuration, bounce: 0.12), value: v)
         .opacity(mode == .hidden ? 0 : 1)
         .environment(\.colorScheme, .dark)
         .accessibilityElement()
@@ -329,37 +514,66 @@ struct OverlayCapsule: View {
         switch mode { case .message, .needsAccess: return true; default: return false }
     }
 
-    @ViewBuilder private func content(_ date: Date) -> some View {
+    /// Standing layout: against a side edge, except for text that needs a line of its own
+    /// (long messages, the Accessibility prompt), which reads horizontally from that edge.
+    private var vertical: Bool {
+        guard verticalEdge else { return false }
+        switch mode {
+        case .needsAccess: return false
+        case .message(let text, _): return text.count <= 6
+        default: return true
+        }
+    }
+
+    private func stack(_ vertical: Bool, h: CGFloat, v: CGFloat) -> AnyLayout {
+        vertical ? AnyLayout(VStackLayout(spacing: v)) : AnyLayout(HStackLayout(spacing: h))
+    }
+
+    @ViewBuilder private func content(_ date: Date, vertical: Bool) -> some View {
         switch mode {
         case .listening, .recording:
-            HStack(spacing: 10) {
+            stack(vertical, h: 10, v: 9) {
                 if mode == .recording {
                     Circle().fill(Brand.record).frame(width: 8, height: 8)
                         .opacity(0.88 + 0.12 * sin(tape.now(date) * 3))
+                } else if vertical {
+                    // Standing capsule: the status icon on top, the timer at the bottom.
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.85))
                 }
-                LevelBars(levels: tape.recent(Self.bars))
+                LevelBars(levels: tape.recent(Self.bars), vertical: vertical)
                 Text(clock(elapsed ?? tape.now(date)))
-                    .font(.system(size: 12, weight: .medium)).monospacedDigit()
+                    .font(.system(size: vertical ? 10.5 : 12, weight: .medium)).monospacedDigit()
                     .foregroundStyle(.white.opacity(0.9))
-                    .fixedSize()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .fixedSize(horizontal: !vertical, vertical: false)
             }
         case .transcribing:
-            HStack(spacing: 8) {
+            stack(vertical, h: 8, v: 10) {
                 Spinner(angle: previewSpin ?? (date.timeIntervalSinceReferenceDate * 360).truncatingRemainder(dividingBy: 360))
-                Text("Transcribing")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .fixedSize()
+                if vertical {
+                    Image(systemName: "text.alignleft")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                } else {
+                    Text("Transcribing")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .fixedSize()
+                }
             }
         case .message(let text, let failure):
-            HStack(spacing: 6) {
+            stack(vertical, h: 6, v: 5) {
                 Image(systemName: failure ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(failure ? Color.orange : Color.green)
                 Text(text)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: vertical ? 10 : 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.92))
                     .lineLimit(1)
+                    .minimumScaleFactor(vertical ? 0.8 : 1)
                     .truncationMode(.tail)
             }
         case .needsAccess:
@@ -421,21 +635,25 @@ private struct CapsuleGlass: ViewModifier {
     }
 }
 
-/// Small vertical bars driven by the mic level (newest on the right), shaped by a soft
-/// envelope (taller in the middle) so it reads as a voice, not a barcode.
+/// Small bars driven by the mic level, shaped by a soft envelope (bigger in the middle) so it
+/// reads as a voice, not a barcode. Horizontal capsule: upright bars, newest on the right.
+/// Standing capsule: the bars lie flat and stack down the long axis, newest at the bottom.
 struct LevelBars: View {
     var levels: [Double]
+    var vertical = false
     var body: some View {
-        HStack(alignment: .center, spacing: 2) {
+        let stack = vertical ? AnyLayout(VStackLayout(spacing: 2.5)) : AnyLayout(HStackLayout(alignment: .center, spacing: 2))
+        stack {
             ForEach(Array(levels.enumerated()), id: \.offset) { i, l in
                 let x = levels.count > 1 ? Double(i) / Double(levels.count - 1) * 2 - 1 : 0
                 let envelope = 0.45 + 0.55 * cos(x * .pi / 2)
+                let length = 3 + 15 * l * envelope
                 Capsule()
                     .fill(Color.white.opacity(0.6 + 0.35 * l))
-                    .frame(width: 2.5, height: 3 + 15 * l * envelope)
+                    .frame(width: vertical ? length : 2.5, height: vertical ? 2.5 : length)
             }
         }
-        .frame(height: 18)
+        .frame(width: vertical ? 18 : nil, height: vertical ? nil : 18)
         .animation(.easeOut(duration: 0.12), value: levels)
     }
 }
@@ -482,3 +700,4 @@ struct MeetingOverlayView: View {
         OverlayCapsule(mode: recorder.isRecording ? .recording : .hidden, tape: tape, elapsed: recorder.elapsed)
     }
 }
+

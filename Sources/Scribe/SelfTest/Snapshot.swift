@@ -117,6 +117,11 @@ enum Snapshot {
         UserDefaults.standard.set(OverlayPosition.bottomCenter.rawValue, forKey: OverlayPosition.key)
         made += await capture(env(DictationSettingsTab().frame(width: SettingsView.size.width, height: 940)), size: nil,
                               name: "04b_settings_overlay_position", dir: dir)
+        // Same tab with the left-edge preset: the preview shows the upright capsule.
+        UserDefaults.standard.set(OverlayPosition.middleLeft.rawValue, forKey: OverlayPosition.key)
+        made += await capture(env(DictationSettingsTab().frame(width: SettingsView.size.width, height: 940)), size: nil,
+                              name: "04c_settings_overlay_left_edge", dir: dir)
+        UserDefaults.standard.set(OverlayPosition.bottomCenter.rawValue, forKey: OverlayPosition.key)
         model.models.setPreview(["asr-v2": .downloaded, "vad": .downloaded, "diarizer": .updateAvailable(1_200_000),
                                  "asr-v3": .missing, "ctc-110m": .downloaded])
         made += await capture(env(ModelSettingsTab().frame(width: 520, height: 640)), size: nil, name: "05_settings_model", dir: dir)
@@ -162,6 +167,23 @@ enum Snapshot {
                                         Color.white
                                         OverlayCapsule(mode: .transcribing, tape: listenTape, previewSpin: 40).scaleEffect(3)
                                     }, size: NSSize(width: 900, height: 240), name: "G10_capsule_transcribing_on_white", dir: dir, titled: false)
+        // 0.6: the standing capsule (left/right screen edge), zoomed: window server (real glass)
+        // and cacheDisplay (material fallback look), plus where it sits on a screen.
+        let vStage = NSSize(width: 420, height: 520)
+        let vListening = OverlayCapsule(mode: .listening, tape: listenTape, previewSpin: 40).environment(\.overlayVertical, true)
+        let vTranscribing = OverlayCapsule(mode: .transcribing, tape: listenTape, previewSpin: 40).environment(\.overlayVertical, true)
+        let vMeeting = OverlayCapsule(mode: .recording, tape: meetTape, elapsed: 754, previewSpin: 40).environment(\.overlayVertical, true)
+        made += await serverCapture(overlayStage(vListening, zoom: 3), size: vStage, name: "V01_capsule_vertical_listening", dir: dir, titled: false)
+        made += await serverCapture(overlayStage(vTranscribing, zoom: 3), size: vStage, name: "V02_capsule_vertical_transcribing", dir: dir, titled: false)
+        made += await serverCapture(overlayStage(vMeeting, zoom: 3), size: vStage, name: "V03_capsule_vertical_meeting", dir: dir, titled: false)
+        made += await capture(overlayStage(vListening, zoom: 3), size: vStage, name: "V01c_capsule_vertical_listening_cache", dir: dir, titled: false)
+        made += await capture(overlayStage(vTranscribing, zoom: 3), size: vStage, name: "V02c_capsule_vertical_transcribing_cache", dir: dir, titled: false)
+        made += await capture(screenMock(position: .middleLeft,
+                                         capsule: OverlayCapsule(mode: .listening, tape: listenTape, previewSpin: 40)),
+                              size: NSSize(width: 1280, height: 800), name: "V04_overlay_screen_left_edge", dir: dir, titled: false)
+        made += await capture(screenMock(position: .middleRight,
+                                         capsule: OverlayCapsule(mode: .recording, tape: meetTape, elapsed: 754, previewSpin: 40)),
+                              size: NSSize(width: 1280, height: 800), name: "V05_overlay_screen_right_edge", dir: dir, titled: false)
         made += await capture(screenMock(position: .bottomCenter,
                                          capsule: OverlayCapsule(mode: .listening, tape: listenTape, previewSpin: 40)),
                               size: NSSize(width: 1280, height: 800), name: "09s_overlay_screen_bottom_center", dir: dir, titled: false)
@@ -197,7 +219,7 @@ enum Snapshot {
         try? FileManager.default.removeItem(at: tmp)
     }
 
-    private static func overlayStage(_ capsule: OverlayCapsule, zoom: CGFloat) -> some View {
+    private static func overlayStage<C: View>(_ capsule: C, zoom: CGFloat) -> some View {
         ZStack {
             LinearGradient(colors: [Color(red: 0.55, green: 0.62, blue: 0.74), Color(red: 0.36, green: 0.42, blue: 0.56)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -254,6 +276,7 @@ enum Snapshot {
                 .offset(x: (screen.width - 560) / 2, y: screen.height - dockH + 7)
             // The overlay panel.
             capsule
+                .environment(\.overlayVertical, position.isSide)
                 .frame(width: f.width, height: f.height, alignment: position.alignment)
                 .offset(x: f.minX, y: screen.height - f.maxY)
         }

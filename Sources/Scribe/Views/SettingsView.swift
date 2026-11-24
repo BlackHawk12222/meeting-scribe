@@ -76,7 +76,7 @@ struct DictationSettingsTab: View {
             } header: {
                 Text("Overlay")
             } footer: {
-                Text("The small recording indicator appears on the screen you're working on, clear of the menu bar and Dock. Drag it to move it; Scribe remembers the spot for each display.")
+                Text("The small recording indicator appears on the screen you're working on, clear of the menu bar and Dock. Drag it to move it; Scribe remembers the spot for each display. Against the left or right edge it stands upright.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -124,16 +124,17 @@ struct OverlayPositionPreview: View {
                     Spacer()
                     RoundedRectangle(cornerRadius: 2).fill(Color.primary.opacity(0.10)).frame(width: 60, height: 6).padding(.bottom, 3)
                 }
+                // The capsule: a short horizontal pill, or standing upright at a side edge.
                 Capsule().fill(Color(white: 0.16).opacity(0.85))
                     .overlay(Capsule().strokeBorder(Color.white.opacity(0.35), lineWidth: 0.5))
-                    .frame(width: 30, height: 8)
+                    .frame(width: position.isSide ? 8 : 30, height: position.isSide ? 26 : 8)
                     .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, position.isSide ? 5 : 8)
                     .padding(.top, 12)
                     .padding(.bottom, 13)
             }
             .frame(width: 160, height: 96)
-            .animation(.easeInOut(duration: 0.2), value: position)
+            .animation(.spring(duration: 0.3, bounce: 0.12), value: position)
             .accessibilityLabel("Overlay preview: \(position.title)")
             Spacer()
         }
@@ -146,6 +147,8 @@ struct OverlayPositionPreview: View {
         case .topRight: return .topTrailing
         case .bottomLeft: return .bottomLeading
         case .bottomRight: return .bottomTrailing
+        case .middleLeft: return .leading
+        case .middleRight: return .trailing
         }
     }
 }
