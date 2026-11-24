@@ -216,7 +216,8 @@ enum EnrollBench {
                     r["\(rule)_wrong_\(mode.rawValue)"] = sh["wrong"]
                     r["\(rule)_unnamed_\(mode.rawValue)"] = sh["unnamed"]
                     // Clusters given the same name count as one speaker.
-                    r["\(rule)_der_\(mode.rawValue)"] = NoisyBench.score(ref: ref, hyp: named.map { ($0.0, $0.1, $0.2) }, limit: limit)["der"]
+                    let segsNamed: [NoisyBench.Seg] = named.map { (start: $0.0, end: $0.1, label: $0.2) }
+                    r["\(rule)_der_\(mode.rawValue)"] = NoisyBench.score(ref: ref, hyp: segsNamed, limit: limit)["der"]
                 }
                 r["clusters_confident_\(mode.rawValue)"] = matches.values.filter(\.isConfident).count
                 r["clusters_suggested_\(mode.rawValue)"] = matches.values.filter { !$0.isConfident }.count
