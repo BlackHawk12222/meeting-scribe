@@ -122,6 +122,7 @@ enum Snapshot {
             ("E02_enroll_intro", .init(step: .intro, name: ""), false),
             ("E03_enroll_prompt", .init(step: .prompt), false),
             ("E03b_enroll_prompt_dark", .init(step: .prompt), true),
+            ("E03d_enroll_prompt_longest", .init(step: .prompt, index: 0), false),
             ("E04_enroll_recording", .init(step: .recording, index: 3), false),
             ("E05_enroll_redo", .init(step: .redo, index: 2), false),
             ("E06_enroll_done", .init(step: .done), false),

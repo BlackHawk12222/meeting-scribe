@@ -36,7 +36,7 @@ extension EnrollmentStyle {
 }
 
 struct VoiceEnrollmentView: View {
-    static let size = CGSize(width: 580, height: 520)
+    static let size = CGSize(width: 580, height: 480)
 
     @EnvironmentObject var store: Store
     @Environment(\.dismiss) private var dismiss
@@ -122,6 +122,7 @@ struct VoiceEnrollmentView: View {
                 tip("mic", "Speak toward the Mac, at an arm's length or so.")
                 tip("arrow.counterclockwise", "If a line doesn't come out right, you can redo it.")
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .scribeCard()
             Spacer(minLength: 0)
             HStack {
