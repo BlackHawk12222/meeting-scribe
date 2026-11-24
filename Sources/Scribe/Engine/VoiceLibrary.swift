@@ -45,8 +45,14 @@ enum VoiceMatcher {
 
     /// Auto-label a speaker when the best match scores at least this.
     static let autoMatchThreshold: Float = 0.55
-    /// Between this and the auto threshold we only *suggest* a name ("Maybe Taylor?").
+    /// Lowest score that gets a name at all. 0.5 only *suggested* a name between this and the auto
+    /// threshold ("Maybe Taylor?"); see `nameLikelyMatches`.
     static let suggestThreshold: Float = 0.40
+    /// 0.6: also auto-label a speaker's best match between 0.40 and 0.55 (one person per speaker,
+    /// strongest pairs first). Measured on the GitHub runner (BENCHMARKS.md section H): right-name
+    /// share of speech +21–22 points in every noise level with a meeting-learned library, wrong names
+    /// +0 points (clean, 10, 5 dB) and +1 point (0 dB). Set to false for the 0.5 behaviour.
+    static var nameLikelyMatches = true
     /// Keep at most this many samples per person (oldest are dropped first).
     static let maxSamplesPerPerson = 80
     /// Score = average of the K most similar samples (a "k-nearest-neighbours" vote).
@@ -108,7 +114,7 @@ enum VoiceMatcher {
         for pair in pairs where pair.score >= suggestThreshold {
             if result[pair.key] != nil || usedPeople.contains(pair.person) { continue }
             result[pair.key] = Match(personID: pair.person, score: pair.score,
-                                     isConfident: pair.score >= autoMatchThreshold)
+                                     isConfident: pair.score >= (nameLikelyMatches ? suggestThreshold : autoMatchThreshold))
             usedPeople.insert(pair.person)
         }
         // Second pass: the diarizer sometimes splits ONE person into two clusters.

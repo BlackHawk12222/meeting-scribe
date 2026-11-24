@@ -127,8 +127,8 @@ Scribe in Accessibility once); after that the permission sticks. It is still not
 Developer account), so the very first open still needs *Open Anyway*.
 
 ## Voice learning (Engine/VoiceLibrary.swift)
-Name a speaker once; next meetings label them automatically (cosine similarity of voice embeddings: ≥ 0.55
-auto-label, 0.40–0.55 "maybe …?"). Every confirmed meeting adds up to 8 fingerprints per person, so it gets steadier.
+Name a speaker once; next meetings label them automatically (cosine similarity of voice embeddings: since 0.6
+the best match ≥ 0.40 is labelled, one person per speaker; 0.5 only auto-labelled ≥ 0.55 and showed 0.40–0.55 as "maybe …?"). Every confirmed meeting adds up to 8 fingerprints per person, so it gets steadier.
 
 ## Models — and why
 | | Parakeet TDT v2 (default) | Parakeet TDT v3 | Whisper large-v3-turbo |

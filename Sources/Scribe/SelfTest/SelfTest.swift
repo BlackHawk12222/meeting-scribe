@@ -163,11 +163,24 @@ enum SelfTest {
 
     static func download(_ url: URL, to dest: URL) async throws {
         if FileManager.default.fileExists(atPath: dest.path) { return }
-        let (tmp, resp) = try await URLSession.shared.download(from: url)
-        guard (resp as? HTTPURLResponse)?.statusCode == 200 else {
-            throw NSError(domain: "selftest", code: 1, userInfo: [NSLocalizedDescriptionKey: "download failed \(url)"])
+        // The AMI mirror sometimes drops a request: try up to 4 times, 15 s apart.
+        var last = "download failed \(url)"
+        for attempt in 1...4 {
+            do {
+                let (tmp, resp) = try await URLSession.shared.download(from: url)
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                if code == 200 {
+                    try FileManager.default.moveItem(at: tmp, to: dest)
+                    return
+                }
+                last = "download failed \(url) (HTTP \(code), attempt \(attempt))"
+            } catch {
+                last = "download failed \(url) (\(error.localizedDescription), attempt \(attempt))"
+            }
+            log(last)
+            if attempt < 4 { try? await Task.sleep(nanoseconds: 15_000_000_000) }
         }
-        try FileManager.default.moveItem(at: tmp, to: dest)
+        throw NSError(domain: "selftest", code: 1, userInfo: [NSLocalizedDescriptionKey: last])
     }
 
     static func parseRTTM(_ text: String, limit: Double) -> [RefSeg] {

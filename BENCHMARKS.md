@@ -7,6 +7,137 @@ Three places numbers come from:
   Xcode 26.3 / macOS 26.2 SDK. A virtual Mac with no (or limited) Neural Engine/GPU — speeds are a floor.
 - **Expected on a real Mac** = FluidAudio's own published numbers (M4 Pro / M5 Pro). Not verified by us.
 
+## H. Noisy room: voice detection, "who spoke when" and names in a crowd (Runner) — 0.6 dev, 2026-11-23/24
+**GitHub Actions macOS runner numbers. Measured on a GitHub Actions `macos-15` runner: `Apple M1 (Virtual)`, 3 cores, 7 GB RAM, macOS 15.8.2,
+Xcode 26.3 — a virtual Mac with no Neural Engine. Not a real Mac, and not a real noisy room:** the noise was
+mixed in by software (DEMAND crowd noise, CC BY-SA 3.0, into AMI meeting audio, CC BY 4.0). Runs 45324120424 (commit 730b758), 45329926142 (commit 1002573) and, for names/enrollment, 45494655920 (commit 428513d), branch v0.6-dev,
+`Scribe --selftest --suite noisy` (Sources/Scribe/SelfTest/NoisyBench.swift). The baseline numbers were identical
+in both runs (the pipeline is deterministic).
+
+**Test set.** AMI ES2004a/b/c, first 300 s each (CC BY 4.0, same 4 people, room-mix mic) + crowd noise from DEMAND
+(busy cafeteria + university restaurant, 184 s, CC BY-SA 3.0, `Tests/noise/`), mixed at SNR 10, 5 and 0 dB
+(SNR = how much louder the talkers are than the crowd; speech level measured only where someone talks).
+AMI already has real overlapping speech: 2.7–8.7 % of the reference speech in these clips.
+DER = missed speech + false alarm + speaker confusion, % of reference speech, no collar, overlap scored.
+
+**Baseline (Scribe 0.5 as shipped: pyannote Community-1 + WeSpeaker + VBx, Fa 0.2, one speaker at a time),
+mean of the 3 meetings — DER (missed / false alarm / confusion):**
+
+| | clean | 10 dB | 5 dB | 0 dB |
+|---|---|---|---|---|
+| DER | **18.9 %** (11.6 / 5.1 / 2.3) | **30.5 %** (17.9 / 8.3 / 4.4) | **53.8 %** (35.4 / 6.8 / 11.6) | **70.0 %** (61.4 / 3.7 / 4.9) |
+| DER without overlap frames | 16.5 % | 28.5 % | 52.1 % | 69.1 % |
+| diarizer's own speech detection: missed / false alarm (of non-speech) | 8.7 / 8.3 % | 15.1 / 13.1 % | 33.2 / 10.6 % | 60.1 / 6.3 % |
+
+What goes wrong: mostly **missed speech**. As the crowd gets louder the model decides the meeting voices are part
+of the background (missed speech 12 % → 61 %). Overlap is a small part of the error (DER with and without overlap
+frames differ by ~1–2 points). Per meeting it varies a lot (5 dB: 67.8 / 55.3 / 38.2 %).
+
+**What was tried (one at a time, same mixed audio). DER %, mean of 3 meetings:**
+
+| variant | clean | 10 dB | 5 dB | 0 dB | verdict |
+|---|---|---|---|---|---|
+| baseline (0.5) | 18.9 | 30.5 | 53.8 | 70.0 | |
+| keep overlapping speakers (`exclusiveSegments = false`) | 18.4 | 30.7 | 54.2 | 70.0 | ≈ same; not worth it (words need one speaker anyway) |
+| Silero VAD gate on the diarizer output, threshold 0.3 / 0.5 | 19.4 / 19.3 | 37.2 / 38.0 | 61.5 / 64.8 | 81.2 / 82.5 | **worse**: removes false alarms but misses much more speech |
+| LocalVQE v1.2 (5.5 MB) denoiser first | 22.7 | 55.7 | 77.6 | 88.0 | **much worse** |
+| LocalVQE v1.3 (19.6 MB) denoiser first | 21.8 | 61.8 | 75.4 | 88.6 | **much worse** |
+| Sortformer offline fp16 (242 MB) instead of pyannote | 35.0 | 65.0 | 66.3 | 72.2 | **worse** |
+| Sortformer offline palettized (92 MB) | 30.8 | 72.3 | 68.6 | 73.5 | **worse** |
+| clustering Fa 0.07 / Fa 0.3 | 20.6 / 19.4 | 29.2 / 41.5 | 59.5 / 71.6 | 72.6 / 83.1 | no consistent gain |
+| clustering threshold 0.5 | 18.9 | 30.5 | 52.6 | 70.1 | ≈ same (one meeting better, one worse) |
+| "exactly 4 people" | 23.3 | 31.1 | 60.4 | 73.2 | worse |
+| voice-library merge / re-score (library from clean ES2004a; b + c only) | 18.8 vs 18.8 | 29.8 vs 29.8 | 46.7 vs 46.7 | 63.5 vs 63.5 | DER unchanged (see names below) |
+
+Why they hurt, simply: a speech denoiser trained for calls treats far-away meeting voices like the crowd and
+turns them down too (false alarms drop to ~0 %, missed speech jumps to 47–87 %). The VAD gate does the same thing
+more crudely. Sortformer is trained to *ignore* background talkers, and on this room-mix audio it ignores real
+talkers too (missed 27 % even when clean). Speed on the runner (300 s): diarization 13–40 s; LocalVQE v1.2 17–29 s,
+v1.3 46–74 s extra; Sortformer 9–14 s.
+
+**Names (voice library, enrolled from the clean first meeting).** ES2004c, frames with the right name:
+0.5 rule (auto-name only ≥ 0.55) 51.0 / 50.4 / 32.0 / 0.0 % at clean / 10 / 5 / 0 dB. Also naming the
+"maybe …?" suggestions (0.40–0.55): 93.2 / 92.5 / 74.2 / 42.2 %, with wrong names 1.5 / 1.4 / 0.2 / 1.9 % (same as
+the 0.5 rule except +1.9 at 0 dB; measured in the enrollment run below). Auto-merging split clusters (≥ 0.55 for an
+already-named person) changed nothing on this data. ES2004b stays low (45.7 % clean, ~0 % in noise) because the
+first 300 s of ES2004a only had 3 of the 4 people and 1 sample for two of them — see guided enrollment below.
+
+**Dictation in a crowd** (20 LibriSpeech sentences with 1.5 s of room before/after, 386 words, Parakeet v2): WER
+
+| VAD trimming | clean | 10 dB | 5 dB | 0 dB |
+|---|---|---|---|---|
+| none | 1.6 % | 2.3 % | 3.4 % | 9.1 % |
+| **Silero 0.75 (0.5 default)** | **1.6 %** | **0.8 %** | **2.6 %** | **8.0 %** |
+| Silero 0.5 | 1.8 % | 0.8 % | 2.8 % | 8.8 % |
+| Silero 0.3 | 1.8 % | 1.6 % | 3.1 % | 8.8 % |
+The shipped trimming already helps in noise (it cuts the crowd before and after you talk), and lowering the
+threshold does not help. Kept at 0.75. (1 word = 0.26 % here, so small differences are noise.) On far-field meeting
+audio Silero at 0.75 (dictation segmentation) missed 6 / 31 / 55 / 80 % of speech — fine for close-mic dictation,
+not usable as a meeting VAD.
+
+**Guided enrollment ("Add person") and the naming rule — run 45494655920, commit 428513d, 2026-11-24.**
+Same runner type (GitHub `macos-15`, virtual M1, 3 cores, no Neural Engine), same software-mixed noise (DEMAND
+CC BY-SA 3.0 crowd into AMI CC BY 4.0 room-mix audio). `--suite noisy --variants enroll`
+(Sources/Scribe/SelfTest/EnrollBench.swift).
+
+How it was simulated (we can't record people reading prompts on a CI runner): the "enrollment" clips are real
+speech of the same 4 people from a DIFFERENT meeting, the whole clean ES2004a (17.5 min). For each person, 6
+stretches of 2.5–8 s where only they are heard (other people's words cut out), picked from quietest to loudest
+as a stand-in for the 6 speaking styles. Tested on ES2004b and ES2004c (first 300 s, clean and crowd at 10/5/0 dB).
+- **today** = what 0.5 does: library learned from the diarizer's clusters in the clean first 300 s of ES2004a
+  (only 3 of the 4 people talk there; one has 8 samples, two have 1).
+- **single clip** = one ~5 s clip per person → 1 voice sample.
+- **one 30 s clip** = the same 6 clips glued → 1 voice sample (27–38 s).
+- **multi-style (6 prompts)** = the 6 clips → 6 voice samples (what the app's "Add person" saves).
+
+Scored on every 10 ms where exactly one person talks: **right** = labelled with that person's name,
+**wrong** = labelled with someone else's name, the rest has no name (unknown speaker or speech the diarizer
+missed). **Strict** = the 0.5 rule (name only if the match is ≥ 0.55). **Loose** = also name the 0.40–0.55
+"maybe …?" match. DER is after merging clusters that got the same name. Mean of ES2004b + ES2004c.
+
+| library, rule | clean: right / wrong | 10 dB | 5 dB | 0 dB |
+|---|---|---|---|---|
+| today, strict (0.5) | 48.3 / 0.9 % | 25.2 / 0.7 % | 16.0 / 0.1 % | 0.0 / 0.0 % |
+| today, loose | 69.4 / 0.9 % | 47.3 / 0.7 % | 38.1 / 0.1 % | 21.1 / 1.0 % |
+| single 5 s clip, strict | 89.6 / 1.0 % | 66.9 / 0.8 % | 57.8 / 0.3 % | 0.0 / 0.0 % |
+| one 30 s clip, strict | 89.6 / 1.0 % | 67.9 / 0.9 % | 57.8 / 0.3 % | 17.4 / 0.2 % |
+| multi-style (6 prompts), strict | 89.6 / 1.0 % | 67.9 / 0.9 % | 57.8 / 0.3 % | 0.0 / 0.0 % |
+| any enrollment, loose | 89.6 / 1.0 % | 67.9 / 0.9 % | 58.8 / 0.4 % | 38.5 / 1.2 % |
+| DER (every row; names don't change it here) | 18.8 % | 29.8 % | 46.7 % | 63.5 % |
+
+Per meeting (right names, multi-style, loose): ES2004b 86.0 / 43.2 / 43.4 / 34.8 %, ES2004c 93.2 / 92.5 / 74.2 /
+42.2 %. On ES2004c every library tops out at the same 93.2 % (the rest is speech the diarizer missed, or overlap).
+Single turns (every stretch ≥ 1.5 s with one talker, 41 turns, closed set of 4): best-match accuracy today 82 /
+74 / 69 / 47 %, multi-style 98 / 85 / 62 / 48 %; a WRONG name above 0.40 happened 0 times in any row.
+
+What this means, simply:
+- **Enrolling helps a lot.** Knowing everyone's voice from a different meeting roughly doubles the speech with
+  the right name (48 → 90 % clean, 25 → 68 % at 10 dB, 16 → 58 % at 5 dB), and wrong names stay about 1 %.
+  That 1 % is not a mix-up of people: it is a few words of one person landing inside another person's speaker
+  turn (a diarizer error), and it is the same with or without names.
+- **Six styles vs one clip: no measurable difference here.** All three enrollment kinds name the same clusters.
+  The 6 clips only differ in loudness (meeting speech, not real "loud"/"question"/"quiet" reading), so this test
+  can't show what real style variety does. At 0 dB, 6 separate samples score a bit lower than one glued 30 s
+  sample (0.51 vs 0.56 for the same cluster), because the score averages the 5 closest samples.
+- **The loose rule helps and costs almost nothing.** It adds 21–22 points of right names in every noise level
+  for the meeting-learned library and 21–38 points at 0 dB for enrolled people; wrong names: +0 points clean, 10 and
+  5 dB, +1 point at 0 dB. The one person missing from the "today" library was not given someone else's name (wrong names ≤ 0.2 % in
+  the meeting where they talk).
+- **Names never changed DER** on this data (no two clusters were given the same person).
+- **Quality gate** (on the bundled 15.7 s close-mic dictation clip): clean clip accepted (speech −22.8 dBFS,
+  43 dB above the room); crowd at 10 / 5 / 0 dB rejected as too noisy (12.0 / 7.9 / 5.2 dB above the room, gate 15
+  dB); clipped copy rejected (0.67 % of samples at full scale); 2 s cut rejected (0.3 s of speech). An AMI room-mix
+  turn is rejected as too quiet (−44.5 dBFS): far-away meeting audio is not what enrollment expects.
+
+**Decision (v0.6-dev):** the loose rule is the default now (`VoiceMatcher.nameLikelyMatches = true`: a speaker's
+best match ≥ 0.40 gets the name, one person per speaker, strongest pairs first; a split cluster's second match
+stays a "maybe …?" suggestion because that case never happened in this test). Guided enrollment stays on (the
+Add person button on the People page in v0.6) and keeps 6 prompts: 6 clips cost nothing over one 30 s clip here.
+
+Limits: 2 test meetings × 300 s, the same 4 people (3–4 talk in each), no stranger who is completely unknown
+to every library except the one person missing from "today"; noise mixed by software; a virtual Mac. Real
+enrollment (someone reading the prompts on a real Mac mic, then a real noisy meeting) is still untested.
+
 ## G. Scribe 0.5 self-test (Runner) — GitHub Actions run 45111200196, commit dc5a21a, 2026-11-23
 **Measured on a GitHub Actions `macos-15` runner: `Apple M1 (Virtual)`, 3 cores, 7 GB RAM, macOS 15.8.2,
 Xcode 26.3. A virtual Mac with no Neural Engine — not a real Mac.** Parakeet pads every call to a 15 s window and

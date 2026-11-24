@@ -51,6 +51,24 @@ enum EnrollBench {
         return other
     }
 
+    /// Each person's turns (pieces < 1 s apart joined) with every moment someone else talks cut out:
+    /// the stretches where ONLY that person is heard. Backchannels ("yeah", "mm") are common in AMI,
+    /// so rejecting whole turns that contain one leaves almost nothing.
+    static func cleanPieces(_ ref: [SelfTest.RefSeg], minSeconds: Double) -> [SelfTest.RefSeg] {
+        var out: [SelfTest.RefSeg] = []
+        for t in joinTurns(ref, gap: 1.0) {
+            let others = ref.filter { $0.speaker != t.speaker && $0.start < t.end && $0.end > t.start }
+                .sorted { $0.start < $1.start }
+            var cur = t.start
+            for o in others {
+                if o.start - cur >= minSeconds { out.append(.init(start: cur, end: o.start, speaker: t.speaker)) }
+                cur = max(cur, o.end)
+            }
+            if t.end - cur >= minSeconds { out.append(.init(start: cur, end: t.end, speaker: t.speaker)) }
+        }
+        return out
+    }
+
     /// Of the frames where exactly one person talks: share labelled with the RIGHT name, with a WRONG
     /// name (another enrolled person's name), and with no name (unknown speaker, or no speech found).
     static func nameShares(ref: [SelfTest.RefSeg], hyp: [(Double, Double, String)], limit: Double,
@@ -78,12 +96,11 @@ enum EnrollBench {
     static func build(audio: [Float], ref: [SelfTest.RefSeg]) async throws -> ([Library], [String: Any]) {
         let sr = 16_000.0
         let speakers = Array(Set(ref.map(\.speaker))).sorted()
-        let turnsBy = Dictionary(grouping: joinTurns(ref), by: \.speaker)
-        func overlapped(_ s: SelfTest.RefSeg) -> Bool { otherTalk(s, ref: ref) > 0.3 }
+        let turnsBy = Dictionary(grouping: cleanPieces(ref, minSeconds: 2.5), by: \.speaker)
         var multi: [Person] = [], single30: [Person] = [], single5: [Person] = []
         var info: [String: Any] = [:]
         for spk in speakers {
-            var cands = (turnsBy[spk] ?? []).filter { $0.end - $0.start >= 2.5 && !overlapped($0) }
+            var cands = (turnsBy[spk] ?? [])
                 .map { s -> (Double, Double) in (s.start, min(s.end, s.start + 8)) }
                 .filter { Int($0.1 * sr) <= audio.count }
             guard cands.count >= 2 else { info[spk] = "only \(cands.count) clean turns"; continue }
@@ -160,10 +177,8 @@ enum EnrollBench {
     /// Evaluate every library on one (possibly noisy) test meeting.
     static func evaluate(libraries: [Library], audio: [Float], ref: [SelfTest.RefSeg], limit: Double,
                          diarized: SpeechEngine.Diarized) async throws -> [String: Any] {
-        // Test turns: one person talking (others < 0.3 s), ≥ 1.5 s (long turns: their middle 8 s).
-        let turns = joinTurns(ref).filter { s in
-            s.end - s.start >= 1.5 && s.end <= limit && otherTalk(s, ref: ref) <= 0.3
-        }.map { s -> (Double, Double, String) in
+        // Test turns: stretches ≥ 1.5 s where only one person talks (long ones: their middle 8 s).
+        let turns = cleanPieces(ref, minSeconds: 1.5).filter { $0.end <= limit }.map { s -> (Double, Double, String) in
             let d = s.end - s.start
             if d <= 8 { return (s.start, s.end, s.speaker) }
             let m = (s.start + s.end) / 2
@@ -208,7 +223,8 @@ enum EnrollBench {
                 for (rule, loose) in [("strict", false), ("loose", true)] {
                     let named = diarized.segments.map { s -> (Double, Double, String) in
                         let m = matches[s.speakerId]
-                        let use = m.map { loose || $0.isConfident } ?? false
+                        // strict = a first-pass match ≥ 0.55 (what 0.5 labels); loose = any match.
+                        let use = m.map { loose || ($0.isConfident && $0.score >= VoiceMatcher.autoMatchThreshold) } ?? false
                         return (Double(s.startTimeSeconds), Double(s.endTimeSeconds), use ? (nameOf[m!.personID] ?? "?") : "spk_\(s.speakerId)")
                     }
                     let sh = nameShares(ref: ref, hyp: named, limit: limit, names: names)
