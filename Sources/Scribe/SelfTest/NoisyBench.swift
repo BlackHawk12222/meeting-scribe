@@ -367,7 +367,7 @@ enum NoisyBench {
                         // For comparison: what the 0.5 app shows (only confident matches named).
                         let shipped = segs(dBase).map { (s: Seg) -> (Double, Double, String) in
                             let mt = matches[s.label]
-                            return (s.start, s.end, (mt?.isConfident == true) ? (nameOf[mt!.personID] ?? "unknown") : "unknown")
+                            return (s.start, s.end, (mt.map { $0.isConfident && $0.score >= VoiceMatcher.autoMatchThreshold } ?? false) ? (nameOf[mt!.personID] ?? "unknown") : "unknown")
                         }
                         m["id_accuracy_shipped_rule"] = SelfTest.idAccuracy(ref: ref, hyp: shipped, limit: limit)
                         // Proposed: also auto-name a split cluster that scores ≥ the auto threshold for an

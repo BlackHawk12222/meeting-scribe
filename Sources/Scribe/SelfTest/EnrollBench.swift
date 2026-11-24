@@ -223,7 +223,8 @@ enum EnrollBench {
                 for (rule, loose) in [("strict", false), ("loose", true)] {
                     let named = diarized.segments.map { s -> (Double, Double, String) in
                         let m = matches[s.speakerId]
-                        let use = m.map { loose || $0.isConfident } ?? false
+                        // strict = a first-pass match ≥ 0.55 (what 0.5 labels); loose = any match.
+                        let use = m.map { loose || ($0.isConfident && $0.score >= VoiceMatcher.autoMatchThreshold) } ?? false
                         return (Double(s.startTimeSeconds), Double(s.endTimeSeconds), use ? (nameOf[m!.personID] ?? "?") : "spk_\(s.speakerId)")
                     }
                     let sh = nameShares(ref: ref, hyp: named, limit: limit, names: names)
