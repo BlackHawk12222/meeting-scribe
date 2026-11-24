@@ -73,7 +73,7 @@ enum VoiceBench {
         var out = preferred.filter { english.contains($0) }
         let novelty = ["Albert", "Bad News", "Bahh", "Bells", "Boing", "Bubbles", "Cellos", "Good News", "Jester",
                        "Organ", "Superstar", "Trinoids", "Whisper", "Wobble", "Zarvox", "Junior", "Ralph", "Kathy"]
-        out += english.filter { !out.contains($0) && !novelty.contains(where: { n in $0.hasPrefix(n) }) }
+        for name in english where !out.contains(name) && !novelty.contains(where: { name.hasPrefix($0) }) { out.append(name) }
         return Array(out.prefix(max))
     }
 
