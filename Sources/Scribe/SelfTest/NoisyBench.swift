@@ -74,7 +74,9 @@ enum NoisyBench {
         }
         let t = Double(max(tot, 1))
         return [
-            "der": r.der, "miss": r.miss, "fa": r.falseAlarm, "conf": r.confusion,
+            // DiarizationDER reports miss/fa/confusion in SECONDS; divide by the reference speech time.
+            "der": r.der, "miss": r.miss / max(r.totalRefSpeech, 1e-9), "fa": r.falseAlarm / max(r.totalRefSpeech, 1e-9),
+            "conf": r.confusion / max(r.totalRefSpeech, 1e-9),
             "der_no_overlap": Double(miss + fa + conf) / t,
             "miss_no_overlap": Double(miss) / t, "fa_no_overlap": Double(fa) / t, "conf_no_overlap": Double(conf) / t,
             "overlap_share_of_ref_speech": Double(ovFrames) / Double(max(refSpeakerFrames, 1)),
@@ -295,6 +297,16 @@ enum NoisyBench {
                     let d = try await SpeechEngine.shared.cluster(prepared, samples: y, setting: overlapSetting)
                     variants["overlap"] = score(ref: ref, hyp: segs(d), limit: limit)
                 }
+                if on("knobs") {
+                    // Clustering knobs (cheap: same prepared embeddings).
+                    for (k, st) in [("fa0.07", DiarizerSetting(fa: 0.07)), ("fa0.3", DiarizerSetting(fa: 0.3)),
+                                    ("thr0.5", DiarizerSetting(threshold: 0.5)), ("exactly4", DiarizerSetting(speakers: 4))] {
+                        let d = try await SpeechEngine.shared.cluster(prepared, samples: y, setting: st)
+                        var v = score(ref: ref, hyp: segs(d), limit: limit)
+                        v["clusters"] = d.clusters.count
+                        variants[k] = v
+                    }
+                }
                 if on("gate") {
                     for t in [Float(0.3), 0.5] {
                         let m = await sileroMask(vad, results: vres, total: y.count, threshold: t, padding: 0.3, minSilence: 0.5, n: n)
@@ -434,6 +446,10 @@ enum NoisyBench {
             }
         }
         out["results"] = results
+        if on("dictation"), let libri = SelfTest.argValue("--libri-dir") {
+            do { out["dictation_in_noise"] = try await DictationNoiseBench.run(libriDir: libri, noise: noise, snrs: snrs, vad: vad) }
+            catch { out["dictation_in_noise_error"] = "\(error)" }
+        }
         return out
     }
 }
