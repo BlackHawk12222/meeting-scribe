@@ -534,6 +534,25 @@ actor SpeechEngine {
         return d
     }
 
+    /// Where the speech is (Silero VAD), as sample ranges. Used by voice enrollment's quality check.
+    func speechRanges(_ samples: [Float]) async throws -> [Range<Int>] {
+        if vad == nil { vad = try await VadManager(config: VadConfig(defaultThreshold: 0.75)) }
+        guard let vad else { return [] }
+        var cfg = VadSegmentationConfig.default
+        cfg.minSpeechDuration = 0.2
+        cfg.minSilenceDuration = 0.3
+        cfg.maxSpeechDuration = 600
+        cfg.speechPadding = 0.05
+        cfg.negativeThreshold = 0.35        // enter speech at 0.5, leave below 0.35
+        cfg.negativeThresholdOffset = 0.15
+        let segs = try await vad.segmentSpeech(samples, config: cfg)
+        return segs.compactMap { seg -> Range<Int>? in
+            let a = max(0, min(seg.startSample(sampleRate: 16_000), samples.count))
+            let b = max(a, min(seg.endSample(sampleRate: 16_000), samples.count))
+            return b > a ? a..<b : nil
+        }
+    }
+
     /// Voice embeddings for arbitrary time spans (self-test: re-scoring turns against the library).
     func embedSpans(samples: [Float], spans: [Range<Double>]) async throws -> [[Float]] {
         guard !spans.isEmpty else { return [] }

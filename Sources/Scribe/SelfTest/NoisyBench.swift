@@ -230,6 +230,7 @@ enum NoisyBench {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
         var library: [Person] = []          // learned from CLEAN ES2004a, baseline clusters
+        var enrollLibs: [EnrollBench.Library] = []   // simulated guided enrollment (EnrollBench.swift)
         var results: [[String: Any]] = []
 
         for (mi, name) in meetings.enumerated() {
@@ -318,6 +319,19 @@ enum NoisyBench {
                         }
                     }
                     out["library"] = library.map { "\($0.name):\($0.samples.count)" }.joined(separator: " ")
+                    if on("enroll") {
+                        // Enrollment clips come from the WHOLE clean ES2004a (all 4 people talk in it).
+                        do {
+                            let full = dir.appendingPathComponent("ES2004a_full.wav")
+                            try await SelfTest.download(URL(string: "\(SelfTest.base)/ES2004a/audio/ES2004a.Mix-Headset.wav")!, to: full)
+                            let fullAudio = try SpeechEngine.loadSamples(full)
+                            let fullRef = SelfTest.parseRTTM(rttm, limit: Double(fullAudio.count) / Double(sr))
+                            let (libs, info) = try await EnrollBench.build(audio: fullAudio, ref: fullRef)
+                            enrollLibs = libs + [EnrollBench.Library(name: "meeting", people: library)]
+                            out["enroll_build"] = info
+                            out["enroll_gate_test"] = await EnrollBench.gateTest(audio: fullAudio, ref: fullRef, noise: noise)
+                        } catch { out["enroll_build_error"] = "\(error)" }
+                    }
                 } else if mi > 0 && !library.isEmpty && (on("lib_merge") || on("lib_segments")) {
                     let matches = VoiceMatcher.match(clusters: dBase.clusters, people: library)
                     let nameOf: [UUID: String] = Dictionary(uniqueKeysWithValues: library.map { ($0.id, $0.name) })
@@ -359,6 +373,14 @@ enum NoisyBench {
                         m["extra_seconds"] = Date().timeIntervalSince(tl)
                         variants["lib_segments"] = m
                     }
+                }
+
+                // --- Simulated guided enrollment vs meeting-learned library ---
+                if mi > 0 && on("enroll") && !enrollLibs.isEmpty {
+                    do {
+                        variants["enroll_eval"] = try await EnrollBench.evaluate(
+                            libraries: enrollLibs, audio: y, ref: ref, limit: limit, diarized: dBase)
+                    } catch { variants["enroll_eval_error"] = "\(error)" }
                 }
 
                 // --- Speech enhancement first (LocalVQE), then the same diarizer ---
