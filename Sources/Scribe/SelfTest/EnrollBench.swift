@@ -13,11 +13,12 @@
 //                ES2004a, named with the reference, ≤ 8 longest turns each (only 3 of the 4 people
 //                talk in those 300 s, so the 4th person is missing from this library).
 // Test on ES2004b and ES2004c (first 300 s, clean and with crowd noise at 10/5/0 dB):
-//   • turn ID: every reference turn ≥ 1.5 s with one person talking is embedded from the (noisy)
-//     audio and given the best-matching person (closed set of 4) → % correct. Also "open set":
-//     % of turns named correctly at the app's suggest threshold (0.40) — wrong names count as errors.
-//   • cluster ID: the app's flow — diarizer clusters matched with VoiceMatcher → ID accuracy
-//     (frames carrying the right name) and DER after merging clusters that match the same person.
+//   • turn ID: every reference turn ≥ 1.5 s with one person talking (word pieces joined into turns)
+//     is embedded from the (noisy) audio → closed-set % correct, and right/wrong names at 0.40 and 0.55.
+//   • cluster ID: the app's flow — diarizer clusters matched with VoiceMatcher. Of the frames where
+//     one person talks: share with the RIGHT name, with a WRONG name, and unnamed; for the strict rule
+//     (name only ≥ 0.55, as shipped) and the loose rule (also name the 0.40–0.55 "maybe" suggestions).
+//     DER with same-named clusters merged.
 // Limits: AMI meeting speech is not prompted reading, and the "styles" are only loudness variety.
 
 import Foundation
@@ -26,17 +27,63 @@ import FluidAudio
 enum EnrollBench {
     struct Library { var name: String; var people: [Person] }
 
+    /// The AMI reference is split at every word gap; join a person's pieces < `gap` s apart into turns.
+    static func joinTurns(_ ref: [SelfTest.RefSeg], gap: Double = 0.5) -> [SelfTest.RefSeg] {
+        var last: [String: Int] = [:]
+        var out: [SelfTest.RefSeg] = []
+        for s in ref.sorted(by: { $0.start < $1.start }) {
+            if let i = last[s.speaker], s.start - out[i].end < gap {
+                out[i].end = max(out[i].end, s.end)
+            } else {
+                last[s.speaker] = out.count
+                out.append(s)
+            }
+        }
+        return out
+    }
+
+    /// Seconds of `s` during which somebody else is talking.
+    static func otherTalk(_ s: SelfTest.RefSeg, ref: [SelfTest.RefSeg]) -> Double {
+        var other = 0.0
+        for o in ref where o.speaker != s.speaker && o.start < s.end && o.end > s.start {
+            other += min(o.end, s.end) - max(o.start, s.start)
+        }
+        return other
+    }
+
+    /// Of the frames where exactly one person talks: share labelled with the RIGHT name, with a WRONG
+    /// name (another enrolled person's name), and with no name (unknown speaker, or no speech found).
+    static func nameShares(ref: [SelfTest.RefSeg], hyp: [(Double, Double, String)], limit: Double,
+                           names: Set<String>) -> [String: Double] {
+        let n = Int(limit * 100)
+        var refLab = [[String]](repeating: [], count: n)
+        func frames(_ a: Double, _ b: Double) -> Range<Int> {
+            let lo = min(n, max(0, Int(a * 100)))
+            return lo..<max(lo, min(n, Int(b * 100)))
+        }
+        for r in ref { for f in frames(r.start, r.end) { refLab[f].append(r.speaker) } }
+        var hypLab = [String?](repeating: nil, count: n)
+        for h in hyp { for f in frames(h.0, h.1) { hypLab[f] = h.2 } }
+        var total = 0, right = 0, wrong = 0
+        for f in 0..<n where Set(refLab[f]).count == 1 {
+            total += 1
+            guard let h = hypLab[f], names.contains(h) else { continue }
+            if h == refLab[f][0] { right += 1 } else { wrong += 1 }
+        }
+        let t = Double(max(total, 1))
+        return ["right": Double(right) / t, "wrong": Double(wrong) / t, "unnamed": Double(total - right - wrong) / t]
+    }
+
     /// Build the enrollment libraries from one meeting's clean audio + reference turns.
     static func build(audio: [Float], ref: [SelfTest.RefSeg]) async throws -> ([Library], [String: Any]) {
         let sr = 16_000.0
         let speakers = Array(Set(ref.map(\.speaker))).sorted()
-        func overlapped(_ s: SelfTest.RefSeg) -> Bool {
-            ref.contains { $0.speaker != s.speaker && $0.start < s.end && $0.end > s.start }
-        }
+        let turnsBy = Dictionary(grouping: joinTurns(ref), by: \.speaker)
+        func overlapped(_ s: SelfTest.RefSeg) -> Bool { otherTalk(s, ref: ref) > 0.3 }
         var multi: [Person] = [], single30: [Person] = [], single5: [Person] = []
         var info: [String: Any] = [:]
         for spk in speakers {
-            var cands = ref.filter { $0.speaker == spk && $0.end - $0.start >= 3 && !overlapped($0) }
+            var cands = (turnsBy[spk] ?? []).filter { $0.end - $0.start >= 2.5 && !overlapped($0) }
                 .map { s -> (Double, Double) in (s.start, min(s.end, s.start + 8)) }
                 .filter { Int($0.1 * sr) <= audio.count }
             guard cands.count >= 2 else { info[spk] = "only \(cands.count) clean turns"; continue }
@@ -76,17 +123,27 @@ enum EnrollBench {
     /// stretch with crowd noise at 10/5/0 dB, clipped (×30 gain), or cut to 2 s should be rejected.
     static func gateTest(audio: [Float], ref: [SelfTest.RefSeg], noise: [Float]) async -> [String: Any] {
         let sr = 16_000.0
-        // Longest single-speaker turn, up to 8 s, with 0.5 s of room before it if possible.
-        guard let t = ref.filter({ s in !ref.contains { $0.speaker != s.speaker && $0.start < s.end + 0.5 && $0.end > s.start - 0.5 } })
-            .max(by: { $0.end - $0.start < $1.end - $1.start }) else { return ["error": "no clean turn"] }
-        let a = Int(max(0, t.start - 0.5) * sr), b = min(audio.count, Int(min(t.end, t.start + 8) * sr))
-        let clip = Array(audio[a..<b])
+        // A close-mic style clip: the bundled dictation sample (2 LibriSpeech sentences with 1.5–2 s of
+        // faint hiss around them, 15.7 s). (AMI's room-mix is recorded too quietly for a level gate.)
+        guard let url = Bundle.main.url(forResource: "dictation_sample", withExtension: "wav"),
+              let clip = try? SpeechEngine.loadSamples(url) else { return ["error": "dictation_sample missing"] }
         var cases: [(String, [Float])] = [("clean", clip)]
-        let speech = [Bool](repeating: true, count: Int(Double(clip.count) / sr / NoisyBench.hop))
+        let ranges = (try? await SpeechEngine.shared.speechRanges(clip)) ?? []
+        var speech = [Bool](repeating: false, count: Int(Double(clip.count) / sr / NoisyBench.hop))
+        for r in ranges {
+            let lo = Int(Double(r.lowerBound) / sr / NoisyBench.hop), hi = min(speech.count, Int(Double(r.upperBound) / sr / NoisyBench.hop))
+            if hi > lo { for i in lo..<hi { speech[i] = true } }
+        }
+        // Also an AMI room-mix turn, for reference.
+        if let t = ref.filter({ s in s.end - s.start >= 5 }).first {
+            let a = Int(t.start * sr), b = min(audio.count, Int(min(t.end, t.start + 8) * sr))
+            if b > a { cases.append(("ami_roommix_turn", Array(audio[a..<b]))) }
+        }
         for snr in [10.0, 5.0, 0.0] {
             cases.append(("crowd_\(Int(snr))dB", NoisyBench.mix(clip, noise: noise, offset: 0, snr: snr, speech: speech)))
         }
-        cases.append(("clipped_x30", clip.map { max(-1, min(1, $0 * 30)) }))
+        let peak = clip.map { abs($0) }.max() ?? 1
+        cases.append(("clipped", clip.map { max(-1, min(1, $0 * 3 / max(peak, 1e-6))) }))
         cases.append(("too_short_2s", Array(clip.prefix(32_000))))
         var out: [String: Any] = ["turn_seconds": Double(clip.count) / sr]
         for (name, c) in cases {
@@ -103,9 +160,9 @@ enum EnrollBench {
     /// Evaluate every library on one (possibly noisy) test meeting.
     static func evaluate(libraries: [Library], audio: [Float], ref: [SelfTest.RefSeg], limit: Double,
                          diarized: SpeechEngine.Diarized) async throws -> [String: Any] {
-        // Test turns: one person talking, ≥ 1.5 s (long turns: their middle 8 s).
-        let turns = ref.filter { s in
-            s.end - s.start >= 1.5 && !ref.contains { $0.speaker != s.speaker && $0.start < s.end && $0.end > s.start }
+        // Test turns: one person talking (others < 0.3 s), ≥ 1.5 s (long turns: their middle 8 s).
+        let turns = joinTurns(ref).filter { s in
+            s.end - s.start >= 1.5 && s.end <= limit && otherTalk(s, ref: ref) <= 0.3
         }.map { s -> (Double, Double, String) in
             let d = s.end - s.start
             if d <= 8 { return (s.start, s.end, s.speaker) }
@@ -115,51 +172,57 @@ enum EnrollBench {
         let te = Date()
         let embs = try await SpeechEngine.shared.embedSpans(samples: audio, spans: turns.map { $0.0..<$0.1 })
             .map(VoiceMath.normalize)
-        var out: [String: Any] = ["test_turns": turns.count, "embed_seconds": Date().timeIntervalSince(te)]
+        var out: [String: Any] = ["test_turns": turns.count, "embed_seconds": Date().timeIntervalSince(te),
+                                  "clusters": diarized.clusters.count]
         for lib in libraries where !lib.people.isEmpty {
             var r: [String: Any] = ["people": lib.people.count]
+            let names = Set(lib.people.map(\.name))
             for mode in VoiceMatcher.ScoreMode.allCases {
-                var correct = 0, openCorrect = 0, openWrong = 0
+                var correct = 0
+                var openRight: [Float: Int] = [:], openWrong: [Float: Int] = [:]
                 for (i, t) in turns.enumerated() where i < embs.count {
                     let scored = lib.people.map { ($0.name, VoiceMatcher.score(embs[i], samples: $0.samples.map(\.vector), mode: mode)) }
                     guard let best = scored.max(by: { $0.1 < $1.1 }) else { continue }
                     if best.0 == t.2 { correct += 1 }
-                    if best.1 >= VoiceMatcher.suggestThreshold { if best.0 == t.2 { openCorrect += 1 } else { openWrong += 1 } }
+                    for th in [VoiceMatcher.suggestThreshold, VoiceMatcher.autoMatchThreshold] where best.1 >= th {
+                        if best.0 == t.2 { openRight[th, default: 0] += 1 } else { openWrong[th, default: 0] += 1 }
+                    }
                 }
                 let n = Double(max(turns.count, 1))
                 r["turn_id_\(mode.rawValue)"] = Double(correct) / n
-                r["turn_open_correct_\(mode.rawValue)"] = Double(openCorrect) / n
-                r["turn_open_wrong_\(mode.rawValue)"] = Double(openWrong) / n
+                r["turn_right_at055_\(mode.rawValue)"] = Double(openRight[VoiceMatcher.autoMatchThreshold] ?? 0) / n
+                r["turn_wrong_at055_\(mode.rawValue)"] = Double(openWrong[VoiceMatcher.autoMatchThreshold] ?? 0) / n
+                r["turn_right_at040_\(mode.rawValue)"] = Double(openRight[VoiceMatcher.suggestThreshold] ?? 0) / n
+                r["turn_wrong_at040_\(mode.rawValue)"] = Double(openWrong[VoiceMatcher.suggestThreshold] ?? 0) / n
             }
-            // Cluster-level (app flow), default scoring and max scoring.
+            // Cluster level = the app's flow: diarizer clusters matched to the library.
+            //   strict = 0.5/0.6 rule: a name is shown only for a confident match (≥ 0.55).
+            //   loose  = also auto-name the "maybe …?" suggestions (first-pass 0.40–0.55, and a split
+            //            cluster's ≥ 0.55 second-pass match).
             for mode in [VoiceMatcher.ScoreMode.topK, .max] {
                 let saved = VoiceMatcher.scoreMode
                 VoiceMatcher.scoreMode = mode
                 let matches = VoiceMatcher.match(clusters: diarized.clusters, people: lib.people)
                 VoiceMatcher.scoreMode = saved
                 let nameOf = Dictionary(uniqueKeysWithValues: lib.people.map { ($0.id, $0.name) })
-                let confident = diarized.segments.map { s -> (Double, Double, String) in
-                    let m = matches[s.speakerId]
-                    return (Double(s.startTimeSeconds), Double(s.endTimeSeconds),
-                            m?.isConfident == true ? (nameOf[m!.personID] ?? "unknown") : "unknown")
+                for (rule, loose) in [("strict", false), ("loose", true)] {
+                    let named = diarized.segments.map { s -> (Double, Double, String) in
+                        let m = matches[s.speakerId]
+                        let use = m.map { loose || $0.isConfident } ?? false
+                        return (Double(s.startTimeSeconds), Double(s.endTimeSeconds), use ? (nameOf[m!.personID] ?? "?") : "spk_\(s.speakerId)")
+                    }
+                    let sh = nameShares(ref: ref, hyp: named, limit: limit, names: names)
+                    r["\(rule)_right_\(mode.rawValue)"] = sh["right"]
+                    r["\(rule)_wrong_\(mode.rawValue)"] = sh["wrong"]
+                    r["\(rule)_unnamed_\(mode.rawValue)"] = sh["unnamed"]
+                    // Clusters given the same name count as one speaker.
+                    r["\(rule)_der_\(mode.rawValue)"] = NoisyBench.score(ref: ref, hyp: named.map { ($0.0, $0.1, $0.2) }, limit: limit)["der"]
                 }
-                let merged: [NoisyBench.Seg] = diarized.segments.map { s in
-                    (Double(s.startTimeSeconds), Double(s.endTimeSeconds),
-                     matches[s.speakerId].flatMap { nameOf[$0.personID] } ?? s.speakerId)
-                }
-                r["cluster_id_accuracy_\(mode.rawValue)"] = SelfTest.idAccuracy(ref: ref, hyp: confident, limit: limit)
-                let split = diarized.segments.map { s -> (Double, Double, String) in
-                    let m = matches[s.speakerId]
-                    let ok = m.map { $0.score >= VoiceMatcher.autoMatchThreshold } ?? false
-                    return (Double(s.startTimeSeconds), Double(s.endTimeSeconds), ok ? (nameOf[m!.personID] ?? "unknown") : "unknown")
-                }
-                let anyName = diarized.segments.map { s -> (Double, Double, String) in
-                    (Double(s.startTimeSeconds), Double(s.endTimeSeconds), matches[s.speakerId].flatMap { nameOf[$0.personID] } ?? "unknown")
-                }
-                r["cluster_id_accuracy_split_merge_\(mode.rawValue)"] = SelfTest.idAccuracy(ref: ref, hyp: split, limit: limit)
-                r["cluster_id_accuracy_all_suggestions_\(mode.rawValue)"] = SelfTest.idAccuracy(ref: ref, hyp: anyName, limit: limit)
-                r["cluster_named_\(mode.rawValue)"] = matches.values.filter(\.isConfident).count
-                r["der_after_merge_\(mode.rawValue)"] = NoisyBench.score(ref: ref, hyp: merged, limit: limit)["der"]
+                r["clusters_confident_\(mode.rawValue)"] = matches.values.filter(\.isConfident).count
+                r["clusters_suggested_\(mode.rawValue)"] = matches.values.filter { !$0.isConfident }.count
+                r["match_scores_\(mode.rawValue)"] = matches.map { kv in
+                    "\(kv.key)->\(nameOf[kv.value.personID] ?? "?"):\((kv.value.score * 1000).rounded() / 1000)"
+                }.sorted().joined(separator: " ")
             }
             out[lib.name] = r
         }
