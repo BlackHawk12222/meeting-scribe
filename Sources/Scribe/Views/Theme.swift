@@ -101,7 +101,7 @@ enum Night {
     static let rWindow: CGFloat = 16, rCard: CGFloat = 18, rSheet: CGFloat = 18, rControl: CGFloat = 12
     static let rPill: CGFloat = 14, rSegment: CGFloat = 9, rSegmentOuter: CGFloat = 12, rKey: CGFloat = 8
     // Layout
-    static let railWidth: CGFloat = 76, headerHeight: CGFloat = 72
+    static let railWidth: CGFloat = 60, headerHeight: CGFloat = 72
     static let gutterLeading: CGFloat = 32, gutterTrailing: CGFloat = 28, cardGap: CGFloat = 16
     static let cardPadding: CGFloat = 20
 

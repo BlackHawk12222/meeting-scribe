@@ -54,7 +54,7 @@ struct SettingsPage: View {
             .padding(.leading, inWindow ? Night.gutterLeading : 96)
             .padding(.trailing, Night.gutterTrailing)
             HStack(alignment: .top, spacing: 20) {
-                paneList.frame(width: 172)
+                paneList.frame(width: 140)
                 ScrollView {
                     paneContent
                         .frame(maxWidth: 640, alignment: .leading)

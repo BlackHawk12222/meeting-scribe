@@ -162,7 +162,7 @@ struct NavRail: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            AppIconView(size: 40)
+            AppIconView(size: 32)
                 .padding(.bottom, 16)
             ForEach([NavSection.home, .meetings, .dictations, .people], id: \.self) { s in
                 item(s)
@@ -172,7 +172,7 @@ struct NavRail: View {
             Text(String(NSFullUserName().prefix(1)).uppercased().isEmpty ? "S" : String(NSFullUserName().prefix(1)).uppercased())
                 .font(.scribe(12, 700))
                 .foregroundStyle(Night.text2)
-                .frame(width: 32, height: 32)
+                .frame(width: 28, height: 28)
                 .background(Circle().fill(Night.raised))
                 .overlay(Circle().strokeBorder(Night.line2, lineWidth: 1))
                 .padding(.top, 8)
@@ -191,9 +191,9 @@ struct NavRail: View {
         return Button { withAnimation(Night.spring) { section = s } } label: {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: s.symbol)
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(on ? Night.accent : Night.text3)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 38, height: 38)
                     .background {
                         if on {
                             RoundedRectangle(cornerRadius: Night.rPill, style: .continuous).fill(Night.accentSoft)
@@ -211,12 +211,12 @@ struct NavRail: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 }
             }
-            .frame(width: 44, height: 44)
+            .frame(width: 38, height: 38)
             .overlay(alignment: .leading) {
                 if on {
                     Capsule().fill(Night.gradient)
                         .frame(width: 4, height: 20)
-                        .offset(x: -16)
+                        .offset(x: -11)
                         .matchedGeometryEffect(id: "tick", in: ns)
                 }
             }
@@ -454,7 +454,7 @@ struct MeetingsPage: View {
     var body: some View {
         HStack(spacing: 0) {
             listColumn
-                .frame(width: 320)
+                .frame(width: 260)
             NightDivider(vertical: true)
             Group {
                 if let id = selected, store.meetings.contains(where: { $0.id == id }) {
