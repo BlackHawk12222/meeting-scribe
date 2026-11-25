@@ -68,7 +68,9 @@ capsule details.
 
 ## 3. Shape and size
 
-Radius: controls 6, cards 8, poster tiles 10, capsule 17. Icon rail 46 pt with 30 pt items.
+Radius: controls 6, cards 8, poster tiles 10, capsule 17, rail items 8. Icon rail 68 pt (was 46):
+44 pt items with 20 pt icons; the traffic lights, then the 34 pt Scribe logo (light/dark like the
+Dock icon) on top; the 30 pt round profile avatar above Settings at the bottom.
 Top bar 52 pt (title, 210 pt search with ⌘K, Record pill 28 pt). Settings list 196 pt.
 Meetings list 300 pt. Poster tiles: Home 186 pt tall, other pages 120–132 pt.
 
@@ -82,6 +84,10 @@ Meetings list 300 pt. Poster tiles: Home 186 pt tall, other pages 120–132 pt.
   "speaker needs a name" notice, summary, action items with owner chips, Who talked.
 - **People**: unknown-voice banner, tiles, person cards with voice strength.
 - **Settings**: General, Dictation, Meetings, Vocabulary, Models, Updates.
+- **Profile** (the avatar in the rail): avatar (photo or initial), display name, member since,
+  add/change/remove photo; tiles (words dictated all time, streak, words per minute, meetings);
+  links to Shortcut & style, My voice, Appearance, Updates. Name and photo stay on this Mac
+  (`profile.json`, `profile-photo.png`).
 
 ## 5. Data rules
 

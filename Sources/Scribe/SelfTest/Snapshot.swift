@@ -91,6 +91,8 @@ enum Snapshot {
         // 0.7 "Night Sky": the mocked screens (design-v07), window server grabs with the custom chrome
         // (traffic lights over the rail), 1200×800 like the mockups. N06 is the light theme.
         let nightSize = NSSize(width: 1200, height: 800)
+        // 0.7.3 Profile: an invented sample name (no real person), member since a fixed sample date.
+        store.profile = UserProfile(displayName: "Robin Vale", memberSince: Date(timeIntervalSince1970: 1_751_328_000))
         let liveTape = LevelTape(); liveTape.fillPreview(seconds: 30)
         let nightShots: [(String, AnyView, Bool)] = [
             ("P01_home_light", AnyView(env(ContentView(section: .home))), false),
@@ -107,6 +109,8 @@ enum Snapshot {
             ("P05b_settings_general_dark", AnyView(env(ContentView(section: .settings, settingsPane: .general))), true),
             ("P05c_settings_models_light", AnyView(env(ContentView(section: .settings, settingsPane: .models))), false),
             ("P05d_settings_dictation_light", AnyView(env(ContentView(section: .settings, settingsPane: .dictation))), false),
+            ("P07_profile_light", AnyView(env(ContentView(section: .profile))), false),
+            ("P07b_profile_dark", AnyView(env(ContentView(section: .profile))), true),
         ]
         for (name, view, dark) in nightShots {
             made += await serverCapture(view, size: nightSize, name: name, dir: dir, dark: dark, chrome: true)

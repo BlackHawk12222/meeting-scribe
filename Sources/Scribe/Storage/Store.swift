@@ -6,6 +6,7 @@
 
 import Foundation
 import SwiftUI
+import AppKit
 
 @MainActor
 final class Store: ObservableObject {
@@ -24,6 +25,10 @@ final class Store: ObservableObject {
     /// 0.7.3: words per day and per app, kept for every day (the history above keeps 200 entries).
     /// Feeds Home and Dictation stats (Storage/DictationStats.swift).
     @Published var dictationLedger = DictationLedger()
+    /// 0.7.3: the Profile page (display name, member-since; photo kept as profile-photo.png).
+    /// Stored only in this folder, never uploaded (Storage/Store+Profile.swift).
+    @Published var profile = UserProfile()
+    @Published var profilePhoto: NSImage?
 
     let folder: URL
     let audioFolder: URL
@@ -73,6 +78,7 @@ final class Store: ObservableObject {
             dictations = x
         }
         loadDictationLedger()
+        loadProfile()
     }
 
     func save() {

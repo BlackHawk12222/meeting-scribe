@@ -1,6 +1,6 @@
 // ContentView.swift
-// The main window (0.7.3 "Poster"): a thin 46 pt icon rail on the left (Home, Meetings, Dictation,
-// People; Settings pinned to the bottom), a 52 pt top bar (page title, search, the black Record
+// The main window (0.7.3 "Poster"): a 68 pt icon rail on the left (the Scribe logo on top, then
+// Home, Meetings, Dictation, People; the profile avatar and Settings pinned to the bottom), a 52 pt top bar (page title, search, the black Record
 // pill), then the page. Flat white / near-black, hairlines, no starfield. The traffic lights float
 // over the rail (WindowChrome in ScribeApp.swift).
 
@@ -14,7 +14,7 @@ enum SidebarItem: Hashable {
 }
 
 enum NavSection: String, Hashable, CaseIterable {
-    case home, meetings, dictations, people, settings
+    case home, meetings, dictations, people, settings, profile
 
     var title: String {
         switch self {
@@ -23,6 +23,7 @@ enum NavSection: String, Hashable, CaseIterable {
         case .dictations: return "Dictation"
         case .people: return "People"
         case .settings: return "Settings"
+        case .profile: return "Profile"
         }
     }
     var symbol: String {
@@ -32,9 +33,12 @@ enum NavSection: String, Hashable, CaseIterable {
         case .dictations: return "mic"
         case .people: return "person.2"
         case .settings: return "gearshape"
+        case .profile: return "person.crop.circle"
         }
     }
-    var hasSearch: Bool { self != .settings }
+    var hasSearch: Bool { self != .settings && self != .profile }
+    /// ⌘1–5 (Profile has no number).
+    static var numbered: [NavSection] { [.home, .meetings, .dictations, .people, .settings] }
 }
 
 /// Snapshot: show the live meeting screen without a microphone.
@@ -55,6 +59,8 @@ struct ContentView: View {
     @State private var selectedMeeting: UUID?
     @State private var query = ""
     @State private var searchFocus = 0
+    /// Set by Profile's links: which Settings pane to open.
+    @State private var settingsTarget: SettingsPane?
     private let livePreview: LivePreview?
     private let settingsPane: SettingsPane?
 
@@ -115,7 +121,10 @@ struct ContentView: View {
         .onChange(of: recorder.isRecording) { _, on in
             if on { withAnimation(Night.base) { section = .meetings } }
         }
-        .onChange(of: section) { _, _ in query = "" }
+        .onChange(of: section) { old, new in
+            query = ""
+            if new != .settings && old == .settings { settingsTarget = nil }
+        }
         .onAppear {
             if let id = model.openMeetingRequest { selectedMeeting = id; section = .meetings; model.openMeetingRequest = nil }
         }
@@ -126,7 +135,7 @@ struct ContentView: View {
         ZStack {
             Button("") { searchFocus += 1 }.keyboardShortcut("k", modifiers: [.command])
             Button("") { model.toggleMeetingRecording() }.keyboardShortcut("r", modifiers: [.command])
-            ForEach(Array(NavSection.allCases.enumerated()), id: \.offset) { i, s in
+            ForEach(Array(NavSection.numbered.enumerated()), id: \.offset) { i, s in
                 Button("") { section = s }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: [.command])
             }
         }
@@ -151,7 +160,10 @@ struct ContentView: View {
         case .people:
             PeopleView(query: $query, openMeeting: { id in selectedMeeting = id; section = .meetings })
         case .settings:
-            SettingsPage(initial: settingsPane ?? .general, inWindow: true)
+            SettingsPage(initial: settingsTarget ?? settingsPane ?? .general, inWindow: true)
+                .id(settingsTarget?.rawValue ?? "settings")
+        case .profile:
+            ProfileView(openSettings: { pane in settingsTarget = pane; section = .settings })
         }
     }
 }
@@ -176,7 +188,7 @@ struct TopBar: View {
             }
             RecordPill(recording: recording, elapsed: elapsed, action: record)
         }
-        .padding(.leading, 34)
+        .padding(.leading, 20)
         .padding(.trailing, 16)
         .frame(height: Night.headerHeight)
     }
@@ -214,23 +226,29 @@ struct RecordPill: View {
 
 // MARK: - Nav rail
 
-/// 46 pt rail on the sidebar color: 30 pt icon buttons (radius 6), the selected one on the
-/// hairline color. Settings at the bottom. A red dot on Meetings while recording.
+/// 68 pt rail on the sidebar color (docs/DESIGN.md § 3). The traffic lights sit on top of it, then
+/// the Scribe logo (light/dark like the Dock icon), then 44 pt items with 20 pt icons (radius 8),
+/// the selected one on the hairline color. The profile avatar and Settings at the bottom.
+/// A red dot on Meetings while recording.
 struct NavRail: View {
     @Binding var section: NavSection
     var live = false
     @State private var hoverItem: NavSection?
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 4) {
+            RailLogo()
+                .padding(.bottom, 14)
             ForEach([NavSection.home, .meetings, .dictations, .people], id: \.self) { s in
                 item(s)
             }
             Spacer(minLength: 12)
+            avatar
+                .padding(.bottom, 2)
             item(.settings)
         }
-        .padding(.top, 52)
-        .padding(.bottom, 12)
+        .padding(.top, 42)
+        .padding(.bottom, 14)
         .frame(width: Night.railWidth)
         .frame(maxHeight: .infinity)
         .background(Night.rail)
@@ -241,14 +259,14 @@ struct NavRail: View {
         let on = section == s
         return Button { section = s } label: {
             Image(systemName: s.symbol)
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: Night.railIcon, weight: .regular))
                 .foregroundStyle(on ? Night.text : (hoverItem == s ? Night.text2 : Night.text3))
-                .frame(width: 30, height: 30)
-                .background(RoundedRectangle(cornerRadius: Night.rControl, style: .continuous)
+                .frame(width: Night.railItem, height: Night.railItem)
+                .background(RoundedRectangle(cornerRadius: Night.rRailItem, style: .continuous)
                     .fill(on ? Night.selected : (hoverItem == s ? Night.hover : Color.clear)))
                 .overlay(alignment: .topTrailing) {
                     if s == .meetings && live {
-                        Circle().fill(Night.live).frame(width: 6, height: 6).padding(4)
+                        Circle().fill(Night.live).frame(width: 7, height: 7).padding(6)
                     }
                 }
                 .contentShape(Rectangle())
@@ -258,6 +276,35 @@ struct NavRail: View {
         .help(s.title)
         .accessibilityLabel(s.title)
         .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    /// The round profile button: the avatar inside a 44 pt hit target, ringed when Profile is open.
+    private var avatar: some View {
+        let on = section == .profile
+        return Button { section = .profile } label: {
+            ProfileAvatar(size: Night.railAvatar)
+                .overlay(Circle().strokeBorder(on ? Night.text : (hoverItem == .profile ? Night.text3 : .clear), lineWidth: 1.5)
+                    .padding(-3))
+                .frame(width: Night.railItem, height: Night.railItem)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { h in hoverItem = h ? .profile : (hoverItem == .profile ? nil : hoverItem) }
+        .help("Profile")
+        .accessibilityLabel("Profile")
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+}
+
+/// The Scribe logo at the top of the rail: the app icon tile, light or dark with the window's
+/// appearance (Assets.xcassets/RailLogo, made from the icon's own layers).
+struct RailLogo: View {
+    var body: some View {
+        Image("RailLogo")
+            .resizable()
+            .interpolation(.high)
+            .frame(width: Night.railLogo, height: Night.railLogo)
+            .accessibilityLabel("Scribe")
     }
 }
 

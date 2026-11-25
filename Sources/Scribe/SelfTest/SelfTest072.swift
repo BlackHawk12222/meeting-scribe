@@ -107,11 +107,11 @@ enum SelfTest072 {
             if t3 >= t2 { fail.append("theme \(dark ? "dark" : "light"): text3 should stay a step under text2") }
         }
         r["shadow_alpha"] = ["light": shL, "dark": shD]
-        r["sizes"] = ["rail": Night.railWidth, "meetings_list": Night.meetingsListWidth, "settings_list": Night.settingsListWidth,
+        r["sizes"] = ["rail": Night.railWidth, "rail_item": Night.railItem, "rail_icon": Night.railIcon, "meetings_list": Night.meetingsListWidth, "settings_list": Night.settingsListWidth,
                       "header": Night.headerHeight, "control_height": Night.controlHeight, "row_height": Night.rowHeight,
                       "card_padding": Night.cardPadding, "tile": Night.tileHeight, "tile_compact": Night.tileHeightCompact]
-        // Poster layout (docs/DESIGN.md § 3): rail 46, meetings list 300, settings list 196, top bar 52.
-        if Night.railWidth != 46 || Night.meetingsListWidth != 300 || Night.settingsListWidth != 196 || Night.headerHeight != 52 {
+        // Poster layout (docs/DESIGN.md § 3): rail 68 (items 44, icons 20), meetings list 300, settings list 196, top bar 52.
+        if Night.railWidth != 68 || Night.railItem != 44 || Night.railIcon < 20 || Night.railIcon > 22 || Night.meetingsListWidth != 300 || Night.settingsListWidth != 196 || Night.headerHeight != 52 {
             fail.append("theme: sidebar widths (rail \(Night.railWidth), meetings \(Night.meetingsListWidth), settings \(Night.settingsListWidth), header \(Night.headerHeight))")
         }
         if Night.tileHeight != 186 || Night.controlHeight != 28 || Night.rCard != 8 || Night.rTile != 10 { fail.append("theme: Poster sizes") }

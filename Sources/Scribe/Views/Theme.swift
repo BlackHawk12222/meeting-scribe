@@ -157,7 +157,10 @@ enum Night {
     static let avatar: CGFloat = 22, avatarSmall: CGFloat = 18
 
     // MARK: Layout
-    static let railWidth: CGFloat = 46, headerHeight: CGFloat = 52
+    /// 0.7.3: rail 68 (was 46): 44 pt items with 20 pt icons, a 34 pt logo on top, a 30 pt avatar at the bottom.
+    static let railWidth: CGFloat = 68, headerHeight: CGFloat = 52
+    static let railItem: CGFloat = 44, railIcon: CGFloat = 20, rRailItem: CGFloat = 8
+    static let railLogo: CGFloat = 34, railAvatar: CGFloat = 30
     static let meetingsListWidth: CGFloat = 300, settingsListWidth: CGFloat = 196
     static let gutterLeading: CGFloat = 28, gutterTrailing: CGFloat = 28, cardGap: CGFloat = 12
     static let cardPadding: CGFloat = 16
