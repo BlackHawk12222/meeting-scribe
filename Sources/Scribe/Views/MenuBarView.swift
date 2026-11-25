@@ -3,7 +3,7 @@
 //   • Start/stop dictation (with the hotkey hint)   • Record/stop a meeting
 //   • Last dictation + Copy                          • Recent meetings (open in the main window)
 //   • Settings, Quit
-// Plain, compact system UI (light and dark).
+// 0.7 "Night Sky": the same cards, type and buttons as the main window (light and dark).
 
 import SwiftUI
 import AppKit
@@ -22,7 +22,7 @@ struct MenuBarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider()
+            NightDivider()
             VStack(alignment: .leading, spacing: 12) {
                 AccessibilityBanner(permissions: permissions)
                 if !store.engineReady { loading }
@@ -31,21 +31,23 @@ struct MenuBarView: View {
             }
             .padding(12)
             if let last = store.dictations.first {
-                Divider()
+                NightDivider()
                 lastDictation(last).padding(12)
             }
             if !store.meetings.isEmpty {
-                Divider()
+                NightDivider()
                 recentMeetings.padding(.horizontal, 6).padding(.vertical, 8)
             }
             if case .ready(let r) = updater.phase {
-                Divider()
+                NightDivider()
                 updateReady(r).padding(.horizontal, 12).padding(.vertical, 8)
             }
-            Divider()
+            NightDivider()
             footer
         }
-        .frame(width: 296)
+        .frame(width: 300)
+        .foregroundStyle(Night.text)
+        .background(Night.canvas)
         .onAppear { permissions.startWatching() }
         .onDisappear { permissions.stopWatching() }
     }
@@ -55,11 +57,11 @@ struct MenuBarView: View {
     private var header: some View {
         HStack(spacing: 8) {
             AppIconView(size: 20)
-            Text("Scribe").font(.headline)
+            Text("Scribe").font(.nightHeadline)
             Spacer()
             HStack(spacing: 6) {
                 Circle().fill(statusColor).frame(width: 6, height: 6)
-                Text(statusText).font(.caption).foregroundStyle(.secondary)
+                Text(statusText).font(.nightMeta).foregroundStyle(Night.text3)
             }
         }
         .padding(.horizontal, 12)
@@ -70,23 +72,23 @@ struct MenuBarView: View {
     private func updateReady(_ r: Updater.Release) -> some View {
         let busy = recorder.isRecording || dictation.state.isBusy
         return HStack(spacing: 8) {
-            Image(systemName: "arrow.down.circle.fill").foregroundStyle(Brand.accent)
+            Image(systemName: "arrow.down.circle.fill").foregroundStyle(Night.accent)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Update ready — \(r.version)").font(.callout)
+                Text("Update ready — \(r.version)").font(.scribe(13, 700))
                 Text(busy ? "Restarts after you finish recording" : "Installs when you restart or quit")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.nightMeta).foregroundStyle(Night.text3)
             }
             Spacer()
             Button("Restart") { updater.restartNow() }
-                .controlSize(.small)
+                .buttonStyle(NightButtonStyle(kind: .secondary, height: 28))
                 .disabled(busy)
         }
     }
 
     private var loading: some View {
         VStack(alignment: .leading, spacing: 4) {
-            ProgressView(value: store.modelProgress ?? models.progress?.fraction ?? 0)
-            Text(store.engineError ?? store.engineStatus).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            CapsuleProgress(fraction: store.modelProgress ?? models.progress?.fraction ?? 0, count: 34, dot: 5, spacing: 2.5)
+            Text(store.engineError ?? store.engineStatus).font(.nightMeta).foregroundStyle(Night.text3).lineLimit(2)
                 .monospacedDigit()
         }
     }
@@ -96,13 +98,10 @@ struct MenuBarView: View {
             Button { dictation.toggle() } label: {
                 Label(dictation.state == .listening ? "Stop dictation" : "Start dictation",
                       systemImage: dictation.state == .listening ? "stop.fill" : "mic.fill")
-                    .frame(maxWidth: .infinity)
             }
-            .controlSize(.large)
-            .scribeButton(prominent: true)
-            .tint(dictation.state == .listening ? Brand.record : Brand.accent)
+            .buttonStyle(NightButtonStyle(kind: dictation.state == .listening ? .danger : .primary, fullWidth: true))
             .disabled(!store.engineReady || dictation.state == .transcribing)
-            Text(hint).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(hint).font(.nightMeta).foregroundStyle(Night.text3).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -113,19 +112,17 @@ struct MenuBarView: View {
                     .monospacedDigit()
             } icon: {
                 Image(systemName: recorder.isRecording ? "stop.circle.fill" : "record.circle")
-                    .foregroundStyle(Brand.record)
+                    .foregroundStyle(Night.live)
             }
-            .frame(maxWidth: .infinity)
         }
-        .controlSize(.large)
-        .scribeButton()
+        .buttonStyle(NightButtonStyle(kind: .secondary, fullWidth: true))
         .disabled(!store.engineReady && !recorder.isRecording)
     }
 
     private func lastDictation(_ last: DictationEntry) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
-                Text("Last dictation").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                SectionLabel(title: "Last dictation")
                 Spacer()
                 Button {
                     NSPasteboard.general.clearContents()
@@ -134,21 +131,21 @@ struct MenuBarView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
                 } label: {
                     Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc")
-                        .font(.caption)
+                        .font(.scribe(12, 700))
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
+                .foregroundStyle(Night.accent)
             }
-            Text(last.text).font(.callout).lineLimit(3).textSelection(.enabled)
+            Text(last.text).font(.nightBody).foregroundStyle(Night.text).lineLimit(3).textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(Warm.well, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .nightCard(radius: 14, padding: 12)
         }
     }
 
     private var recentMeetings: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Recent meetings").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                .padding(.horizontal, 6).padding(.bottom, 4)
+            SectionLabel(title: "Recent meetings")
+                .padding(.horizontal, 8).padding(.bottom, 6)
             ForEach(store.meetings.prefix(3)) { m in
                 Button {
                     model.openMeeting(m.id)
@@ -156,11 +153,11 @@ struct MenuBarView: View {
                     NSApp.activate(ignoringOtherApps: true)
                 } label: {
                     HStack {
-                        Image(systemName: m.status == .processing ? "hourglass" : "doc.text")
-                            .foregroundStyle(.secondary).frame(width: 16)
+                        Image(systemName: m.status == .processing ? "hourglass" : "waveform")
+                            .foregroundStyle(Night.accent).frame(width: 16)
                         Text(m.title).lineLimit(1)
                         Spacer()
-                        Text(m.date.formatted(.relative(presentation: .named))).font(.caption).foregroundStyle(.secondary)
+                        Text(m.date.formatted(.relative(presentation: .named))).font(.nightMeta).foregroundStyle(Night.text3)
                     }
                     .contentShape(Rectangle())
                 }
@@ -179,9 +176,11 @@ struct MenuBarView: View {
             SettingsLink { Text("Settings…") }
             Button("Quit") { NSApp.terminate(nil) }
         }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
+        .buttonStyle(.plain)
+        .font(.scribe(12.5, 700))
+        .foregroundStyle(Night.text2)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
     // MARK: Text
@@ -196,9 +195,9 @@ struct MenuBarView: View {
     }
 
     private var statusColor: Color {
-        if !store.engineReady { return store.engineError == nil ? .yellow : .orange }
-        if dictation.state == .listening || recorder.isRecording { return Brand.record }
-        return .green
+        if !store.engineReady { return store.engineError == nil ? Night.accent : Night.warn }
+        if dictation.state == .listening || recorder.isRecording { return Night.live }
+        return Night.ok
     }
 
     private var hint: String {
@@ -207,24 +206,5 @@ struct MenuBarView: View {
         if key != .off, DictationSettings.mode != .toggleOnly { parts.append("Hold \(key.title) and talk") }
         if let t = DictationSettings.toggleShortcut, DictationSettings.mode != .holdOnly { parts.append("or press \(t.label)") }
         return parts.isEmpty ? "Hotkeys are off (Settings)." : parts.joined(separator: ", ") + " in any app."
-    }
-}
-
-/// A menu-like row: highlights on hover, like native menu items.
-struct MenuRowStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        MenuRow(configuration: configuration)
-    }
-    private struct MenuRow: View {
-        let configuration: ButtonStyleConfiguration
-        @State private var hover = false
-        var body: some View {
-            configuration.label
-                .padding(.horizontal, 6)
-                .padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.primary.opacity(configuration.isPressed ? 0.12 : (hover ? 0.07 : 0))))
-                .onHover { hover = $0 }
-        }
     }
 }

@@ -1,31 +1,190 @@
 // SettingsView.swift
-// Scribe > Settings… (⌘,). Tabs: Dictation, Vocabulary, Model, Permissions, General, Sync, About.
+// Settings (0.7 "Night Sky"): a rail destination in the main window, and the same view in the
+// Scribe › Settings… (⌘,) window. No grouped Form: a section list on the left (a sparkle marks
+// the selected one) and flat cards on the right, with Night toggles, segmented controls,
+// pickers and fields. Panes: Dictation, Overlay, Vocabulary, Models, Permissions, General,
+// Sync, About.
 
 import SwiftUI
 import AppKit
 import ServiceManagement
 import AVFoundation
 
-struct SettingsView: View {
-    var body: some View {
-        TabView {
-            DictationSettingsTab().tabItem { Label("Dictation", systemImage: "mic") }
-            VocabularySettingsTab().tabItem { Label("Vocabulary", systemImage: "character.book.closed") }
-            ModelSettingsTab().tabItem { Label("Model", systemImage: "cpu") }
-            PermissionsTab().tabItem { Label("Permissions", systemImage: "lock.shield") }
-            GeneralSettingsTab().tabItem { Label("General", systemImage: "gearshape") }
-            SyncSettingsTab().tabItem { Label("Sync", systemImage: "arrow.triangle.2.circlepath") }
-            AboutView().tabItem { Label("About", systemImage: "info.circle") }
+enum SettingsPane: String, CaseIterable, Identifiable {
+    case dictation, overlay, vocabulary, models, permissions, general, sync, about
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .dictation: return "Dictation"
+        case .overlay: return "Overlay"
+        case .vocabulary: return "Vocabulary"
+        case .models: return "Models"
+        case .permissions: return "Permissions"
+        case .general: return "General"
+        case .sync: return "Sync"
+        case .about: return "About"
         }
-        .frame(width: SettingsView.size.width, height: SettingsView.size.height)
     }
-    static let size = CGSize(width: 560, height: 500)
 }
 
-extension View {
-    /// Settings panes: grouped form on the warm canvas.
-    func scribeForm() -> some View {
-        self.formStyle(.grouped).scrollContentBackground(.hidden).background(Warm.canvas)
+/// The Settings window (⌘,): the same page as the main window's Settings destination.
+struct SettingsView: View {
+    var pane: SettingsPane = .dictation
+    var body: some View {
+        SettingsPage(initial: pane, inWindow: false)
+            .frame(width: SettingsView.size.width, height: SettingsView.size.height)
+    }
+    static let size = CGSize(width: 860, height: 620)
+}
+
+struct SettingsPage: View {
+    @State private var pane: SettingsPane
+    var inWindow: Bool
+
+    init(initial: SettingsPane = .dictation, inWindow: Bool = true) {
+        _pane = State(initialValue: initial)
+        self.inWindow = inWindow
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            PageHeader(title: "Settings") {
+                Text("Scribe \(Updater.currentVersion)").font(.nightMeta).foregroundStyle(Night.text3)
+            }
+            .padding(.leading, inWindow ? Night.gutterLeading : 96)
+            .padding(.trailing, Night.gutterTrailing)
+            HStack(alignment: .top, spacing: 20) {
+                paneList.frame(width: 172)
+                ScrollView {
+                    paneContent
+                        .frame(maxWidth: 640, alignment: .leading)
+                        .padding(.bottom, 32)
+                }
+                .scrollIndicators(.never)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.leading, inWindow ? Night.gutterLeading : 24)
+            .padding(.trailing, Night.gutterTrailing)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background {
+            if !inWindow {
+                ZStack { Night.canvas; Starfield(seed: 23) }.ignoresSafeArea()
+            }
+        }
+        .foregroundStyle(Night.text)
+    }
+
+    private var paneList: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(SettingsPane.allCases) { p in
+                let on = p == pane
+                Button { withAnimation(Night.spring) { pane = p } } label: {
+                    HStack(spacing: 8) {
+                        Sparkle().fill(Night.star).frame(width: 8, height: 8).opacity(on ? 1 : 0)
+                        Text(p.title).font(.scribe(13.5, on ? 700 : 600)).foregroundStyle(on ? Night.text : Night.text2)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 34)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(on ? Night.accentSoft : Color.clear))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+    }
+
+    @ViewBuilder private var paneContent: some View {
+        switch pane {
+        case .dictation: DictationSettingsTab()
+        case .overlay: OverlaySettingsTab()
+        case .vocabulary: VocabularySettingsTab()
+        case .models: ModelSettingsTab()
+        case .permissions: PermissionsTab()
+        case .general: GeneralSettingsTab()
+        case .sync: SyncSettingsTab()
+        case .about: AboutView(embedded: true)
+        }
+    }
+}
+
+// MARK: - Building blocks
+
+/// A settings card: optional sparkle label above, rows inside, an optional footnote below.
+struct SettingsCard<Content: View>: View {
+    var title: String? = nil
+    var footer: String? = nil
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let title { SectionLabel(title: title).padding(.leading, 4) }
+            VStack(alignment: .leading, spacing: 0) { content }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(NightCardBackground())
+            if let footer {
+                Text(footer).font(.scribe(12, 500)).foregroundStyle(Night.text3).lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 4)
+            }
+        }
+    }
+}
+
+/// One row: title (+ detail) on the left, a control on the right.
+struct SettingRow<Control: View>: View {
+    var title: String
+    var detail: String? = nil
+    @ViewBuilder var control: Control
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.scribe(13.5, 700)).foregroundStyle(Night.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let detail {
+                    Text(detail).font(.scribe(12, 500)).foregroundStyle(Night.text3)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 10)
+            control
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+    }
+}
+
+/// A row with a Night switch.
+struct ToggleRow: View {
+    var title: String
+    var detail: String? = nil
+    @Binding var isOn: Bool
+    @Environment(\.isEnabled) private var enabled
+
+    var body: some View {
+        SettingRow(title: title, detail: detail) {
+            NightSwitch(isOn: isOn)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { if enabled { isOn.toggle() } }
+        .opacity(enabled ? 1 : 0.45)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityValue(isOn ? "On" : "Off")
+    }
+}
+
+/// A short text block inside a card.
+struct CardNote: View {
+    var text: String
+    var body: some View {
+        Text(text).font(.scribe(12, 500)).foregroundStyle(Night.text3).lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 18).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -42,105 +201,137 @@ struct DictationSettingsTab: View {
     @AppStorage("directInsert") private var directInsert = true
     @AppStorage("dictationSounds") private var sounds = true
     @AppStorage("pauseWhileThinking") private var pauseWhileThinking = true
-    @AppStorage(OverlayPosition.key) private var overlayPosition = OverlayPosition.bottomCenter.rawValue
-    @State private var hasDragged = false
+
+    private var holdOptions: [(value: String, title: String)] { HoldKey.allCases.map { (value: $0.rawValue, title: $0.title) } }
+    private var modeOptions: [(value: String, title: String)] {
+        [(value: DictationMode.both.rawValue, title: "Hold + toggle"),
+         (value: DictationMode.holdOnly.rawValue, title: "Hold only"),
+         (value: DictationMode.toggleOnly.rawValue, title: "Toggle only")]
+    }
 
     var body: some View {
-        Form {
-            Section("Shortcuts") {
-                Picker("Mode", selection: $mode) {
-                    ForEach(DictationMode.allCases) { Text($0.title).tag($0.rawValue) }
-                }
-                Picker("Hold to talk", selection: $holdKey) {
-                    ForEach(HoldKey.allCases) { Text($0.title).tag($0.rawValue) }
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsCard(title: "Shortcuts", footer: "Press Esc while talking to cancel. A quick tap of the hold key does nothing, and so does using it in a shortcut like ⌥←.") {
+                SettingRow(title: "Dictation shortcut", detail: "Hold to talk, release to paste where your cursor is") {
+                    HStack(spacing: 10) {
+                        Keycap(text: (HoldKey(rawValue: holdKey) ?? .rightOption).keycap)
+                        NightPicker(selection: $holdKey, options: holdOptions)
+                    }
                 }
                 .disabled(mode == DictationMode.toggleOnly.rawValue)
-                LabeledContent("Toggle (press, talk, press again)") {
+                NightDivider()
+                SettingRow(title: "Mode") {
+                    NightSegmented(selection: $mode, options: modeOptions)
+                }
+                NightDivider()
+                SettingRow(title: "Toggle shortcut", detail: "Press, talk, press again") {
                     ShortcutRecorder { dictation.hotkeys.reload() }
                 }
                 .disabled(mode == DictationMode.holdOnly.rawValue)
-                Text("Press Esc while talking to cancel. A quick tap of the hold key does nothing, and so does using it in a shortcut like ⌥← .")
-                    .font(.caption).foregroundStyle(.secondary)
             }
-            Section {
-                Picker("Position", selection: $overlayPosition) {
-                    ForEach(OverlayPosition.allCases) { Text($0.title).tag($0.rawValue) }
-                }
-                .onChange(of: overlayPosition) { _, _ in OverlayPosition.clearDragged(); hasDragged = false }
-                OverlayPositionPreview(position: OverlayPosition(rawValue: overlayPosition) ?? .bottomCenter)
-                if hasDragged {
-                    LabeledContent("Dragged to a custom spot") {
-                        Button("Reset") { OverlayPosition.clearDragged(); hasDragged = false }
-                    }
-                }
-            } header: {
-                Text("Overlay")
-            } footer: {
-                Text("The small recording indicator appears on the screen you're working on, clear of the menu bar and Dock. Drag it to move it; Scribe remembers the spot for each display. Against the left or right edge it stands upright.")
-                    .font(.caption).foregroundStyle(.secondary)
+            SettingsCard(title: "Clean-up") {
+                ToggleRow(title: "Clean up filler words", detail: "Removes “um”, “uh” and false starts", isOn: $removeFillers)
+                NightDivider()
+                ToggleRow(title: "Polish with Apple Intelligence",
+                          detail: AppleIntelligence.statusText + ". On-device. Fixes punctuation and “no wait, I mean…”.",
+                          isOn: $aiCleanup)
+                NightDivider()
+                ToggleRow(title: "I pause while thinking",
+                          detail: "A pause must last over a second before it counts as a break, so thinking pauses don't add periods mid-sentence",
+                          isOn: $pauseWhileThinking)
             }
-            Section {
-                Toggle("I pause while thinking", isOn: $pauseWhileThinking)
-            } header: {
-                Text("Pauses")
-            } footer: {
-                Text("On: a pause has to last over a second before Scribe treats it as a break, and everything you say in one go is written in a single pass, so thinking pauses don't add periods or capitals mid-sentence.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Clean-up") {
-                Toggle("Remove “um” and “uh”", isOn: $removeFillers)
-                Toggle("Polish with Apple Intelligence (on-device)", isOn: $aiCleanup)
-                Text(AppleIntelligence.statusText + ". Fixes punctuation, false starts and “no wait, I mean…”. If it's off or unavailable, the simple rules above are used.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section("Typing") {
-                Toggle("Add a space after the text", isOn: $trailingSpace)
-                Toggle("Type straight into the text field when possible (no clipboard)", isOn: $directInsert)
-                Toggle("Put my clipboard back after pasting", isOn: $restoreClipboard)
-                Toggle("Play start/stop sounds", isOn: $sounds)
+            SettingsCard(title: "Typing") {
+                ToggleRow(title: "Add a space after the text", isOn: $trailingSpace)
+                NightDivider()
+                ToggleRow(title: "Type straight into the text field", detail: "When possible, without the clipboard", isOn: $directInsert)
+                NightDivider()
+                ToggleRow(title: "Put my clipboard back after pasting", isOn: $restoreClipboard)
+                NightDivider()
+                ToggleRow(title: "Play a soft sound", detail: "When dictation starts and stops", isOn: $sounds)
             }
         }
-        .scribeForm()
-        .onAppear { hasDragged = OverlayPosition.hasDragged }
         .onChange(of: holdKey) { _, _ in dictation.hotkeys.reload() }
         .onChange(of: mode) { _, _ in dictation.hotkeys.reload() }
     }
 }
 
-/// A tiny screen diagram showing where the overlay will appear.
+// MARK: - Overlay
+
+struct OverlaySettingsTab: View {
+    @AppStorage(OverlayPosition.key) private var overlayPosition = OverlayPosition.bottomCenter.rawValue
+    @AppStorage("showMeetingScroll") private var showMeetingScroll = true
+    @State private var hasDragged = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsCard(title: "Overlay",
+                         footer: "The small capsule appears on the screen you're working on, clear of the menu bar and Dock. Drag it to move it; Scribe remembers the spot for each display. Against the left or right edge it stands upright.") {
+                HStack(alignment: .top, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Overlay position").font(.scribe(13.5, 700)).foregroundStyle(Night.text)
+                        Text(OverlayPosition(rawValue: overlayPosition)?.title ?? "Bottom center")
+                            .font(.scribe(12, 500)).foregroundStyle(Night.text3)
+                        if hasDragged {
+                            Button("Reset dragged spot") { OverlayPosition.clearDragged(); hasDragged = false }
+                                .buttonStyle(NightButtonStyle(kind: .secondary, height: 30))
+                                .padding(.top, 10)
+                        }
+                    }
+                    Spacer(minLength: 10)
+                    OverlayPositionPreview(position: OverlayPosition(rawValue: overlayPosition) ?? .bottomCenter) { p in
+                        overlayPosition = p.rawValue
+                    }
+                }
+                .padding(18)
+                NightDivider()
+                ToggleRow(title: "Show the capsule while a meeting records", isOn: $showMeetingScroll)
+            }
+        }
+        .onAppear { hasDragged = OverlayPosition.hasDragged }
+        .onChange(of: overlayPosition) { _, _ in OverlayPosition.clearDragged(); hasDragged = false }
+    }
+}
+
+/// A mini screen with a capsule spot for every position; click one to choose it.
 struct OverlayPositionPreview: View {
     var position: OverlayPosition
+    var onPick: ((OverlayPosition) -> Void)? = nil
+
     var body: some View {
-        HStack {
-            Spacer()
-            ZStack(alignment: alignment) {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Warm.well)
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Warm.hairline, lineWidth: 1))
-                // Menu bar and Dock, so the safe areas read at a glance.
-                VStack(spacing: 0) {
-                    UnevenRoundedRectangle(topLeadingRadius: 12, topTrailingRadius: 12, style: .continuous)
-                        .fill(Color.primary.opacity(0.08)).frame(height: 7)
-                    Spacer()
-                    RoundedRectangle(cornerRadius: 2).fill(Color.primary.opacity(0.10)).frame(width: 60, height: 6).padding(.bottom, 3)
-                }
-                // The capsule: a short horizontal pill, or standing upright at a side edge.
-                Capsule().fill(Color(white: 0.16).opacity(0.85))
-                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.35), lineWidth: 0.5))
-                    .frame(width: position.isSide ? 8 : 30, height: position.isSide ? 26 : 8)
-                    .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
-                    .padding(.horizontal, position.isSide ? 5 : 8)
-                    .padding(.top, 12)
-                    .padding(.bottom, 13)
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Night.well)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Night.line2, lineWidth: 1))
+            ForEach(OverlayPosition.allCases) { p in
+                spot(p)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment(p))
+                    .padding(.horizontal, p.isSide ? 8 : 12)
+                    .padding(.vertical, 12)
             }
-            .frame(width: 160, height: 96)
-            .animation(.spring(duration: 0.3, bounce: 0.12), value: position)
-            .accessibilityLabel("Overlay preview: \(position.title)")
-            Spacer()
         }
+        .frame(width: 196, height: 124)
+        .animation(Night.spring, value: position)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Overlay position: \(position.title)")
     }
-    private var alignment: Alignment {
-        switch position {
+
+    private func spot(_ p: OverlayPosition) -> some View {
+        let on = p == position
+        return Button { onPick?(p) } label: {
+            Capsule()
+                .fill(on ? AnyShapeStyle(Night.gradient) : AnyShapeStyle(Night.line2))
+                .frame(width: p.isSide ? 7 : 28, height: p.isSide ? 26 : 7)
+                .padding(4)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(onPick == nil)
+        .help(p.title)
+        .accessibilityLabel(p.title)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func alignment(_ p: OverlayPosition) -> Alignment {
+        switch p {
         case .bottomCenter: return .bottom
         case .topCenter: return .top
         case .topLeft: return .topLeading
@@ -161,14 +352,19 @@ struct ShortcutRecorder: View {
     @State private var monitor: Any?
 
     var body: some View {
-        HStack {
-            Button(recording ? "Press keys…" : label) { if recording { stop() } else { start() } }
-                .frame(minWidth: 110)
+        HStack(spacing: 8) {
+            if !recording, DictationSettings.toggleShortcut != nil {
+                Keycap(text: label)
+            }
+            Button(recording ? "Press keys…" : (DictationSettings.toggleShortcut == nil ? "Set" : "Change")) {
+                if recording { stop() } else { start() }
+            }
+            .buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
             if !recording, DictationSettings.toggleShortcut != nil {
                 Button { DictationSettings.toggleShortcut = nil; label = "None"; onChange() } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Image(systemName: "xmark")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(NightIconButtonStyle(size: 28))
                 .help("Turn the toggle shortcut off")
             }
         }
@@ -204,46 +400,51 @@ struct VocabularySettingsTab: View {
     @EnvironmentObject var store: Store
     @State private var words: [String] = Vocabulary.words
     @State private var newWord = ""
-    @State private var selection: String?
     @AppStorage(Vocabulary.boostKey) private var acoustic = false
 
     var body: some View {
-        Form {
-            Section {
-                List(selection: $selection) {
-                    ForEach(words, id: \.self) { w in Text(w).tag(w) }
-                        .onDelete { words.remove(atOffsets: $0); save() }
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsCard(title: "Your words",
+                         footer: "Names, apps and terms you use. Scribe spells them your way: “on shape” → Onshape, “swift ui” → SwiftUI, “v five” → V5. Close misspellings of longer words are fixed only when they aren't real English words.") {
+                HStack(spacing: 10) {
+                    NightField(placeholder: "Add a word or name", text: $newWord, onSubmit: add)
+                    Button("Add", action: add)
+                        .buttonStyle(.nightPrimary)
+                        .disabled(newWord.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                .frame(minHeight: 170)
-                HStack {
-                    TextField("Add a word or name", text: $newWord)
-                        .onSubmit(add)
-                    Button("Add", action: add).disabled(newWord.trimmingCharacters(in: .whitespaces).isEmpty)
-                    Button("Remove") {
-                        if let s = selection { words.removeAll { $0 == s }; selection = nil; save() }
+                .padding(18)
+                NightDivider()
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8, alignment: .leading)], alignment: .leading, spacing: 8) {
+                    ForEach(words, id: \.self) { w in
+                        HStack(spacing: 6) {
+                            Text(w).font(.scribe(12.5, 700)).foregroundStyle(Night.text).lineLimit(1)
+                            Spacer(minLength: 0)
+                            Button { words.removeAll { $0 == w }; save() } label: {
+                                Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Night.text3)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Remove \(w)")
+                        }
+                        .padding(.horizontal, 10)
+                        .frame(height: 28)
+                        .background(Capsule().fill(Night.raised))
+                        .overlay(Capsule().strokeBorder(Night.line, lineWidth: 1))
                     }
-                    .disabled(selection == nil)
                 }
-            } header: {
-                Text("Your words")
-            } footer: {
-                Text("Names, apps and terms you use. Scribe spells them your way: “on shape” → Onshape, “swift ui” → SwiftUI, “v five” → V5. Close misspellings of longer words are fixed only when they aren't real English words.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section {
-                Toggle("Also match against the audio", isOn: $acoustic)
-                if acoustic, !store.vocabularyBoostStatus.isEmpty {
-                    Text(store.vocabularyBoostStatus).font(.caption).foregroundStyle(.secondary)
+                .padding(18)
+                NightDivider()
+                HStack {
+                    Spacer()
+                    Button("Restore defaults") { words = Vocabulary.defaults; save() }.buttonStyle(.nightGhost)
                 }
-            } footer: {
-                Text("Uses a small extra model (about 100 MB, downloaded once) to check your words against how they sounded, so misheard names can be fixed even when the spelling is far off. Off by default: it can sometimes swap an ordinary word for one of yours.")
-                    .font(.caption).foregroundStyle(.secondary)
+                .padding(.horizontal, 12).padding(.vertical, 8)
             }
-            Section {
-                Button("Restore Defaults") { words = Vocabulary.defaults; save() }
+            SettingsCard(footer: "Uses a small extra model (about 100 MB, downloaded once) to check your words against how they sounded, so misheard names can be fixed even when the spelling is far off. Off by default: it can sometimes swap an ordinary word for one of yours.") {
+                ToggleRow(title: "Also match against the audio",
+                          detail: acoustic && !store.vocabularyBoostStatus.isEmpty ? store.vocabularyBoostStatus : nil,
+                          isOn: $acoustic)
             }
         }
-        .scribeForm()
         .onChange(of: acoustic) { _, _ in Task { await store.prepareVocabularyBoost() } }
     }
 
@@ -261,7 +462,7 @@ struct VocabularySettingsTab: View {
     }
 }
 
-// MARK: - Model
+// MARK: - Models
 
 struct ModelSettingsTab: View {
     @EnvironmentObject var store: Store
@@ -269,47 +470,60 @@ struct ModelSettingsTab: View {
     @AppStorage("aiNotes") private var aiNotes = true
 
     var body: some View {
-        Form {
-            Section("Speech to text") {
-                Picker("Model", selection: $speechModel) {
-                    ForEach(SpeechModel.choices) { m in
-                        VStack(alignment: .leading) {
-                            Text(m.title)
-                            Text(m.detail).font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsCard(title: "Speech model",
+                         footer: "Runs on this Mac's Neural Engine with Core ML. Downloads once (~500 MB), then works with no internet.") {
+                ForEach(Array(SpeechModel.choices.enumerated()), id: \.element.id) { i, m in
+                    if i > 0 { NightDivider() }
+                    Button { speechModel = m.rawValue } label: {
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle().strokeBorder(speechModel == m.rawValue ? Color.clear : Night.line2, lineWidth: 1.5)
+                                if speechModel == m.rawValue {
+                                    Circle().fill(Night.gradient)
+                                    Circle().fill(Color.white).frame(width: 6, height: 6)
+                                }
+                            }
+                            .frame(width: 18, height: 18)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(m.title).font(.scribe(13.5, 700)).foregroundStyle(Night.text)
+                                Text(m.detail).font(.scribe(12, 500)).foregroundStyle(Night.text3)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer(minLength: 0)
                         }
-                        .tag(m.rawValue)
+                        .padding(.horizontal, 18).padding(.vertical, 14)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                 }
-                .pickerStyle(.radioGroup)
-                HStack {
+                NightDivider()
+                HStack(spacing: 12) {
                     if store.engineReady {
-                        Label("Loaded and working offline", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Night.ok)
+                        Text("Loaded and working offline").font(.scribe(12.5, 600)).foregroundStyle(Night.text2)
                     } else if let e = store.engineError {
-                        Text(e).foregroundStyle(.orange)
+                        Text(e).font(.scribe(12.5, 600)).foregroundStyle(Night.warn)
                     } else {
-                        ProgressView(value: store.modelProgress ?? 0).frame(width: 120)
-                        Text(store.engineStatus)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(store.engineStatus).font(.scribe(12.5, 600)).foregroundStyle(Night.text2).monospacedDigit()
+                            CapsuleProgress(fraction: store.modelProgress, count: 40)
+                        }
                     }
+                    Spacer(minLength: 0)
                 }
-                .font(.caption)
-                Text("Runs on this Mac's Neural Engine with Core ML. Downloads once (~500 MB), then works with no internet.")
-                    .font(.caption).foregroundStyle(.secondary)
+                .padding(.horizontal, 18).padding(.vertical, 14)
             }
-            Section {
+            SettingsCard(title: "Downloaded models",
+                         footer: "Models live outside the app (in Application Support), so updating or reinstalling Scribe never downloads them again. Only missing or changed files are fetched. Verify re-checks every byte.") {
                 ModelComponentsList()
-            } header: {
-                Text("Downloaded models")
-            } footer: {
-                Text("Models live outside the app (in Application Support), so updating or reinstalling Scribe never downloads them again. Only missing or changed files are fetched. Verify re-checks every byte.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Meeting notes") {
-                Toggle("Write notes with Apple Intelligence (on-device)", isOn: $aiNotes)
-                Text(AppleIntelligence.statusText + ". Otherwise Scribe picks key sentences and action items from the transcript itself.")
-                    .font(.caption).foregroundStyle(.secondary)
+            SettingsCard(title: "Meeting notes") {
+                ToggleRow(title: "Write notes with Apple Intelligence",
+                          detail: AppleIntelligence.statusText + ". On-device. Otherwise Scribe picks key sentences and action items from the transcript itself.",
+                          isOn: $aiNotes)
             }
         }
-        .scribeForm()
         .onChange(of: speechModel) { _, _ in Task { await store.prepareEngine() } }
     }
 }
@@ -320,32 +534,42 @@ struct ModelComponentsList: View {
     @EnvironmentObject var store: Store
 
     var body: some View {
-        if models.components.isEmpty {
-            Text("No model manifest in this build — FluidAudio downloads models itself.").font(.caption)
-        }
-        ForEach(models.components.filter { models.isRelevant($0) }) { c in
-            let state = models.states[c.id] ?? .missing
-            HStack(spacing: 10) {
-                Image(systemName: icon(state)).foregroundStyle(color(state)).frame(width: 18)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(c.title)
-                    Text("\(state.label) · \(ModelStore.mb(c.totalBytes)) · version \(c.version)")
-                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer()
-                switch state {
-                case .downloading, .verifying:
-                    ProgressView().controlSize(.small)
-                case .downloaded:
-                    Button("Verify") { Task { await models.verify(c.id) } }
-                default:
-                    Button("Download") { Task { try? await models.ensure([c.id]) } }
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            if models.components.isEmpty {
+                CardNote(text: "No model manifest in this build — FluidAudio downloads models itself.")
             }
-        }
-        HStack {
-            Spacer()
-            Button("Re-check") { models.refresh() }
+            ForEach(models.components.filter { models.isRelevant($0) }) { c in
+                let state = models.states[c.id] ?? .missing
+                HStack(spacing: 12) {
+                    Image(systemName: icon(state)).foregroundStyle(color(state)).frame(width: 18)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(c.title).font(.scribe(13.5, 700)).foregroundStyle(Night.text)
+                        Text("\(state.label) · \(ModelStore.mb(c.totalBytes)) · version \(c.version)")
+                            .font(.scribe(12, 500)).foregroundStyle(Night.text3).lineLimit(1)
+                        if case .downloading(let p) = state {
+                            CapsuleProgress(fraction: p.fraction, count: 30, dot: 5, spacing: 2.5).padding(.top, 4)
+                        }
+                    }
+                    Spacer()
+                    switch state {
+                    case .downloading, .verifying:
+                        CapsuleSpinner()
+                    case .downloaded:
+                        Button("Verify") { Task { await models.verify(c.id) } }
+                            .buttonStyle(NightButtonStyle(kind: .secondary, height: 30))
+                    default:
+                        Button("Download") { Task { try? await models.ensure([c.id]) } }
+                            .buttonStyle(NightButtonStyle(kind: .secondary, height: 30))
+                    }
+                }
+                .padding(.horizontal, 18).padding(.vertical, 12)
+                NightDivider()
+            }
+            HStack {
+                Spacer()
+                Button("Re-check") { models.refresh() }.buttonStyle(.nightGhost)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
         }
     }
 
@@ -362,10 +586,10 @@ struct ModelComponentsList: View {
 
     private func color(_ s: ModelState) -> Color {
         switch s {
-        case .downloaded: return .green
-        case .updateAvailable, .downloading, .verifying: return .accentColor
-        case .damaged, .failed: return .orange
-        case .missing, .partial: return .secondary
+        case .downloaded: return Night.ok
+        case .updateAvailable, .downloading, .verifying: return Night.accent
+        case .damaged, .failed: return Night.warn
+        case .missing, .partial: return Night.text3
         }
     }
 }
@@ -379,55 +603,57 @@ struct PermissionsTab: View {
     @State private var testResult: TypingTest.Result?
 
     var body: some View {
-        Form {
-            Section {
-                AccessibilityBanner(permissions: permissions)
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsCard(title: "Permissions") {
+                AccessibilityBanner(permissions: permissions).padding(.horizontal, 14).padding(.top, 14)
                 PermissionRows()
             }
-            Section {
-                HStack {
-                    Button(testing ? "Testing…" : "Test typing into TextEdit") {
-                        testing = true
-                        Task {
-                            testResult = await TypingTest.run()
-                            testing = false
-                            NSApp.activate(ignoringOtherApps: true)
+            SettingsCard(title: "Typing", footer: "The test opens an empty TextEdit document and types one line the same way a dictation does.") {
+                SettingRow(title: "Test typing into TextEdit", detail: testResult?.message) {
+                    HStack(spacing: 8) {
+                        if let r = testResult {
+                            Image(systemName: r.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .foregroundStyle(r.ok ? Night.ok : Night.warn)
                         }
-                    }
-                    .disabled(testing)
-                    if let r = testResult {
-                        Image(systemName: r.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundStyle(r.ok ? .green : .orange)
+                        Button(testing ? "Testing…" : "Run test") {
+                            testing = true
+                            Task {
+                                testResult = await TypingTest.run()
+                                testing = false
+                                NSApp.activate(ignoringOtherApps: true)
+                            }
+                        }
+                        .buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
+                        .disabled(testing)
                     }
                 }
-                if let r = testResult { Text(r.message).font(.caption).foregroundStyle(.secondary) }
                 if let last = pasteLog.last {
-                    LabeledContent("Last dictation") {
-                        Text(last.line).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                    }
+                    NightDivider()
+                    SettingRow(title: "Last dictation", detail: last.line) { EmptyView() }
                 }
-            } header: {
-                Text("Typing")
-            } footer: {
-                Text("The test opens an empty TextEdit document and types one line the same way a dictation does.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
-            Section("Reset Accessibility (after every update)") {
-                VStack(alignment: .leading, spacing: 4) {
+            SettingsCard(title: "Reset Accessibility (after every update)") {
+                VStack(alignment: .leading, spacing: 5) {
                     Text("1. Open System Settings › Privacy & Security › Accessibility.")
                     Text("2. Select Scribe and click –. It's fine if its switch looked on.")
                     Text("3. Click +, choose Scribe in Applications, and turn it on.")
                     Text("Scribe builds aren't signed with a paid Apple certificate, so macOS sees each update as a new app and quietly stops trusting the old entry.")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Night.text3)
+                        .padding(.top, 4)
                 }
-                .font(.caption)
-                HStack {
-                    Button("Open Accessibility Settings") { AccessibilityHelp.fix() }
+                .font(.scribe(12.5, 500))
+                .foregroundStyle(Night.text2)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(18)
+                NightDivider()
+                HStack(spacing: 10) {
+                    Button("Open Accessibility Settings") { AccessibilityHelp.fix() }.buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
                     Button("Show Scribe in Finder") { NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL]) }
+                        .buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
                 }
+                .padding(14)
             }
         }
-        .scribeForm()
         .onAppear { permissions.startWatching() }
         .onDisappear { permissions.stopWatching() }
     }
@@ -437,14 +663,17 @@ struct PermissionsTab: View {
 struct PermissionRows: View {
     @EnvironmentObject var permissions: Permissions
     var body: some View {
-        PermissionRow(title: "Microphone", detail: "To hear you dictate and record meetings.",
-                      granted: permissions.microphone == .authorized,
-                      button: permissions.microphone == .notDetermined ? "Allow…" : "Open Settings") {
-            Task { await permissions.requestMicrophone() }
-        }
-        PermissionRow(title: "Accessibility", detail: "To notice the hold key in other apps and paste your words for you. Turn Scribe on in the list.",
-                      granted: permissions.accessibility, button: "Open Settings") {
-            permissions.requestAccessibility()
+        VStack(alignment: .leading, spacing: 0) {
+            PermissionRow(title: "Microphone", detail: "To hear you dictate and record meetings.",
+                          granted: permissions.microphone == .authorized,
+                          button: permissions.microphone == .notDetermined ? "Allow…" : "Open Settings") {
+                Task { await permissions.requestMicrophone() }
+            }
+            NightDivider()
+            PermissionRow(title: "Accessibility", detail: "To notice the hold key in other apps and paste your words for you. Turn Scribe on in the list.",
+                          granted: permissions.accessibility, button: "Open Settings") {
+                permissions.requestAccessibility()
+            }
         }
     }
 }
@@ -456,18 +685,18 @@ struct PermissionRow: View {
     var button: String
     var action: () -> Void
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             Image(systemName: granted ? "checkmark.circle.fill" : "circle.dashed")
-                .font(.title2)
-                .foregroundStyle(granted ? .green : .secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.headline)
-                Text(detail).font(.caption).foregroundStyle(.secondary)
+                .font(.system(size: 18))
+                .foregroundStyle(granted ? Night.ok : Night.text3)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.scribe(13.5, 700)).foregroundStyle(Night.text)
+                Text(detail).font(.scribe(12, 500)).foregroundStyle(Night.text3).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            if !granted { Button(button, action: action) }
+            if !granted { Button(button, action: action).buttonStyle(NightButtonStyle(kind: .secondary, height: 32)) }
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, 18).padding(.vertical, 12)
     }
 }
 
@@ -476,27 +705,38 @@ struct PermissionRow: View {
 struct GeneralSettingsTab: View {
     @AppStorage("noiseCleanup") private var noiseCleanup = true
     @AppStorage("onboarded") private var onboarded = true
-    @AppStorage("showMeetingScroll") private var showMeetingScroll = true
+    @AppStorage(AppearanceChoice.key) private var appearance = AppearanceChoice.system.rawValue
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
 
     var body: some View {
-        Form {
-            Toggle("Open Scribe when I log in", isOn: $launchAtLogin)
-                .onChange(of: launchAtLogin) { _, on in setLaunchAtLogin(on) }
-            if let e = loginError { Text(e).font(.caption).foregroundStyle(.orange) }
-            Toggle("Noise cleanup for meetings (Apple voice processing)", isOn: $noiseCleanup)
-            Toggle("Show the recording indicator while a meeting records", isOn: $showMeetingScroll)
-            Button("Show the welcome screen again") { onboarded = false }
-            Section("Updates") {
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsCard(title: "Appearance") {
+                SettingRow(title: "Theme", detail: "Night by default when your Mac is dark; the light theme when it's light") {
+                    NightSegmented(selection: $appearance,
+                                   options: AppearanceChoice.allCases.map { (value: $0.rawValue, title: $0.title) })
+                }
+            }
+            SettingsCard(title: "General") {
+                ToggleRow(title: "Open Scribe when I log in", detail: loginError, isOn: $launchAtLogin)
+                NightDivider()
+                ToggleRow(title: "Noise cleanup for meetings", detail: "Apple voice processing: reduces background noise while recording", isOn: $noiseCleanup)
+                NightDivider()
+                SettingRow(title: "Welcome screen") {
+                    Button("Show again") { onboarded = false }.buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
+                }
+            }
+            SettingsCard(title: "Updates") {
                 UpdateSection()
             }
         }
-        .scribeForm()
+        .onChange(of: launchAtLogin) { _, on in setLaunchAtLogin(on) }
+        .onChange(of: appearance) { _, v in AppearanceChoice.apply(AppearanceChoice(rawValue: v) ?? .system) }
     }
 
     /// SMAppService is Apple's modern "login item" API (macOS 13+).
     private func setLaunchAtLogin(_ on: Bool) {
+        guard on != (SMAppService.mainApp.status == .enabled) else { return }
         do {
             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             loginError = nil
@@ -512,36 +752,53 @@ struct UpdateSection: View {
     @EnvironmentObject var updater: Updater
 
     var body: some View {
-        Toggle("Update automatically", isOn: $updater.autoCheck)
-        Text("Checks when Scribe opens and every 6 hours, downloads in the background, and installs when you restart or quit. Never during a recording. Models only download again if they changed.")
-            .font(.caption).foregroundStyle(.secondary)
-        HStack {
-            Text("This is Scribe \(Updater.currentVersion)").foregroundStyle(.secondary)
-            Spacer()
-            Button("Check for Updates…") { updater.check(userInitiated: true) }
-                .disabled(updater.phase == .checking || updater.phase == .installing)
+        VStack(alignment: .leading, spacing: 0) {
+            ToggleRow(title: "Update automatically",
+                      detail: "Checks when Scribe opens and every 6 hours, downloads in the background, and installs when you restart or quit. Never during a recording.",
+                      isOn: $updater.autoCheck)
+            NightDivider()
+            SettingRow(title: "This is Scribe \(Updater.currentVersion)") {
+                Button("Check for Updates…") { updater.check(userInitiated: true) }
+                    .buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
+                    .disabled(updater.phase == .checking || updater.phase == .installing)
+            }
+            phaseView
         }
+    }
+
+    @ViewBuilder private var phaseView: some View {
         switch updater.phase {
         case .idle: EmptyView()
-        case .checking: ProgressView().controlSize(.small)
-        case .upToDate(let v): Label("You're up to date (\(v)).", systemImage: "checkmark.circle").foregroundStyle(.green)
+        case .checking:
+            HStack(spacing: 10) { CapsuleSpinner(); Text("Checking…").font(.nightMeta).foregroundStyle(Night.text3) }
+                .padding(.horizontal, 18).padding(.bottom, 14)
+        case .upToDate(let v):
+            Label("You're up to date (\(v)).", systemImage: "checkmark.circle").font(.scribe(12.5, 600)).foregroundStyle(Night.ok)
+                .padding(.horizontal, 18).padding(.bottom, 14)
         case .available(let r):
             VStack(alignment: .leading, spacing: 6) {
-                Text("Scribe \(r.version) is available — app download \(ModelStore.mb(r.zipBytes)).").font(.headline)
+                Text("Scribe \(r.version) is available — app download \(ModelStore.mb(r.zipBytes)).").font(.scribe(13.5, 700))
                 Text(r.modelChanges.isEmpty ? "Models: no change (nothing else to download)."
                                             : "Models that changed: " + r.modelChanges.joined(separator: ", "))
-                    .font(.caption).foregroundStyle(.secondary)
-                Button("Download and Restart") { updater.install(r) }.scribeButton(prominent: true)
+                    .font(.nightMeta).foregroundStyle(Night.text3)
+                Button("Download and Restart") { updater.install(r) }.buttonStyle(.nightPrimary)
             }
-        case .downloading: HStack { ProgressView().controlSize(.small); Text("Downloading the app…") }
+            .padding(.horizontal, 18).padding(.bottom, 14)
+        case .downloading:
+            HStack(spacing: 10) { CapsuleSpinner(); Text("Downloading the app…").font(.nightMeta).foregroundStyle(Night.text3) }
+                .padding(.horizontal, 18).padding(.bottom, 14)
         case .ready(let r):
             HStack {
-                Label("Scribe \(r.version) is ready.", systemImage: "arrow.down.circle.fill")
+                Label("Scribe \(r.version) is ready.", systemImage: "arrow.down.circle.fill").font(.scribe(12.5, 600))
                 Spacer()
-                Button("Restart Now") { updater.restartNow() }.scribeButton(prominent: true)
+                Button("Restart Now") { updater.restartNow() }.buttonStyle(.nightPrimary)
             }
-        case .installing: HStack { ProgressView().controlSize(.small); Text("Installing…") }
-        case .failed(let e): Text(e).font(.caption).foregroundStyle(.orange)
+            .padding(.horizontal, 18).padding(.bottom, 14)
+        case .installing:
+            HStack(spacing: 10) { CapsuleSpinner(); Text("Installing…").font(.nightMeta).foregroundStyle(Night.text3) }
+                .padding(.horizontal, 18).padding(.bottom, 14)
+        case .failed(let e):
+            Text(e).font(.nightMeta).foregroundStyle(Night.warn).padding(.horizontal, 18).padding(.bottom, 14)
         }
     }
 }
@@ -555,59 +812,60 @@ struct SyncSettingsTab: View {
     @State private var testing = false
 
     var body: some View {
-        Form {
-            Section {
-                LabeledContent("Notes repo") {
-                    TextField("owner/name", text: $sync.repo).frame(width: 240)
+        VStack(alignment: .leading, spacing: 18) {
+            SettingsCard(title: "Save to GitHub") {
+                SettingRow(title: "Notes repo", detail: "A PRIVATE repo for your notes, not the app's code repo") {
+                    NightField(placeholder: "owner/name", text: $sync.repo).frame(width: 220)
                 }
+                NightDivider()
                 if sync.hasToken {
-                    LabeledContent("Token") {
-                        HStack {
-                            Text("Saved in Keychain").foregroundStyle(.secondary)
-                            Button("Remove") { sync.setToken(nil) }
-                        }
+                    SettingRow(title: "Token", detail: "Saved in Keychain") {
+                        Button("Remove") { sync.setToken(nil) }.buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
                     }
                 } else {
-                    LabeledContent("Token") {
-                        HStack {
-                            SecureField("github_pat_…", text: $tokenField).frame(width: 200)
+                    SettingRow(title: "Token") {
+                        HStack(spacing: 8) {
+                            NightField(placeholder: "github_pat_…", text: $tokenField, secure: true).frame(width: 190)
                             Button("Save") { sync.setToken(tokenField); tokenField = "" }
+                                .buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
                                 .disabled(tokenField.trimmingCharacters(in: .whitespaces).isEmpty)
                         }
                     }
                 }
-                HStack {
+                NightDivider()
+                SettingRow(title: "Connection", detail: testResult) {
                     Button(testing ? "Testing…" : "Test connection") {
                         testing = true
                         Task { testResult = await sync.testConnection(); testing = false }
                     }
+                    .buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
                     .disabled(!sync.hasToken || testing)
-                    if let r = testResult { Text(r).font(.caption).foregroundStyle(.secondary).lineLimit(3) }
                 }
-            } header: {
-                Text("Save to GitHub")
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Every dictation (dictations/YYYY-MM-DD.md) and every meeting's notes (meetings/…md) are saved as Markdown in this PRIVATE repo — not the app's code repo. Nothing waits for GitHub: items queue up and send in the background, also after being offline.")
+                NightDivider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Every dictation (dictations/YYYY-MM-DD.md) and every meeting's notes (meetings/…md) are saved as Markdown in this private repo. Nothing waits for GitHub: items queue up and send in the background, also after being offline.")
+                        .foregroundStyle(Night.text3)
+                        .fixedSize(horizontal: false, vertical: true)
                     Link("1. Create the private repo “scribe-notes”", destination: URL(string: "https://github.com/new?name=scribe-notes&visibility=private")!)
                     Link("2. Create a fine-grained token (only that repo, Contents: Read and write)", destination: URL(string: "https://github.com/settings/personal-access-tokens/new")!)
                 }
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.scribe(12, 500))
+                .tint(Night.accent)
+                .padding(18)
             }
-            Section("What to save") {
-                Toggle("Dictations", isOn: $sync.syncDictations)
-                Toggle("Meeting notes", isOn: $sync.syncMeetings)
+            SettingsCard(title: "What to save") {
+                ToggleRow(title: "Dictations", isOn: $sync.syncDictations)
+                NightDivider()
+                ToggleRow(title: "Meeting notes", isOn: $sync.syncMeetings)
             }
-            Section("Status") {
-                HStack {
-                    Text(statusText)
-                    Spacer()
-                    Text("\(sync.pending) waiting").foregroundStyle(.secondary)
-                    Button("Send now") { sync.kick() }.disabled(!sync.hasToken || sync.pending == 0)
+            SettingsCard(title: "Status") {
+                SettingRow(title: statusText, detail: "\(sync.pending) waiting") {
+                    Button("Send now") { sync.kick() }
+                        .buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
+                        .disabled(!sync.hasToken || sync.pending == 0)
                 }
             }
         }
-        .scribeForm()
     }
 
     private var statusText: String {

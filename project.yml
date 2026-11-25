@@ -18,8 +18,14 @@ targets:
       # A 16 s test clip (LibriSpeech, CC-BY 4.0) used by `Scribe --selftest` to test dictation.
       - path: Resources/SelfTest
         buildPhase: resources
-      # App icon (a fountain-pen nib, drawn by scripts/make_icon.py) + AccentColor (deep indigo).
+      # App icon (0.7 "Night Sky": a lavender capsule sound wave with sparkles on a near-black
+      # tile, drawn by scripts/make_icon.py, needs Pillow + numpy) + AccentColor.
       - path: Resources/Assets.xcassets
+        buildPhase: resources
+      # Manrope (variable, 200-800) + its SIL Open Font License, copied as a "Fonts" folder into
+      # Contents/Resources (ATSApplicationFontsPath below; ScribeFonts.register() is the fallback).
+      - path: Resources/Fonts
+        type: folder
         buildPhase: resources
       # The model manifest: every model file's size + hash (scripts/make_model_manifest.py).
       - path: Resources/ModelManifest.json
@@ -35,6 +41,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         # Where updates come from: this (public) repo's releases.
         ScribeReleasesURL: https://api.github.com/repos/BlackHawk12222/meeting-scribe/releases/latest
+        ATSApplicationFontsPath: Fonts
         CFBundleIconName: AppIcon
         CFBundleIconFile: AppIcon
         LSMinimumSystemVersion: "14.0"

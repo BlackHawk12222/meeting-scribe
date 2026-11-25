@@ -1,6 +1,6 @@
 // RunnerGame.swift
-// "Quill Dash": a tiny endless runner for the first-run download screen.
-// Flat monochrome shapes (think Chrome's offline dino): the nib runs along a line and jumps
+// "Star Dash" (0.6: "Quill Dash"): a tiny endless runner for the first-run download screen.
+// Flat monochrome shapes (think Chrome's offline dino): the sparkle runs along a line and jumps
 // (Space, ↑ or click) over ink drops, posts and blocks. It speeds up slowly. Best score is saved.
 //
 // How it works (no game engine): a SwiftUI Canvas inside a TimelineView redraws ~60×/s
@@ -112,7 +112,7 @@ struct RunnerGameView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack {
-                Text("Quill Dash").font(.headline)
+                Text("Star Dash").font(.nightHeadline)
                 Spacer()
                 Text("\(game.score)   HI \(game.best)")
                     .font(.system(.callout, design: .monospaced).weight(.medium))
@@ -125,8 +125,8 @@ struct RunnerGameView: View {
                         RunnerPainter.draw(&ctx, size: size, game: game, date: tl.date)
                     }
                 }
-                .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.10), lineWidth: 1))
+                .background(Night.well, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Night.line2, lineWidth: 1))
                 .contentShape(Rectangle())
                 .onTapGesture { game.jump() }
 
@@ -139,12 +139,12 @@ struct RunnerGameView: View {
                         HStack {
                             Button(game.phase == .over ? "Play Again" : "Start") { game.start() }
                                 .keyboardShortcut(.space, modifiers: [])
-                                .buttonStyle(.borderedProminent)
-                            if game.phase == .over { Button("Next") { onNext() } }
+                                .buttonStyle(.nightPrimary)
+                            if game.phase == .over { Button("Next") { onNext() }.buttonStyle(.nightSecondary) }
                         }
                     }
                     .padding(16)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(Night.raised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 }
             }
             .frame(height: 176)
@@ -161,7 +161,7 @@ struct RunnerGameView: View {
 @MainActor
 enum RunnerPainter {
     static func draw(_ ctx: inout GraphicsContext, size: CGSize, game: RunnerGame, date: Date) {
-        let ink = Color.primary
+        let ink = Night.text
         let ground = size.height - 28
         // Ground line with small pebbles sliding left.
         var line = Path()
@@ -199,12 +199,16 @@ enum RunnerPainter {
             }
         }
 
-        // The player: the Scribe nib, upright, bobbing while running, tilted in the air.
+        // The player: the icon's sparkle, bobbing while running, turning a little in the air.
         let bob = game.y > 0 ? 0 : abs(sin(game.distance / 18)) * 2
         let rect = CGRect(x: RunnerGame.playerX, y: ground - RunnerGame.playerH - game.y - bob,
                           width: RunnerGame.playerW, height: RunnerGame.playerH)
-        let nib = Path(NibShape.path(in: rect.insetBy(dx: -3, dy: 0), degrees: game.y > 0 ? -12 : 0, detail: .glyph))
-        ctx.fill(nib, with: .color(ink), style: FillStyle(eoFill: true))
+        let side = max(rect.width, rect.height) + 4
+        let box = CGRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side)
+        let turn = CGAffineTransform(translationX: box.midX, y: box.midY)
+            .rotated(by: game.y > 0 ? .pi / 12 : 0)
+            .translatedBy(x: -box.midX, y: -box.midY)
+        ctx.fill(Sparkle().path(in: box).applying(turn), with: .color(Night.accent))
         // Shadow on the ground.
         let sw = max(8, 22 - game.y / 4)
         ctx.fill(Path(ellipseIn: CGRect(x: rect.midX - sw / 2, y: ground - 1.5, width: sw, height: 3)),

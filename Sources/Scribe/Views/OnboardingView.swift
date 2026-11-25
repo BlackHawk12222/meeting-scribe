@@ -6,7 +6,7 @@
 //     how many MB, how fast and how long is left.
 //   • Meanwhile you flip through cards (← → keys, a two-finger swipe, or the arrow buttons):
 //     what Scribe can do, the setup steps (Microphone, Accessibility, your talk key, a "Try it"
-//     box) and a little game, "Quill Dash". Setup never waits for the download and the
+//     box) and a little game, "Star Dash". Setup never waits for the download and the
 //     download never waits for setup.
 //   • When everything's ready, the bottom bar says so and you continue when YOU want —
 //     it never pulls you out of a game mid-run. "Continue in the background" is always there.
@@ -50,13 +50,14 @@ struct OnboardingView: View {
                 .padding(.horizontal, 16)
             pageDots
                 .padding(.bottom, 16)
-            Divider()
+            NightDivider()
             bottomBar
                 .padding(.horizontal, 24)
                 .padding(.vertical, 16)
         }
         .frame(width: Self.size.width, height: Self.size.height)
-        .background(Warm.canvas)
+        .foregroundStyle(Night.text)
+        .background { ZStack { Night.canvas; Starfield(seed: 5) } }
         .focusable()
         .focusEffectDisabled()
         .focused($focused)
@@ -202,8 +203,7 @@ struct OnboardingView: View {
             content()
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Warm.surface, in: RoundedRectangle(cornerRadius: Brand.rCard, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Brand.rCard, style: .continuous).strokeBorder(Warm.hairline, lineWidth: 0.5))
+                .background(NightCardBackground())
         }
         .frame(maxWidth: 440)
     }
@@ -213,7 +213,7 @@ struct OnboardingView: View {
     private var topBar: some View {
         HStack(spacing: 10) {
             AppIconView(size: 28)
-            Text("Welcome to Scribe").font(.title3.weight(.semibold))
+            Text("Welcome to Scribe").font(.nightTitle)
             Spacer()
             HStack(spacing: 12) {
                 checklistDot("Mic", permissions.microphone == .authorized)
@@ -227,8 +227,8 @@ struct OnboardingView: View {
     private func checklistDot(_ label: String, _ ok: Bool) -> some View {
         HStack(spacing: 4) {
             Image(systemName: ok ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(ok ? Color.green : Color.secondary.opacity(0.6))
-            Text(label).font(.caption).foregroundStyle(.secondary)
+                .foregroundStyle(ok ? Night.ok : Night.text3)
+            Text(label).font(.nightMeta).foregroundStyle(Night.text3)
         }
     }
 
@@ -242,10 +242,7 @@ struct OnboardingView: View {
                     Text(currentTitle).font(.callout.weight(.medium)).lineLimit(1)
                 }
                 if !allReady {
-                    ProgressView(value: overallFraction)
-                        .progressViewStyle(.linear)
-                        .controlSize(.small)
-                        .tint(Brand.accent)
+                    CapsuleProgress(fraction: overallFraction, count: 40, dot: 6, spacing: 3)
                 }
                 Text(currentDetail).font(.caption).foregroundStyle(.secondary).monospacedDigit().lineLimit(1)
             }

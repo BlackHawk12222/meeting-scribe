@@ -5,37 +5,46 @@
 import SwiftUI
 
 struct AboutView: View {
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                VStack(spacing: 8) {
-                    AppIconView(size: 96)
-                    Text("Scribe").font(.title.weight(.semibold))
-                    Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")")
-                        .font(.callout).foregroundStyle(.secondary).monospacedDigit()
-                    Text("Dictation and meeting notes that run entirely on your Mac.\nFree, no account, nothing uploaded.")
-                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    Text("Made by BlackHawk12222").font(.caption).foregroundStyle(.tertiary)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
+    /// Inside the Settings page (no own scroll view or background).
+    var embedded = false
 
-                Divider()
-                Text("Credits & licenses").font(.headline)
-                ForEach(Credits.all, id: \.name) { c in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(c.name).font(.subheadline.bold())
-                        Text(c.what).font(.caption).foregroundStyle(.secondary)
-                        Text(c.license).font(.system(.caption2, design: .monospaced))
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Warm.well, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
+    var body: some View {
+        if embedded {
+            content
+        } else {
+            ScrollView { content.padding(24) }
+                .background(Night.canvas)
+        }
+    }
+
+    private var content: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(spacing: 8) {
+                AppIconView(size: 96)
+                Text("Scribe").font(.scribe(22, 700)).foregroundStyle(Night.text)
+                Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")")
+                    .font(.nightMeta).foregroundStyle(Night.text3).monospacedDigit()
+                Text("Dictation and meeting notes that run entirely on your Mac.\nFree, no account, nothing uploaded.")
+                    .font(.nightSecondary).foregroundStyle(Night.text2).multilineTextAlignment(.center)
+                Text("Made by BlackHawk12222").font(.nightMeta).foregroundStyle(Night.text3)
             }
-            .padding(24)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 20)
+            .background(NightCardBackground())
+
+            SectionLabel(title: "Credits & licenses").padding(.top, 4)
+            ForEach(Credits.all, id: \.name) { c in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(c.name).font(.scribe(13.5, 700)).foregroundStyle(Night.text)
+                    Text(c.what).font(.scribe(12, 500)).foregroundStyle(Night.text2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(c.license).font(.system(size: 11, design: .monospaced)).foregroundStyle(Night.text3)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .nightCard(padding: 16)
+            }
         }
     }
 }
@@ -43,7 +52,17 @@ struct AboutView: View {
 enum Credits {
     struct Credit { var name: String; var what: String; var license: String }
 
-    static let all: [Credit] = [
+    /// Manrope's license text from the bundle (falls back to the notice if the file is missing).
+    static var manropeLicense: String {
+        let urls = [Bundle.main.url(forResource: "OFL", withExtension: "txt", subdirectory: "Fonts"),
+                    Bundle.main.url(forResource: "OFL", withExtension: "txt")]
+        for case let url? in urls {
+            if let text = try? String(contentsOf: url, encoding: .utf8) { return text.trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+        return "Manrope, SIL Open Font License 1.1 — Copyright 2018 The Manrope Project Authors (https://github.com/googlefonts/manrope). scripts.sil.org/OFL"
+    }
+
+    static var all: [Credit] { [
         Credit(name: "Handy — github.com/cjpais/Handy",
                what: "Scribe's dictation design follows Handy: hold-to-talk + toggle hotkeys, Silero VAD to trim silence, Parakeet models, paste via the clipboard and restore it afterwards, filler-word list and the 300 ms tap threshold. Scribe's code is a new Swift implementation.",
                license: """
@@ -70,13 +89,16 @@ enum Credits {
                what: "Who-spoke-when segmentation and voice fingerprints for meetings (Core ML conversion by FluidInference).",
                license: "CC-BY-4.0 — pyannote.audio contributors / WeSpeaker. creativecommons.org/licenses/by/4.0"),
         Credit(name: "Scribe app icon",
-               what: "A fountain-pen nib drawn in code (vector math, scripts/make_icon.py) for Scribe.",
+               what: "A lavender sound wave of rounded capsule bars with four-point sparkles on a near-black tile, drawn in code (vector math, scripts/make_icon.py) for Scribe.",
                license: "Part of Scribe."),
+        Credit(name: "Manrope, SIL Open Font License 1.1 — github.com/googlefonts/manrope",
+               what: "The typeface used throughout Scribe (by Mikhail Sharanda and The Manrope Project Authors). Bundled in the app; the license ships next to it (Contents/Resources/Fonts/OFL.txt).",
+               license: Credits.manropeLicense),
         Credit(name: "Apple Foundation Models",
                what: "Optional on-device clean-up and meeting notes on macOS 26 with Apple Intelligence.",
                license: "Part of macOS. Used under Apple's macOS license; nothing leaves the Mac."),
         Credit(name: "Self-test audio",
                what: "LibriSpeech (dictation test clip) and the AMI Meeting Corpus (meeting test), used only by `Scribe --selftest`.",
                license: "CC-BY-4.0 — LibriSpeech: Panayotov et al.; AMI: University of Edinburgh and partners."),
-    ]
+    ] }
 }

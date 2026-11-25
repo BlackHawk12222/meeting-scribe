@@ -5,8 +5,8 @@
 // Flow: type a name → read 6 short lines, one at a time (≈ 30–45 s in total) → each clip is checked
 // (level, clipping, background noise, at least 4 s of speech) and must be redone if it fails →
 // Save puts one voice sample per clip into the voice library.
-// Look: built only from Theme.swift tokens (Warm.*, Brand.*, scribeCard, scribeButton, PageHeader,
-// scribeCanvas) and no glass-specific code, so a new visual theme can reskin it by changing Theme.swift.
+// Look (0.7 "Night Sky"): built from Theme.swift tokens (Night.*, nightCard, NightButtonStyle,
+// NightField, CapsuleBars, SectionLabel) on the raised sheet surface with a faint starfield.
 // Calm on purpose: one line on screen,
 // big readable text, a quiet hint for HOW to say it, a live level meter, and dots for progress.
 
@@ -100,7 +100,8 @@ struct VoiceEnrollmentView: View {
         }
         .padding(28)
         .frame(width: Self.size.width, height: Self.size.height, alignment: .topLeading)
-        .scribeCanvas()
+        .foregroundStyle(Night.text)
+        .background { ZStack { Night.raised; Starfield(seed: 31, intensity: 0.7) } }
         .onDisappear { stopTimer(); if recording { _ = mic.stop() } }
     }
 
@@ -108,16 +109,17 @@ struct VoiceEnrollmentView: View {
 
     private var intro: some View {
         VStack(alignment: .leading, spacing: 20) {
-            PageHeader(title: "Add a person",
-                       subtitle: "They read six short lines out loud, about 30 to 45 seconds in all. Each line asks for a different way of talking, so Scribe can tell their voice apart in meetings, even in a busy room.")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Add a person").font(.nightDisplay).tracking(-0.3)
+                Text("They read six short lines out loud, about 30 to 45 seconds in all. Each line asks for a different way of talking, so Scribe can tell their voice apart in meetings, even in a busy room.")
+                    .font(.nightSecondary).foregroundStyle(Night.text2).lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             VStack(alignment: .leading, spacing: 8) {
-                Text("Name").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
-                TextField("Their name", text: $name)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 17))
-                    .padding(.horizontal, 12).padding(.vertical, 9)
-                    .background(Warm.well, in: RoundedRectangle(cornerRadius: Brand.rSmall, style: .continuous))
-                    .onSubmit { if canStart { started = true } }
+                Text("Name").font(.nightMeta).foregroundStyle(Night.text3)
+                NightField(placeholder: "Their name", text: $name, height: 40, font: .scribe(15, 600)) {
+                    if canStart { started = true }
+                }
             }
             VStack(alignment: .leading, spacing: 10) {
                 tip("waveform", "Find a quiet spot and sit where you normally would.")
@@ -128,7 +130,7 @@ struct VoiceEnrollmentView: View {
             .scribeCard()
             Spacer(minLength: 0)
             HStack {
-                Button("Cancel") { dismiss() }.buttonStyle(.plain).foregroundStyle(.secondary)
+                Button("Cancel") { dismiss() }.buttonStyle(.nightGhost)
                 Spacer()
                 Button { started = true } label: { Text("Start").frame(minWidth: 80) }
                     .scribeButton(prominent: true)
@@ -143,8 +145,8 @@ struct VoiceEnrollmentView: View {
 
     private func tip(_ symbol: String, _ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 13, weight: .medium)).foregroundStyle(Warm.honey).frame(width: 18)
-            Text(text).font(.callout).fixedSize(horizontal: false, vertical: true)
+            Image(systemName: symbol).font(.system(size: 13, weight: .medium)).foregroundStyle(Night.accent).frame(width: 18)
+            Text(text).font(.nightSecondary).foregroundStyle(Night.text2).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -158,15 +160,16 @@ struct VoiceEnrollmentView: View {
             HStack(alignment: .center) {
                 stepDots
                 Text("\(index + 1) of \(prompts.count)")
-                    .font(.system(size: 12, weight: .medium)).monospacedDigit().foregroundStyle(.secondary)
+                    .font(.nightMeta).monospacedDigit().foregroundStyle(Night.text3)
                 Spacer()
-                Text(name).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary).lineLimit(1)
+                Text(name).font(.scribe(13, 700)).foregroundStyle(Night.text2).lineLimit(1)
             }
             Label(p.style.hint, systemImage: p.style.symbol)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Warm.honey)
+                .font(.scribe(13.5, 700))
+                .foregroundStyle(Night.accent)
             Text(p.text)
-                .font(.system(size: 24, weight: .medium))
+                .font(.scribe(22, 600))
+                .foregroundStyle(Night.text)
                 .lineSpacing(5)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
@@ -176,7 +179,7 @@ struct VoiceEnrollmentView: View {
             Spacer(minLength: 0)
             HStack(spacing: 12) {
                 Button("Cancel") { if recording { _ = mic.stop() }; stopTimer(); dismiss() }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .buttonStyle(.nightGhost)
                 Spacer()
                 HStack(spacing: 10) {
                         if p.style == .free && !recording && !passed && good.count >= minimumClips {
@@ -216,8 +219,7 @@ struct VoiceEnrollmentView: View {
                 let current = k == index
                 let done = good[p.style] != nil
                 Capsule()
-                    .fill(current ? AnyShapeStyle(Brand.accent) : done ? AnyShapeStyle(Brand.accent.opacity(0.45)) : AnyShapeStyle(Warm.well))
-                    .overlay(Capsule().strokeBorder(Warm.hairline, lineWidth: done || current ? 0 : 0.5))
+                    .fill(current ? AnyShapeStyle(Night.gradientH) : done ? AnyShapeStyle(Night.accent.opacity(0.5)) : AnyShapeStyle(Night.line2))
                     .frame(width: current ? 20 : 8, height: 8)
             }
         }
@@ -229,26 +231,19 @@ struct VoiceEnrollmentView: View {
     /// Live loudness as a row of bars (newest on the right), with the time recorded so far.
     private var levelMeter: some View {
         HStack(spacing: 12) {
-            Image(systemName: recording ? "mic.fill" : "mic")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(recording ? Brand.record : Color.secondary)
+            Circle().fill(recording ? Night.live : Night.line2).frame(width: 8, height: 8)
                 .frame(width: 18)
-            HStack(alignment: .center, spacing: 3) {
-                ForEach(0..<levels.count, id: \.self) { i in
-                    Capsule()
-                        .fill(recording ? AnyShapeStyle(Brand.accent.opacity(0.35 + 0.65 * Double(levels[i]))) : AnyShapeStyle(Warm.well))
-                        .frame(width: 4, height: recording ? max(4, CGFloat(levels[i]) * 28) : 4)
-                }
-            }
-            .frame(height: 28)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .animation(.easeOut(duration: 0.1), value: levels)
-            Text(recording ? String(format: "%.0f s", seconds) : "")
-                .font(.system(size: 13, weight: .medium)).monospacedDigit().foregroundStyle(.secondary)
-                .frame(width: 36, alignment: .trailing)
+            CapsuleBars(levels: levels.map { recording ? Double($0) : 0 }, barWidth: 4, spacing: 3, maxLength: 28,
+                        style: recording ? .gradient : .dim)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .animation(.easeOut(duration: 0.1), value: levels)
+            Text(recording ? String(format: "0:%02.0f", seconds) : "")
+                .font(.scribe(13, 700)).monospacedDigit().foregroundStyle(Night.live)
+                .frame(width: 40, alignment: .trailing)
         }
-        .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(Warm.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: Brand.rSmall, style: .continuous))
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(RoundedRectangle(cornerRadius: Night.rControl, style: .continuous).fill(Night.well))
+        .overlay(RoundedRectangle(cornerRadius: Night.rControl, style: .continuous).strokeBorder(Night.line, lineWidth: 1))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(recording ? "Recording, \(Int(seconds)) seconds" : "Not recording")
     }
@@ -257,22 +252,22 @@ struct VoiceEnrollmentView: View {
     private func status(failed: Bool, passed: Bool) -> some View {
         Group {
             if working {
-                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Checking…").foregroundStyle(.secondary) }
+                HStack(spacing: 8) { CapsuleSpinner(); Text("Checking…").foregroundStyle(Night.text2) }
             } else if recording {
-                Text("Read the line, then press Stop.").foregroundStyle(.secondary)
+                Text("Read the line, then press Stop.").foregroundStyle(Night.text2)
             } else if failed, let message {
                 Label(message, systemImage: "exclamationmark.circle")
-                    .foregroundStyle(Color.orange)
+                    .foregroundStyle(Night.warn)
             } else if passed {
                 Label(message ?? "Got it.", systemImage: "checkmark.circle")
-                    .foregroundStyle(Color.green)
+                    .foregroundStyle(Night.ok)
             } else if let message {
-                Text(message).foregroundStyle(.secondary)
+                Text(message).foregroundStyle(Night.text2)
             } else {
-                Text("Press Record when you're ready.").foregroundStyle(.secondary)
+                Text("Press Record when you're ready.").foregroundStyle(Night.text2)
             }
         }
-        .font(.callout)
+        .font(.nightSecondary)
         .fixedSize(horizontal: false, vertical: true)
         .frame(minHeight: 20, alignment: .leading)
     }
@@ -282,28 +277,25 @@ struct VoiceEnrollmentView: View {
     private var finish: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 14) {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Warm.honey)
+                SparkleView(size: 40, glow: true)
                     .frame(width: 52, height: 52)
-                    .background(Warm.honey.opacity(0.12), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("\(name) is ready").font(.system(size: 24, weight: .bold))
+                    Text("\(name) is ready").font(.nightDisplay).tracking(-0.3)
                     Text("\(good.count) of \(prompts.count) lines recorded. Scribe will put their name on their voice in meetings.")
-                        .font(.callout).foregroundStyle(.secondary)
+                        .font(.nightSecondary).foregroundStyle(Night.text2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             VStack(spacing: 0) {
                 ForEach(Array(prompts.enumerated()), id: \.offset) { k, p in
-                    if k > 0 { Divider().overlay(Warm.hairline) }
+                    if k > 0 { NightDivider() }
                     HStack(spacing: 10) {
                         Image(systemName: good[p.style] != nil ? "checkmark.circle.fill" : "circle")
-                            .foregroundStyle(good[p.style] != nil ? AnyShapeStyle(Brand.accent) : AnyShapeStyle(.tertiary))
-                        Text(p.style.hint).foregroundStyle(good[p.style] != nil ? .primary : .secondary)
+                            .foregroundStyle(good[p.style] != nil ? Night.accent : Night.text3)
+                        Text(p.style.hint).foregroundStyle(good[p.style] != nil ? Night.text : Night.text3)
                         Spacer()
                     }
-                    .font(.callout)
+                    .font(.nightSecondary)
                     .padding(.vertical, 7)
                 }
             }
@@ -311,7 +303,7 @@ struct VoiceEnrollmentView: View {
             Spacer(minLength: 0)
             HStack(spacing: 12) {
                 Button("Back") { index = max(0, prompts.count - 1); message = nil; lastCheck = nil }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .buttonStyle(.nightGhost)
                 Spacer()
                 Button {
                     let clips = prompts.compactMap { p in good[p.style].map { (p.style, $0) } }

@@ -88,6 +88,39 @@ enum Snapshot {
         made += await capture(env(OnboardingView(initialIndex: 9, previewPhase: 0.1, previewPlanned: 487_400_000)),
                               size: obSize, name: "07d_firstrun_ready", dir: dir)
 
+        // 0.7 "Night Sky": the mocked screens (design-v07), window server grabs with the custom chrome
+        // (traffic lights over the rail), 1200×800 like the mockups. N06 is the light theme.
+        let nightSize = NSSize(width: 1200, height: 800)
+        let liveTape = LevelTape(); liveTape.fillPreview(seconds: 30)
+        let nightShots: [(String, AnyView, Bool)] = [
+            ("N01_home_dark", AnyView(env(ContentView(section: .home))), true),
+            ("N02_meeting_live_dark", AnyView(env(ContentView(section: .meetings,
+                                                               livePreview: LivePreview(elapsed: 768, tape: liveTape)))), true),
+            ("N02b_meeting_notes_dark", AnyView(env(ContentView(initialSelection: .meeting(meetingID)))), true),
+            ("N03_people_dark", AnyView(env(ContentView(initialSelection: .people))), true),
+            ("N04_settings_dark", AnyView(env(ContentView(section: .settings, settingsPane: .dictation))), true),
+            ("N04b_settings_overlay_dark", AnyView(env(ContentView(section: .settings, settingsPane: .overlay))), true),
+            ("N04c_settings_models_dark", AnyView(env(ContentView(section: .settings, settingsPane: .models))), true),
+            ("N04d_settings_about_dark", AnyView(env(ContentView(section: .settings, settingsPane: .about))), true),
+            ("N05_dictations_dark", AnyView(env(ContentView(initialSelection: .dictation))), true),
+            ("N06_home_light", AnyView(env(ContentView(section: .home))), false),
+            ("N06b_meeting_notes_light", AnyView(env(ContentView(initialSelection: .meeting(meetingID)))), false),
+            ("N06c_people_light", AnyView(env(ContentView(initialSelection: .people))), false),
+            ("N06d_settings_light", AnyView(env(ContentView(section: .settings, settingsPane: .dictation))), false),
+        ]
+        for (name, view, dark) in nightShots {
+            made += await serverCapture(view, size: nightSize, name: name, dir: dir, dark: dark, chrome: true)
+        }
+        made += await capture(env(ContentView(section: .home)), size: nightSize, name: "N01c_home_dark_cache", dir: dir, dark: true, chrome: true)
+        made += await serverCapture(env(VoiceEnrollmentView(preview: .init(step: .recording, name: "Priya", index: 3))),
+                                    size: NSSize(width: VoiceEnrollmentView.size.width, height: VoiceEnrollmentView.size.height),
+                                    name: "N03b_enroll_recording_dark", dir: dir, dark: true)
+        made += await serverCapture(env(SettingsView()), size: NSSize(width: SettingsView.size.width, height: SettingsView.size.height),
+                                    name: "N04e_settings_window_dark", dir: dir, dark: true, chrome: true)
+        made += await serverCapture(env(MenuBarView()), size: nil, name: "N07_menu_bar_panel_dark", dir: dir, titled: false, dark: true)
+        made += await serverCapture(env(OnboardingView(initialIndex: 0, previewPhase: 0.3, previewPlanned: 487_400_000)),
+                                    size: obSize, name: "N08_firstrun_dark", dir: dir, dark: true)
+
         made += await capture(env(ContentView(initialSelection: .meeting(meetingID))), size: main, name: "01_meeting_notes", dir: dir)
         made += await capture(env(ContentView(initialSelection: .people)), size: main, name: "02_people", dir: dir)
         made += await capture(env(ContentView(initialSelection: .dictation)), size: main, name: "03_dictation_history", dir: dir)
@@ -138,11 +171,11 @@ enum Snapshot {
                                     titled: false)
         // The whole Dictation tab (it scrolls in the real window), to show Overlay > Position.
         UserDefaults.standard.set(OverlayPosition.bottomCenter.rawValue, forKey: OverlayPosition.key)
-        made += await capture(env(DictationSettingsTab().frame(width: SettingsView.size.width, height: 940)), size: nil,
+        made += await capture(env(OverlaySettingsTab().padding(24).frame(width: 640, height: 420).background(Night.canvas)), size: nil,
                               name: "04b_settings_overlay_position", dir: dir)
         // Same tab with the left-edge preset: the preview shows the upright capsule.
         UserDefaults.standard.set(OverlayPosition.middleLeft.rawValue, forKey: OverlayPosition.key)
-        made += await capture(env(DictationSettingsTab().frame(width: SettingsView.size.width, height: 940)), size: nil,
+        made += await capture(env(OverlaySettingsTab().padding(24).frame(width: 640, height: 420).background(Night.canvas)), size: nil,
                               name: "04c_settings_overlay_left_edge", dir: dir)
         UserDefaults.standard.set(OverlayPosition.bottomCenter.rawValue, forKey: OverlayPosition.key)
         model.models.setPreview(["asr-v2": .downloaded, "vad": .downloaded, "diarizer": .updateAvailable(1_200_000),
@@ -232,7 +265,7 @@ enum Snapshot {
         w.close()
 
         var osInfo = ProcessInfo.processInfo.operatingSystemVersionString
-        if #available(macOS 26.0, *) { osInfo += " (Liquid Glass active)" } else { osInfo += " (pre-26: material fallback)" }
+        osInfo += " · 0.7 Night Sky (no glass; Manrope \(ScribeFonts.nsFont(size: 13, weight: 500) != nil ? "loaded" : "MISSING, system font fallback"))"
         let note = ["os": osInfo, "note": "SAMPLE data (made-up meeting/people/dictations), rendered by Scribe --snapshot on the CI Mac runner.",
                     "files": made.joined(separator: ", ")]
         if let d = try? JSONSerialization.data(withJSONObject: note, options: [.prettyPrinted]) {
@@ -351,10 +384,11 @@ enum Snapshot {
     /// Shows `view` in a real window and lets the window server photograph it (`screencapture -l`),
     /// so glass and materials are composited exactly as on screen.
     private static func serverCapture<V: View>(_ view: V, size: NSSize?, name: String, dir: URL, titled: Bool = true,
-                                               dark: Bool = false) async -> [String] {
-        let w = window(for: view, size: size, titled: titled, dark: dark)
+                                               dark: Bool = false, chrome: Bool = false) async -> [String] {
+        let w = window(for: view, size: size, titled: titled, dark: dark, chrome: chrome)
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
+        if chrome { WindowChrome.placeTrafficLights(w) }
         try? await Task.sleep(nanoseconds: 2_000_000_000)
         let url = dir.appendingPathComponent("\(name).png")
         let p = Process()
@@ -382,15 +416,18 @@ enum Snapshot {
         return (try? png.write(to: url)) != nil
     }
 
-    private static func window<V: View>(for view: V, size: NSSize?, titled: Bool, dark: Bool = false) -> NSWindow {
+    private static func window<V: View>(for view: V, size: NSSize?, titled: Bool, dark: Bool = false,
+                                        chrome: Bool = false) -> NSWindow {
         let host = NSHostingView(rootView: view)
         let s = size ?? host.fittingSize
-        let style: NSWindow.StyleMask = titled ? [.titled, .closable, .miniaturizable, .resizable] : [.borderless]
+        var style: NSWindow.StyleMask = titled ? [.titled, .closable, .miniaturizable, .resizable] : [.borderless]
+        if titled && chrome { style.insert(.fullSizeContentView) }
         let w = NSWindow(contentRect: NSRect(origin: .zero, size: s), styleMask: style, backing: .buffered, defer: false)
         w.title = "Scribe"
         w.isReleasedWhenClosed = false
         w.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         w.contentView = host
+        if titled && chrome { WindowChrome.configure(w) }
         w.setContentSize(s)
         w.center()
         w.orderFrontRegardless()
@@ -399,8 +436,8 @@ enum Snapshot {
 
     /// Returns the file names written (the view alone, and for titled windows also the window frame).
     private static func capture<V: View>(_ view: V, size: NSSize?, name: String, dir: URL, titled: Bool = true,
-                                         dark: Bool = false) async -> [String] {
-        let w = window(for: view, size: size, titled: titled, dark: dark)
+                                         dark: Bool = false, chrome: Bool = false) async -> [String] {
+        let w = window(for: view, size: size, titled: titled, dark: dark, chrome: chrome)
         try? await Task.sleep(nanoseconds: 1_500_000_000)          // let SwiftUI lay out + load
         var out: [String] = []
         if let host = w.contentView {
@@ -428,7 +465,7 @@ enum Snapshot {
     private static func fillSampleData(_ store: Store) -> UUID {
         let cal = Calendar.current
         let now = Date()
-        let names = ["Alex", "Sam", "Jordan", "Taylor"]
+        let names = ["Alex", "Sam", "Priya", "Jordan"]
         let mID = UUID()
         var people: [Person] = []
         for (i, n) in names.enumerated() {
@@ -445,7 +482,7 @@ enum Snapshot {
             ("S1", "Okay, let's start. The deadline is in three weeks, so today is about the intake and the autonomous route."),
             ("S2", "The intake jammed twice at practice. I think the rubber bands on the roller are too loose."),
             ("S3", "I can reprint the roller hub tonight with tighter slots. That should fix the slipping."),
-            ("S1", "Good. Jordan, can you have the new hub on the robot by Thursday?"),
+            ("S1", "Good. Priya, can you have the new hub on the robot by Thursday?"),
             ("S3", "Yeah, I'll have it on by Thursday."),
             ("S4", "The autonomous route is scoring two rings right now. We need to get it to four."),
             ("S2", "If we move the first turn earlier we save almost a second. I'll test that on Saturday."),
@@ -470,7 +507,7 @@ enum Snapshot {
                 c.matchScore = [0.82, 0.74, 0.66][i]
                 c.confirmed = i == 0
             } else {
-                c.suggestedPersonID = people[3].id            // shows "maybe Taylor?"
+                c.suggestedPersonID = people[3].id            // shows "maybe Jordan?"
                 c.matchScore = 0.48
             }
             clusters.append(c)
@@ -481,12 +518,12 @@ enum Snapshot {
                         "Autonomous scores 2 rings, goal is 4",
                         "Moving the first turn earlier saves about a second",
                         "Notebook must be updated before judging"],
-            actionItems: [ActionItem(task: "Reprint the roller hub and have it on the robot by Thursday", owner: "Jordan"),
+            actionItems: [ActionItem(task: "Reprint the roller hub and have it on the robot by Thursday", owner: "Priya"),
                           ActionItem(task: "Test the earlier first turn in autonomous on Saturday", owner: "Sam"),
                           ActionItem(task: "Write up intake changes and test results in the notebook", owner: "Speaker 4", done: true)],
             method: .rules, createdAt: now, seconds: 0.01,
             note: "Sample data for screenshots.")
-        var m = Meeting(id: mID, title: "Team – project planning", date: cal.date(byAdding: .hour, value: -2, to: now)!,
+        var m = Meeting(id: mID, title: "Robotics build meeting", date: cal.date(byAdding: .hour, value: -2, to: now)!,
                         duration: t, audioFileName: "sample.wav")
         m.status = .done
         m.utterances = utterances
@@ -494,18 +531,28 @@ enum Snapshot {
         m.processingSeconds = t / 9
         m.notes = notes
 
-        var m2 = Meeting(title: "Client call – website", date: cal.date(byAdding: .day, value: -2, to: now)!,
+        var m2 = Meeting(title: "Client call: website refresh", date: cal.date(byAdding: .day, value: -1, to: now)!,
                          duration: 1260, audioFileName: "sample2.wav")
         m2.status = .done
         m2.clusters = [SpeakerCluster(key: "S1", talkSeconds: 700, centroid: [], spanEmbeddings: [], personID: people[0].id),
                        SpeakerCluster(key: "S2", talkSeconds: 560, centroid: [], spanEmbeddings: [])]
-        var m3 = Meeting(title: "Study group", date: cal.date(byAdding: .day, value: -5, to: now)!,
+        var m3 = Meeting(title: "Study group: chapter 4", date: cal.date(byAdding: .day, value: -3, to: now)!,
                          duration: 2710, audioFileName: "sample3.wav")
         m3.status = .done
         m3.clusters = [SpeakerCluster(key: "S1", talkSeconds: 900, centroid: [], spanEmbeddings: []),
                        SpeakerCluster(key: "S2", talkSeconds: 800, centroid: [], spanEmbeddings: []),
                        SpeakerCluster(key: "S3", talkSeconds: 600, centroid: [], spanEmbeddings: [])]
-        store.meetings = [m, m2, m3]
+        var m4 = Meeting(title: "Planning the spring showcase", date: cal.date(byAdding: .day, value: -5, to: now)!,
+                         duration: 2032, audioFileName: "sample4.wav")
+        m4.status = .done
+        m4.clusters = [SpeakerCluster(key: "S1", talkSeconds: 900, centroid: [], spanEmbeddings: [], personID: people[3].id),
+                       SpeakerCluster(key: "S2", talkSeconds: 700, centroid: [], spanEmbeddings: [], personID: people[0].id)]
+        var m5 = Meeting(title: "Weekly check-in", date: cal.date(byAdding: .day, value: -6, to: now)!,
+                         duration: 1117, audioFileName: "sample5.wav")
+        m5.status = .done
+        m5.clusters = [SpeakerCluster(key: "S1", talkSeconds: 600, centroid: [], spanEmbeddings: [], personID: people[3].id),
+                       SpeakerCluster(key: "S2", talkSeconds: 500, centroid: [], spanEmbeddings: [], personID: people[1].id)]
+        store.meetings = [m, m2, m3, m4, m5]
 
         store.dictations = [
             DictationEntry(date: cal.date(byAdding: .minute, value: -4, to: now)!,
@@ -520,6 +567,14 @@ enum Snapshot {
                            text: "Remind me to finish the physics worksheet tonight.",
                            raw: "Remind me to finish the physics worksheet tonight.",
                            method: .none, audioSeconds: 2.9, latencySeconds: 0.4),
+            DictationEntry(date: cal.date(byAdding: .hour, value: -5, to: now)!,
+                           text: "Pick up poster board and tape on the way home.",
+                           raw: "Pick up poster board and tape on the way home.",
+                           method: .rules, audioSeconds: 3.1, latencySeconds: 0.4),
+            DictationEntry(date: cal.date(byAdding: .hour, value: -7, to: now)!,
+                           text: "Move the study session to six.",
+                           raw: "Move the study session to six.",
+                           method: .none, audioSeconds: 2.0, latencySeconds: 0.3),
         ]
         return mID
     }

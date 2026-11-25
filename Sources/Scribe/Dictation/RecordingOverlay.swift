@@ -1,10 +1,11 @@
 // RecordingOverlay.swift
-// The small floating capsule shown while you dictate or record a meeting (0.4; replaces
-// 0.3's scroll). About 140 × 32 pt on a dark HUD material:
-//   • listening:    mic-level bars + timer
-//   • meeting:      red record dot + bars + timer
-//   • transcribing: a small spinner + "Transcribing"
-//   • done/failed:  a symbol + a short message, then it hides
+// The small floating capsule shown while you dictate or record a meeting. 0.7 "Night Sky":
+// a 52 pt pill that is always the icon's dark tile (#1E1E22 → #09090B, 1 px white@9% edge),
+// whatever the theme, so it reads as a piece of the icon over any app. No material, no glass.
+//   • listening:    glowing sparkle → live wave (14 capsule bars) → "Listening" → timer
+//   • meeting:      live dot + mini wave → "Meeting · mm:ss"
+//   • transcribing: dim flat bars + "Writing…"
+//   • done/failed:  an accent check (or a warning) + a short message, then it hides
 //
 // Where it appears: Settings › Dictation › Overlay position (bottom center by default, or
 // top center / any corner / the left or right edge), on the screen with the active window
@@ -197,15 +198,15 @@ private final class OverlayHostingView<Content: View>: NSHostingView<Content> {
 /// Sizes shared by the panel and the capsule (not actor-isolated).
 enum OverlayMetrics {
     /// Room for the widest message; the capsule sits inside it at the position's alignment.
-    static let panelSize = NSSize(width: 360, height: 44)
+    static let panelSize = NSSize(width: 400, height: 72)
     /// Against a side edge the panel is taller, so the standing capsule (and a message that
     /// still needs a horizontal line) both fit, anchored to that edge.
-    static let verticalPanelSize = NSSize(width: 360, height: 200)
+    static let verticalPanelSize = NSSize(width: 400, height: 240)
     /// The capsule's usual width (used to keep it on screen when dragged).
-    static let capsuleWidth: CGFloat = 140
+    static let capsuleWidth: CGFloat = 210
     /// The standing capsule: its width, and its usual height (listening/meeting).
-    static let verticalThickness: CGFloat = 36
-    static let verticalLength: CGFloat = 120
+    static let verticalThickness: CGFloat = 52
+    static let verticalLength: CGFloat = 190
     static let margin: CGFloat = 12
     /// A capsule whose side is this close to the left/right edge stands up (unless it is also
     /// near the top or bottom: corners stay horizontal).
@@ -484,27 +485,29 @@ struct OverlayCapsule: View {
     var tape: LevelTape
     /// Seconds to show in the timer (nil = the tape's clock).
     var elapsed: TimeInterval? = nil
-    /// Snapshot: fixed spinner angle (degrees).
+    /// Snapshot: freeze the frame (the old spinner angle; any value freezes it).
     var previewSpin: Double? = nil
     /// Set by the panel when the capsule sits against a left/right screen edge.
     @Environment(\.overlayVertical) private var verticalEdge
 
-    static let height: CGFloat = 32
-    static let bars = 9
+    static let height: CGFloat = 52
+    static let bars = 14
 
     var body: some View {
         let v = vertical
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: mode == .hidden || isMessage || previewSpin != nil)) { tl in
             content(tl.date, vertical: v)
-                .padding(.horizontal, v ? 4 : 14)
-                .padding(.vertical, v ? 12 : 0)
-                .frame(minWidth: v || isMessage ? nil : OverlayMetrics.capsuleWidth, maxWidth: v ? nil : 300)
+                .padding(.horizontal, v ? 0 : 18)
+                .padding(.vertical, v ? 16 : 0)
+                .frame(minWidth: v || isMessage ? nil : OverlayMetrics.capsuleWidth, maxWidth: v ? nil : 340)
                 .fixedSize(horizontal: !v, vertical: v)
                 .frame(width: v ? OverlayMetrics.verticalThickness : nil, height: v ? nil : Self.height)
-                .modifier(CapsuleGlass())
+                .modifier(NightCapsuleSurface())
         }
         .animation(.spring(duration: OverlayMetrics.springDuration, bounce: 0.12), value: v)
         .opacity(mode == .hidden ? 0 : 1)
+        .scaleEffect(mode == .hidden ? 0.9 : 1)
+        .animation(.easeOut(duration: 0.2), value: mode == .hidden)
         .environment(\.colorScheme, .dark)
         .accessibilityElement()
         .accessibilityLabel(accessibilityText)
@@ -529,73 +532,107 @@ struct OverlayCapsule: View {
         vertical ? AnyLayout(VStackLayout(spacing: v)) : AnyLayout(HStackLayout(spacing: h))
     }
 
+    private var textColor: Color { Color.white.opacity(0.92) }
+
+    /// The live wave: the last N mic levels shaped by a soft envelope, so it travels left to
+    /// right and settles to dots at idle.
+    private func wave(_ n: Int, _ date: Date) -> [Double] {
+        let raw = tape.recent(n)
+        return raw.enumerated().map { i, l in
+            let x = n > 1 ? Double(i) / Double(n - 1) * 2 - 1 : 0
+            let envelope = 0.45 + 0.55 * cos(x * .pi / 2)
+            return l * envelope
+        }
+    }
+
     @ViewBuilder private func content(_ date: Date, vertical: Bool) -> some View {
         switch mode {
-        case .listening, .recording:
-            let layout = stack(vertical, h: 10, v: 9)
+        case .listening:
+            let layout = stack(vertical, h: 12, v: 12)
             layout {
-                if mode == .recording {
-                    Circle().fill(Brand.record).frame(width: 8, height: 8)
-                        .opacity(0.88 + 0.12 * sin(tape.now(date) * 3))
-                } else if vertical {
-                    // Standing capsule: the status icon on top, the timer at the bottom.
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.85))
+                SparkleView(size: 13, glow: true, color: Night.overlayStar)
+                CapsuleBars(levels: wave(vertical ? 12 : Self.bars, date), axis: vertical ? .vertical : .horizontal,
+                            barWidth: 3.5, spacing: vertical ? 3 : 2.5, maxLength: vertical ? 24 : 26, style: .white, edgeFade: 0.35)
+                    .animation(.easeOut(duration: 0.12), value: tape.recent(4))
+                if !vertical {
+                    Text("Listening").font(.scribe(13, 700)).foregroundStyle(textColor).fixedSize()
                 }
-                LevelBars(levels: tape.recent(Self.bars), vertical: vertical)
-                Text(clock(elapsed ?? tape.now(date)))
-                    .font(.system(size: vertical ? 10.5 : 12, weight: .medium)).monospacedDigit()
-                    .foregroundStyle(.white.opacity(0.9))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .fixedSize(horizontal: !vertical, vertical: false)
+                timer(date, vertical: vertical)
+            }
+        case .recording:
+            let layout = stack(vertical, h: 10, v: 12)
+            layout {
+                Circle().fill(Night.overlayLive).frame(width: 8, height: 8)
+                    .opacity(0.88 + 0.12 * sin(tape.now(date) * 3))
+                CapsuleBars(levels: wave(vertical ? 10 : 8, date), axis: vertical ? .vertical : .horizontal,
+                            barWidth: 3, spacing: 2, maxLength: vertical ? 22 : 20, style: .white)
+                if vertical {
+                    timer(date, vertical: true)
+                } else {
+                    HStack(spacing: 5) {
+                        Text("Meeting").font(.scribe(13, 700)).foregroundStyle(textColor)
+                        Text("·").font(.scribe(13, 700)).foregroundStyle(Color.white.opacity(0.5))
+                        timer(date, vertical: false)
+                    }
+                    .fixedSize()
+                }
             }
         case .transcribing:
-            let layout = stack(vertical, h: 8, v: 10)
+            let layout = stack(vertical, h: 10, v: 12)
             layout {
-                Spinner(angle: previewSpin ?? (date.timeIntervalSinceReferenceDate * 360).truncatingRemainder(dividingBy: 360))
-                if vertical {
-                    Image(systemName: "text.alignleft")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.white.opacity(0.7))
-                } else {
-                    Text("Transcribing")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.9))
-                        .fixedSize()
+                if vertical { SparkleView(size: 13, glow: true, color: Night.overlayStar) }
+                CapsuleBars(levels: Array(repeating: 0.12, count: vertical ? 6 : 6), axis: vertical ? .vertical : .horizontal,
+                            barWidth: 4, spacing: 3, maxLength: 12, style: .white)
+                    .opacity(0.45)
+                if !vertical {
+                    Text("Writing…").font(.scribe(13, 700)).foregroundStyle(textColor).fixedSize()
                 }
             }
         case .message(let text, let failure):
-            let layout = stack(vertical, h: 6, v: 5)
+            let layout = stack(vertical, h: 8, v: 6)
             layout {
-                Image(systemName: failure ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(failure ? Color.orange : Color.green)
+                ZStack {
+                    Circle().fill(failure ? AnyShapeStyle(Color(hex: 0xF4BE93)) :
+                                    AnyShapeStyle(LinearGradient(colors: [Night.overlayAccentTop, Night.overlayAccentBottom],
+                                                                 startPoint: .top, endPoint: .bottom)))
+                    Image(systemName: failure ? "exclamationmark" : "checkmark")
+                        .font(.system(size: 8.5, weight: .heavy)).foregroundStyle(Color(hex: 0x0D0C1A))
+                }
+                .frame(width: 16, height: 16)
                 Text(text)
-                    .font(.system(size: vertical ? 10 : 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.92))
+                    .font(.scribe(vertical ? 10.5 : 13, 700))
+                    .foregroundStyle(textColor)
                     .lineLimit(1)
                     .minimumScaleFactor(vertical ? 0.8 : 1)
                     .truncationMode(.tail)
             }
         case .needsAccess:
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.orange)
+                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hex: 0xF4BE93))
                 Text("Copied · needs Accessibility to type")
-                    .font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.92))
+                    .font(.scribe(13, 700)).foregroundStyle(textColor)
                     .lineLimit(1).fixedSize()
                 Button("Fix") { AccessibilityHelp.fix() }
                     .buttonStyle(.plain)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.accentColor)
-                    .padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(Capsule().fill(Color.white.opacity(0.14)))
+                    .font(.scribe(12.5, 800))
+                    .foregroundStyle(Color(hex: 0x0D0C1A))
+                    .padding(.horizontal, 9).padding(.vertical, 3)
+                    .background(Capsule().fill(LinearGradient(colors: [Night.overlayAccentTop, Night.overlayAccentBottom],
+                                                              startPoint: .top, endPoint: .bottom)))
             }
         case .hidden:
             EmptyView()
         }
+    }
+
+    private func timer(_ date: Date, vertical: Bool) -> some View {
+        Text(clock(elapsed ?? tape.now(date)))
+            .font(.scribe(vertical ? 11 : 12.5, 600)).monospacedDigit()
+            .foregroundStyle(Color.white.opacity(0.62))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .fixedSize(horizontal: !vertical, vertical: false)
     }
 
     private func clock(_ t: TimeInterval) -> String {
@@ -608,7 +645,7 @@ struct OverlayCapsule: View {
         switch mode {
         case .listening: return "Scribe is listening"
         case .recording: return "Scribe is recording a meeting"
-        case .transcribing: return "Scribe is transcribing"
+        case .transcribing: return "Scribe is writing"
         case .message(let t, _): return t
         case .needsAccess: return "Text copied. Scribe needs Accessibility permission to type. Fix"
         case .hidden: return ""
@@ -616,62 +653,15 @@ struct OverlayCapsule: View {
     }
 }
 
-/// The capsule's surface. macOS 26: a dark-tinted Liquid Glass capsule (a soft smoky backing
-/// keeps the white bars and text readable over any wallpaper or document). macOS 14/15: the
-/// 0.4 HUD look (thin material + dark fill + hairline).
-private struct CapsuleGlass: ViewModifier {
+/// The capsule's surface: the icon tile gradient (#1E1E22 → #09090B), a 1 px white@9% inner
+/// border and one soft shadow. The same in light and dark mode, on every macOS version.
+private struct NightCapsuleSurface: ViewModifier {
     func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            content
-                .background(Capsule().fill(Color(white: 0.06).opacity(0.30)))
-                .glassEffect(.regular.tint(Color(white: 0.10).opacity(0.50)), in: Capsule())
-                .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
-        } else {
-            content
-                .background {
-                    Capsule().fill(.ultraThinMaterial)
-                    Capsule().fill(Color(white: 0.09).opacity(0.78))
-                }
-                .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.5))
-                .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
-        }
-    }
-}
-
-/// Small bars driven by the mic level, shaped by a soft envelope (bigger in the middle) so it
-/// reads as a voice, not a barcode. Horizontal capsule: upright bars, newest on the right.
-/// Standing capsule: the bars lie flat and stack down the long axis, newest at the bottom.
-struct LevelBars: View {
-    var levels: [Double]
-    var vertical = false
-    var body: some View {
-        let stack = vertical ? AnyLayout(VStackLayout(spacing: 2.5)) : AnyLayout(HStackLayout(alignment: .center, spacing: 2))
-        stack {
-            ForEach(Array(levels.enumerated()), id: \.offset) { i, l in
-                let x = levels.count > 1 ? Double(i) / Double(levels.count - 1) * 2 - 1 : 0
-                let envelope = 0.45 + 0.55 * cos(x * .pi / 2)
-                let length = 3 + 15 * l * envelope
-                Capsule()
-                    .fill(Color.white.opacity(0.6 + 0.35 * l))
-                    .frame(width: vertical ? length : 2.5, height: vertical ? 2.5 : length)
-            }
-        }
-        .frame(width: vertical ? 18 : nil, height: vertical ? nil : 18)
-        .animation(.easeOut(duration: 0.12), value: levels)
-    }
-}
-
-/// A thin rotating arc.
-struct Spinner: View {
-    var angle: Double
-    var body: some View {
-        ZStack {
-            Circle().stroke(Color.white.opacity(0.18), lineWidth: 1.8)
-            Circle().trim(from: 0, to: 0.28)
-                .stroke(Color.white.opacity(0.9), style: StrokeStyle(lineWidth: 1.8, lineCap: .round))
-                .rotationEffect(.degrees(angle))
-        }
-        .frame(width: 12, height: 12)
+        content
+            .background(Capsule().fill(LinearGradient(colors: [Night.overlayTop, Night.overlayBottom],
+                                                      startPoint: .top, endPoint: .bottom)))
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.09), lineWidth: 1))
+            .shadow(color: .black.opacity(0.45), radius: 9, y: 5)
     }
 }
 

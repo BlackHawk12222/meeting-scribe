@@ -1,65 +1,371 @@
 // Theme.swift
-// Scribe's look (0.4): plain macOS. System fonts, system colors (light + dark), standard
-// materials and SF Symbols. One quiet accent: the asset catalog's AccentColor (deep indigo,
-// used when the Mac's accent is set to "Multicolor"; otherwise the user's own accent wins).
-// The only brand mark is the fountain-pen nib, drawn in code here (menu bar) and in
-// scripts/make_icon.py (the app icon), from the same numbers.
+// Scribe 0.7 "Night Sky": the window looks like the app icon. Matte near-black surfaces
+// (warm paper in light mode), one lavender accent, Manrope type, flat cards with a 1 px
+// border and a 1 px inner top highlight. No blur and no Liquid Glass anywhere.
+// Two shapes from the icon carry the system: the capsule bar (Brand/CapsuleBars.swift) and
+// the four-point sparkle (Brand/Sparkle.swift). Tokens follow design-v07/DESIGN.md.
+//
+// Older names (Brand.*, Warm.*, scribeCard, scribeButton, scribeCanvas) are kept as thin
+// aliases onto the Night tokens so every screen picks up the new look from this one file.
 
 import SwiftUI
 import AppKit
+import CoreText
 
-enum Brand {
-    /// The app's accent (AccentColor asset / the user's system accent).
-    static let accent = Color.accentColor
-    /// Record / live indicators.
-    static let record = Color.red
-    /// 8-pt spacing grid.
-    static let s1: CGFloat = 8, s2: CGFloat = 16, s3: CGFloat = 24, s4: CGFloat = 32
-}
+// MARK: - Colors
 
-/// The fountain-pen nib, in a 100×100 box with the tip at the bottom (y grows downward).
-/// Same geometry as scripts/make_icon.py.
-enum NibShape {
-    enum Detail { case icon, glyph }
-
-    /// The nib rotated `degrees` (45 = tip pointing down-left), fitted into `rect`.
-    /// Fill it with the even-odd rule: the slit and breather hole are cut-outs.
-    static func path(in rect: CGRect, degrees: CGFloat = 45, detail: Detail = .glyph) -> CGPath {
-        let side = min(rect.width, rect.height)
-        let s = side / 92
-        let t = CGAffineTransform(translationX: rect.midX, y: rect.midY)
-            .rotated(by: degrees * .pi / 180)
-            .scaledBy(x: s, y: s)
-            .translatedBy(x: -50, y: -55)
-        let p = CGMutablePath()
-        // Outline: tip → left shoulder → top → right shoulder → tip.
-        p.move(to: CGPoint(x: 50, y: 96), transform: t)
-        p.addCurve(to: CGPoint(x: 27, y: 47), control1: CGPoint(x: 45, y: 82), control2: CGPoint(x: 27, y: 64), transform: t)
-        p.addLine(to: CGPoint(x: 28.5, y: 24), transform: t)
-        p.addQuadCurve(to: CGPoint(x: 38, y: 15), control: CGPoint(x: 29, y: 15), transform: t)
-        p.addLine(to: CGPoint(x: 62, y: 15), transform: t)
-        p.addQuadCurve(to: CGPoint(x: 71.5, y: 24), control: CGPoint(x: 71, y: 15), transform: t)
-        p.addLine(to: CGPoint(x: 73, y: 47), transform: t)
-        p.addCurve(to: CGPoint(x: 50, y: 96), control1: CGPoint(x: 73, y: 64), control2: CGPoint(x: 55, y: 82), transform: t)
-        p.closeSubpath()
-        // Cut-outs. A menu bar glyph is ~16 px, so its slit and hole are drawn thicker.
-        let hole: CGFloat = detail == .icon ? 5.2 : 7.5
-        let slitW: CGFloat = detail == .icon ? 1.1 : 3.2
-        p.addEllipse(in: CGRect(x: 50 - hole, y: 52 - hole, width: hole * 2, height: hole * 2), transform: t)
-        p.addRect(CGRect(x: 50 - slitW, y: 52 + hole - 0.5, width: slitW * 2, height: 90 - 52 - hole), transform: t)
-        if detail == .icon {
-            p.addRect(CGRect(x: 28.6, y: 27, width: 42.8, height: 2.6), transform: t)
-        }
-        return p
+extension NSColor {
+    /// 0xRRGGBB in sRGB.
+    convenience init(hex: UInt32, alpha: CGFloat = 1) {
+        self.init(srgbRed: CGFloat((hex >> 16) & 0xFF) / 255, green: CGFloat((hex >> 8) & 0xFF) / 255,
+                  blue: CGFloat(hex & 0xFF) / 255, alpha: alpha)
     }
 }
 
-/// The nib as a SwiftUI shape (fill with `style: FillStyle(eoFill: true)`).
-struct Nib: Shape {
-    var degrees: CGFloat = 45
-    var detail: NibShape.Detail = .glyph
-    func path(in rect: CGRect) -> Path { Path(NibShape.path(in: rect, degrees: degrees, detail: detail)) }
+extension Color {
+    /// A color with separate light and dark values (follows the window's appearance).
+    static func scribe(light: (CGFloat, CGFloat, CGFloat, CGFloat), dark: (CGFloat, CGFloat, CGFloat, CGFloat)) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let c = isDark ? dark : light
+            return NSColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: c.3)
+        })
+    }
+
+    /// Hex light/dark pair (0xRRGGBB), each with its own alpha.
+    static func night(_ light: UInt32, _ dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> Color {
+        Color(nsColor: NSColor.night(light, dark, lightAlpha: lightAlpha, darkAlpha: darkAlpha))
+    }
+
+    /// A fixed sRGB color from hex (same in both themes).
+    init(hex: UInt32, opacity: Double = 1) {
+        self.init(nsColor: NSColor(hex: hex, alpha: CGFloat(opacity)))
+    }
 }
+
+extension NSColor {
+    static func night(_ light: UInt32, _ dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? NSColor(hex: dark, alpha: darkAlpha) : NSColor(hex: light, alpha: lightAlpha)
+        }
+    }
+}
+
+/// The Night Sky tokens (DESIGN.md › Color tokens). Light values come from the light icon.
+enum Night {
+    static let canvas = Color.night(0xF8F5EF, 0x0E0E11)
+    static let rail = Color.night(0xEFEAE1, 0x09090B)
+    static let surface = Color.night(0xFFFDF9, 0x16161A)
+    static let raised = Color.night(0xFFFFFF, 0x1D1D23)
+    static let well = Color.night(0xF2EEE7, 0x111114)
+    static let line = Color.night(0x463728, 0xFFFFFF, lightAlpha: 0.10, darkAlpha: 0.07)
+    static let line2 = Color.night(0x463728, 0xFFFFFF, lightAlpha: 0.16, darkAlpha: 0.11)
+    static let highlight = Color.night(0xFFFFFF, 0xFFFFFF, lightAlpha: 0.70, darkAlpha: 0.04)
+    static let text = Color.night(0x1D1C2A, 0xECEBF5)
+    static let text2 = Color.night(0x5D5B70, 0xA9A8BC)
+    static let text3 = Color.night(0x706D7E, 0x85849A)
+    static let accentTop = Color.night(0x7074EA, 0xBABCFF)
+    static let accentBottom = Color.night(0x3C3AA4, 0x8680F6)
+    static let accent = Color.night(0x5653D2, 0xA3A0FB)
+    static let accentSoft = Color.night(0x5653D2, 0xA3A0FB, lightAlpha: 0.10, darkAlpha: 0.14)
+    static let onAccent = Color.night(0xFFFFFF, 0x0D0C1A)
+    static let star = Color.night(0x8C86EC, 0xC9CAFF)
+    /// Recording state only (dot, timer). Never decorative.
+    static let live = Color.night(0xD9545E, 0xF2878E)
+    static let liveSoft = Color.night(0xD9545E, 0xF2878E, lightAlpha: 0.12, darkAlpha: 0.14)
+    /// Warnings (a failed step, a missing permission). Kept soft, like the rest.
+    static let warn = Color.night(0xB86A1E, 0xF4BE93)
+    static let ok = Color.night(0x2E8B6E, 0x8FD9C2)
+
+    /// The accent gradient, top → bottom (wave, primary button, record button).
+    static let gradient = LinearGradient(colors: [accentTop, accentBottom], startPoint: .top, endPoint: .bottom)
+    /// The accent gradient, left → right (toggles, progress, tab underline).
+    static let gradientH = LinearGradient(colors: [accentBottom, accentTop], startPoint: .leading, endPoint: .trailing)
+    static let gradientTab = LinearGradient(colors: [accentTop, accentBottom], startPoint: .leading, endPoint: .trailing)
+
+    /// Speaker avatar fills (dark text on top), assigned in order.
+    static let speakers: [Color] = [Color(hex: 0xBABCFF), Color(hex: 0x8FD9C2), Color(hex: 0xF4BE93),
+                                    Color(hex: 0x9CCBFF), Color(hex: 0xE9A9D0), Color(hex: 0xD7D98E)]
+    static let onSpeaker = Color(hex: 0x0D0C1A)
+
+    /// The dictation capsule: always dark (the icon tile), in both themes.
+    static let overlayTop = Color(hex: 0x1E1E22)
+    static let overlayBottom = Color(hex: 0x09090B)
+    static let overlayStar = Color(hex: 0xC9CAFF)
+    static let overlayAccentTop = Color(hex: 0xBABCFF)
+    static let overlayAccentBottom = Color(hex: 0x8680F6)
+    static let overlayLive = Color(hex: 0xF2878E)
+
+    // Radii
+    static let rWindow: CGFloat = 16, rCard: CGFloat = 18, rSheet: CGFloat = 18, rControl: CGFloat = 12
+    static let rPill: CGFloat = 14, rSegment: CGFloat = 9, rSegmentOuter: CGFloat = 12, rKey: CGFloat = 8
+    // Layout
+    static let railWidth: CGFloat = 76, headerHeight: CGFloat = 72
+    static let gutterLeading: CGFloat = 32, gutterTrailing: CGFloat = 28, cardGap: CGFloat = 16
+    static let cardPadding: CGFloat = 20
+
+    /// Default motion: nothing bounces.
+    static let spring = Animation.spring(response: 0.35, dampingFraction: 0.85)
+}
+
+// MARK: - Type (Manrope, bundled; SIL OFL 1.1)
+
+enum ScribeFonts {
+    private static var cache: [String: NSFont] = [:]
+    private static var available: Bool?
+
+    /// Registers the bundled Manrope (Resources/Fonts) for this process. Info.plist also lists the
+    /// folder in ATSApplicationFontsPath; this covers builds where that key didn't apply.
+    static func register() {
+        if NSFont(name: "Manrope-Regular", size: 12) != nil || NSFontManager.shared.availableMembers(ofFontFamily: "Manrope") != nil {
+            return
+        }
+        let candidates = [Bundle.main.url(forResource: "Manrope", withExtension: "ttf", subdirectory: "Fonts"),
+                          Bundle.main.url(forResource: "Manrope", withExtension: "ttf")]
+        for case let url? in candidates {
+            var error: Unmanaged<CFError>?
+            if CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) { return }
+        }
+    }
+
+    private static let wghtTag = 0x77676874   // 'wght'
+
+    /// Manrope at a weight (200–800) through the variable font's wght axis; nil if it isn't there.
+    static func nsFont(size: CGFloat, weight: CGFloat) -> NSFont? {
+        let key = "\(size)-\(weight)"
+        if let f = cache[key] { return f }
+        if available == false { return nil }
+        let attrs: [NSFontDescriptor.AttributeName: Any] = [
+            .family: "Manrope",
+            .variation: [NSNumber(value: wghtTag): NSNumber(value: Double(weight))],
+        ]
+        let desc = NSFontDescriptor(fontAttributes: attrs)
+        guard let f = NSFont(descriptor: desc, size: size), f.familyName == "Manrope" else {
+            available = false
+            return nil
+        }
+        available = true
+        cache[key] = f
+        return f
+    }
+
+    static func systemWeight(_ w: CGFloat) -> Font.Weight {
+        switch w {
+        case ..<350: return .light
+        case ..<450: return .regular
+        case ..<550: return .medium
+        case ..<650: return .semibold
+        case ..<750: return .bold
+        default: return .heavy
+        }
+    }
+}
+
+extension Font {
+    /// Manrope at `size` pt and `weight` (200–800). Falls back to the system font.
+    static func scribe(_ size: CGFloat, _ weight: CGFloat = 500) -> Font {
+        if let f = ScribeFonts.nsFont(size: size, weight: weight) { return Font(f as CTFont) }
+        return .system(size: size, weight: ScribeFonts.systemWeight(weight))
+    }
+    // The type scale (DESIGN.md › Typography).
+    static var nightDisplay: Font { scribe(22, 700) }
+    static var nightTitle: Font { scribe(17, 700) }
+    static var nightHeadline: Font { scribe(15, 700) }
+    static var nightBody: Font { scribe(13.5, 500) }
+    static var nightSecondary: Font { scribe(13, 500) }
+    static var nightMeta: Font { scribe(12, 600) }
+    static var nightLabel: Font { scribe(11.5, 700) }
+    static var nightKeycap: Font { scribe(12.5, 800) }
+    static var nightButton: Font { scribe(13.5, 700) }
+}
+
+// MARK: - Appearance (Settings › General)
+
+enum AppearanceChoice: String, CaseIterable, Identifiable {
+    case system, dark, light
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .system: return "System"
+        case .dark: return "Dark"
+        case .light: return "Light"
+        }
+    }
+    static let key = "appearance"
+    static var current: AppearanceChoice {
+        AppearanceChoice(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .system
+    }
+    /// Applies the choice to the whole app (nil = follow the Mac).
+    @MainActor
+    static func apply(_ choice: AppearanceChoice = current) {
+        switch choice {
+        case .system: NSApp.appearance = nil
+        case .dark: NSApp.appearance = NSAppearance(named: .darkAqua)
+        case .light: NSApp.appearance = NSAppearance(named: .aqua)
+        }
+    }
+}
+
+// MARK: - Legacy names (aliases onto Night)
+
+enum Brand {
+    static let accent = Night.accent
+    /// Record / live indicators.
+    static let record = Night.live
+    /// 8-pt spacing grid.
+    static let s1: CGFloat = 8, s2: CGFloat = 16, s3: CGFloat = 24, s4: CGFloat = 32
+    static let rSmall: CGFloat = 12, rCard: CGFloat = 18, rPanel: CGFloat = 18
+    /// Comfortable reading width for notes and transcripts.
+    static let readingWidth: CGFloat = 760
+}
+
+enum Warm {
+    static let canvas = Night.canvas
+    static let surface = Night.surface
+    static let well = Night.well
+    static let hairline = Night.line
+    /// 0.6's warm accent; in Night Sky every accent is the lavender one.
+    static let honey = Night.accent
+    static let shadow = Color.black.opacity(0.0)
+}
+
+// MARK: - Cards, canvas, buttons
+
+/// A flat Night card background: surface fill, 1 px border, 1 px inner top highlight.
+struct NightCardBackground: View {
+    var radius: CGFloat = Night.rCard
+    var fill: Color = Night.surface
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        ZStack {
+            shape.fill(fill)
+            // Inner top edge: a 1 px highlight that fades out below the corner.
+            shape.inset(by: 0.5)
+                .stroke(LinearGradient(colors: [Night.highlight, .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.08)),
+                        lineWidth: 1)
+            shape.strokeBorder(Night.line, lineWidth: 1)
+        }
+    }
+}
+
+extension View {
+    /// A Night card: surface, 18 radius, 1 px border + inner highlight, padding.
+    func nightCard(radius: CGFloat = Night.rCard, padding: CGFloat = Night.cardPadding, fill: Color = Night.surface) -> some View {
+        self.padding(padding)
+            .background(NightCardBackground(radius: radius, fill: fill))
+    }
+
+    /// Old name for a card; same Night look.
+    func scribeCard(radius: CGFloat = Night.rCard, padding: CGFloat = Night.cardPadding) -> some View {
+        nightCard(radius: radius, padding: padding)
+    }
+
+    /// 0.6 glass, now a flat raised fill + line border (no blur).
+    func scribeGlass<S: InsettableShape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
+        self.background {
+            shape.fill(Night.raised)
+            if let tint { shape.fill(tint) }
+        }
+        .overlay(shape.strokeBorder(Night.line2, lineWidth: 1))
+    }
+
+    /// Primary (accent gradient) or secondary (raised) button.
+    func scribeButton(prominent: Bool = false) -> some View {
+        self.buttonStyle(NightButtonStyle(kind: prominent ? .primary : .secondary))
+    }
+
+    /// The canvas behind content.
+    func scribeCanvas() -> some View { self.background(Night.canvas) }
+
+    /// Primary text color in the Night palette.
+    func nightText(_ level: Int = 1) -> some View {
+        self.foregroundStyle(level == 1 ? Night.text : level == 2 ? Night.text2 : Night.text3)
+    }
+}
+
+/// Buttons: Primary (accent gradient, onAccent text, white top edge), Secondary (raised + line2),
+/// Ghost (text2 only), Danger (secondary with the live color). 36 tall, 12 radius.
+struct NightButtonStyle: ButtonStyle {
+    enum Kind { case primary, secondary, ghost, danger }
+    var kind: Kind = .secondary
+    var height: CGFloat = 36
+    var fullWidth = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        NightButtonBody(configuration: configuration, kind: kind, height: height, fullWidth: fullWidth)
+    }
+}
+
+private struct NightButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let kind: NightButtonStyle.Kind
+    let height: CGFloat
+    let fullWidth: Bool
+    @Environment(\.isEnabled) private var enabled
+    @State private var hover = false
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Night.rControl, style: .continuous)
+        configuration.label
+            .font(.nightButton)
+            .lineLimit(1)
+            .foregroundStyle(foreground)
+            .padding(.horizontal, kind == .ghost ? 10 : 15)
+            .frame(maxWidth: fullWidth ? .infinity : nil)
+            .frame(height: height)
+            .background {
+                switch kind {
+                case .primary:
+                    shape.fill(Night.gradient)
+                        .overlay(shape.inset(by: 0.5).stroke(LinearGradient(colors: [Color.white.opacity(0.35), .clear],
+                                                                             startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.12)),
+                                                             lineWidth: 1))
+                case .secondary, .danger:
+                    shape.fill(Night.raised).overlay(shape.strokeBorder(Night.line2, lineWidth: 1))
+                case .ghost:
+                    shape.fill(hover ? Night.accentSoft.opacity(0.6) : Color.clear)
+                }
+            }
+            .brightness(configuration.isPressed ? -0.06 : (hover && kind != .ghost ? 0.03 : 0))
+            .opacity(enabled ? 1 : 0.45)
+            .contentShape(shape)
+            .onHover { hover = $0 }
+            .animation(.easeOut(duration: 0.12), value: hover)
+    }
+
+    private var foreground: Color {
+        switch kind {
+        case .primary: return Night.onAccent
+        case .secondary: return Night.text
+        case .ghost: return Night.text2
+        case .danger: return Night.live
+        }
+    }
+}
+
+extension ButtonStyle where Self == NightButtonStyle {
+    static var nightPrimary: NightButtonStyle { NightButtonStyle(kind: .primary) }
+    static var nightSecondary: NightButtonStyle { NightButtonStyle(kind: .secondary) }
+    static var nightGhost: NightButtonStyle { NightButtonStyle(kind: .ghost) }
+}
+
+/// An icon-only button on a raised square (copy, more, close).
+struct NightIconButtonStyle: ButtonStyle {
+    var size: CGFloat = 30
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Night.text2)
+            .frame(width: size, height: size)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Night.raised))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Night.line2, lineWidth: 1))
+            .opacity(configuration.isPressed ? 0.75 : 1)
+            .contentShape(Rectangle())
+    }
+}
+
+// MARK: - App icon, symbol tile, menu bar glyph
 
 /// The app icon from the bundle (Assets.car), at any size.
 struct AppIconView: View {
@@ -73,22 +379,23 @@ struct AppIconView: View {
     }
 }
 
-/// An SF Symbol on a soft tinted rounded square: used for feature and setup cards.
+/// An SF Symbol on a soft accent square: used for feature and setup cards.
 struct SymbolTile: View {
     var symbol: String
     var size: CGFloat = 48
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: size * 0.46, weight: .medium))
-            .foregroundStyle(Brand.accent)
+            .font(.system(size: size * 0.42, weight: .medium))
+            .foregroundStyle(Night.accent)
             .frame(width: size, height: size)
-            .background(Brand.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: size * 0.24, style: .continuous))
+            .background(Night.accentSoft, in: RoundedRectangle(cornerRadius: size * 0.3, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: size * 0.3, style: .continuous).strokeBorder(Night.line, lineWidth: 1))
             .accessibilityHidden(true)
     }
 }
 
-/// The menu bar icon: the nib as a TEMPLATE image (macOS tints it for light/dark menu bars).
-///  .idle = the nib   .live = nib + a dot (listening / recording)   .busy = nib + three dots (transcribing)
+/// The menu bar icon: a small capsule sound wave as a TEMPLATE image (macOS tints it for
+/// light/dark menu bars).  .idle = the wave   .live = wave + a dot   .busy = wave + three dots
 enum MenuBarGlyph {
     enum Mode { case idle, live, busy }
 
@@ -97,10 +404,18 @@ enum MenuBarGlyph {
         let img = NSImage(size: size, flipped: true) { _ in
             guard let cg = NSGraphicsContext.current?.cgContext else { return false }
             cg.setFillColor(NSColor.black.cgColor)
-            let nibRect = mode == .idle ? CGRect(x: 0.5, y: 0.5, width: 17, height: 17)
-                                        : CGRect(x: 0, y: 0, width: 15, height: 15)
-            cg.addPath(NibShape.path(in: nibRect, detail: .glyph))
-            cg.fillPath(using: .evenOdd)
+            // Five capsule bars (the icon's wave), a little narrower when a badge sits beside it.
+            let heights: [CGFloat] = [5, 10, 14, 9, 6]
+            let w: CGFloat = 2.2
+            let gap: CGFloat = mode == .idle ? 1.4 : 1.0
+            let total = CGFloat(heights.count) * w + CGFloat(heights.count - 1) * gap
+            let x0: CGFloat = mode == .idle ? (18 - total) / 2 : 0.6
+            let cy: CGFloat = mode == .idle ? 9 : 8
+            for (i, h) in heights.enumerated() {
+                let r = CGRect(x: x0 + CGFloat(i) * (w + gap), y: cy - h / 2, width: w, height: h)
+                cg.addPath(CGPath(roundedRect: r, cornerWidth: w / 2, cornerHeight: w / 2, transform: nil))
+            }
+            cg.fillPath()
             switch mode {
             case .idle: break
             case .live:
@@ -123,126 +438,27 @@ enum MenuBarGlyph {
     static let busy = image(.busy)
 }
 
-// MARK: - 0.6 look: Liquid Glass + warm, calm neutrals
-//
-// Apple structure, Notion calm, a little cozier: warm off-white paper in light mode and a
-// warm charcoal in dark mode, soft continuous corners, quiet hairlines, one gentle warm
-// accent ("honey") beside the indigo nib. On macOS 26 the floating chrome (buttons, chips,
-// the dictation capsule, banners) is Liquid Glass; on macOS 14/15 the same views fall back
-// to the system's regular material with a hairline edge.
+// MARK: - Page header, block heading, empty state
 
-extension Color {
-    /// A color with separate light and dark values (follows the window's appearance).
-    static func scribe(light: (CGFloat, CGFloat, CGFloat, CGFloat), dark: (CGFloat, CGFloat, CGFloat, CGFloat)) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            let c = isDark ? dark : light
-            return NSColor(srgbRed: c.0, green: c.1, blue: c.2, alpha: c.3)
-        })
-    }
-}
-
-enum Warm {
-    /// The page behind content (warm paper / warm charcoal).
-    static let canvas = Color.scribe(light: (0.984, 0.976, 0.965, 1), dark: (0.118, 0.110, 0.102, 1))
-    /// Cards and grouped blocks sitting on the canvas.
-    static let surface = Color.scribe(light: (1.000, 0.996, 0.990, 1), dark: (0.160, 0.149, 0.140, 1))
-    /// Subtle filled areas (pills, wells, hover).
-    static let well = Color.scribe(light: (0.945, 0.931, 0.912, 1), dark: (0.212, 0.198, 0.186, 1))
-    /// Quiet dividers and card edges.
-    static let hairline = Color.scribe(light: (0.42, 0.34, 0.26, 0.13), dark: (1, 0.96, 0.90, 0.08))
-    /// The gentle warm accent (used sparingly: section marks, empty states, highlights).
-    static let honey = Color.scribe(light: (0.78, 0.49, 0.22, 1), dark: (0.90, 0.64, 0.38, 1))
-    /// Soft, warm-tinted shadow for cards.
-    static let shadow = Color.scribe(light: (0.33, 0.22, 0.12, 0.07), dark: (0, 0, 0, 0.35))
-}
-
-extension Brand {
-    /// Corner radii: small controls, cards, big panels.
-    static let rSmall: CGFloat = 8, rCard: CGFloat = 14, rPanel: CGFloat = 20
-    /// Comfortable reading width for notes and transcripts.
-    static let readingWidth: CGFloat = 720
-}
-
-extension View {
-    /// Liquid Glass on macOS 26; regular material + hairline on macOS 14/15.
-    @ViewBuilder
-    func scribeGlass<S: InsettableShape>(_ shape: S, tint: Color? = nil, interactive: Bool = false) -> some View {
-        if #available(macOS 26.0, *) {
-            self.glassEffect(Self.glass(tint: tint, interactive: interactive), in: shape)
-        } else {
-            self.background {
-                shape.fill(.regularMaterial)
-                if let tint { shape.fill(tint.opacity(0.18)) }
-            }
-            .overlay(shape.strokeBorder(Warm.hairline, lineWidth: 0.5))
-        }
-    }
-
-    @available(macOS 26.0, *)
-    private static func glass(tint: Color?, interactive: Bool) -> Glass {
-        var g = Glass.regular
-        if let tint { g = g.tint(tint) }
-        if interactive { g = g.interactive() }
-        return g
-    }
-
-    /// A calm card: warm surface, soft corners, hairline edge, a whisper of shadow.
-    func scribeCard(radius: CGFloat = Brand.rCard, padding: CGFloat = Brand.s2) -> some View {
-        self.padding(padding)
-            .background(Warm.surface, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(Warm.hairline, lineWidth: 0.5))
-            .shadow(color: Warm.shadow, radius: 10, y: 3)
-    }
-
-    /// `.glass` / `.glassProminent` buttons on macOS 26, bordered ones before.
-    func scribeButton(prominent: Bool = false) -> some View { modifier(ScribeButtonStyle(prominent: prominent)) }
-
-    /// The warm page background (content area of the main window, settings panes).
-    func scribeCanvas() -> some View { self.background(Warm.canvas) }
-}
-
-struct ScribeButtonStyle: ViewModifier {
-    var prominent: Bool
-    func body(content: Content) -> some View {
-        if #available(macOS 26.0, *) {
-            if prominent { content.buttonStyle(.glassProminent) } else { content.buttonStyle(.glass) }
-        } else {
-            if prominent { content.buttonStyle(.borderedProminent) } else { content.buttonStyle(.bordered) }
-        }
-    }
-}
-
-/// Groups nearby glass shapes so they blend like one piece of glass (macOS 26 only).
-struct GlassGroup<Content: View>: View {
-    var spacing: CGFloat = 10
-    @ViewBuilder var content: Content
-    var body: some View {
-        if #available(macOS 26.0, *) {
-            GlassEffectContainer(spacing: spacing) { content }
-        } else {
-            content
-        }
-    }
-}
-
-/// A page title block: big title, one calm line under it (Notion-style page header).
+/// A page header: Display title + meta on one line, trailing controls right-aligned. 72 tall.
 struct PageHeader<Trailing: View>: View {
     var title: String
     var subtitle: String?
     @ViewBuilder var trailing: Trailing
     var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(.system(size: 28, weight: .bold))
+        HStack(alignment: .center, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(title).font(.nightDisplay).tracking(-0.3).foregroundStyle(Night.text).lineLimit(1)
                 if let subtitle {
-                    Text(subtitle).font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(subtitle).font(.nightSecondary).foregroundStyle(Night.text3).lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
-            Spacer(minLength: 16)
+            .layoutPriority(1)
+            Spacer(minLength: 12)
             trailing
         }
+        .frame(height: Night.headerHeight)
     }
 }
 
@@ -252,22 +468,29 @@ extension PageHeader where Trailing == EmptyView {
     }
 }
 
-/// A small heading with a quiet symbol, used for blocks inside a page ("Summary", "Action items").
-struct BlockHeading: View {
+/// A section label: a small sparkle + UPPERCASE text (11.5/700, +0.9 tracking).
+struct SectionLabel: View {
     var title: String
-    var symbol: String
+    var color: Color = Night.text3
     var body: some View {
-        Label {
-            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.secondary)
-                .textCase(nil)
-        } icon: {
-            Image(systemName: symbol).font(.system(size: 12, weight: .semibold)).foregroundStyle(Warm.honey)
+        HStack(spacing: 7) {
+            Sparkle().fill(Night.star).frame(width: 9, height: 9)
+            Text(title.uppercased()).font(.nightLabel).tracking(0.9).foregroundStyle(color).lineLimit(1)
         }
-        .labelStyle(.titleAndIcon)
+        .accessibilityElement(children: .combine)
     }
 }
 
-/// A friendly empty state: a soft symbol tile, a short human line, an optional action.
+/// A block heading inside a page ("Summary", "Action items"): the sparkle label. The symbol
+/// argument is kept for older call sites.
+struct BlockHeading: View {
+    var title: String
+    var symbol: String = ""
+    var body: some View { SectionLabel(title: title) }
+}
+
+/// The empty state: one large sparkle (soft glow) over a row of dot-height idle bars, one
+/// Headline line, one Secondary line, then an optional primary action. Nothing else.
 struct CozyEmptyState<Actions: View>: View {
     var symbol: String
     var title: String
@@ -275,20 +498,21 @@ struct CozyEmptyState<Actions: View>: View {
     @ViewBuilder var actions: Actions
     var body: some View {
         VStack(spacing: 14) {
-            Image(systemName: symbol)
-                .font(.system(size: 26, weight: .medium))
-                .foregroundStyle(Warm.honey)
-                .frame(width: 64, height: 64)
-                .background(Warm.honey.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            VStack(spacing: 6) {
-                Text(title).font(.title3.weight(.semibold))
-                // No fixedSize here: it would make the window's minimum height huge.
-                Text(message).font(.callout).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(6)
-                    .frame(maxWidth: 380)
+            VStack(spacing: 14) {
+                SparkleView(size: 48, glow: true)
+                CapsuleBars(levels: Array(repeating: 0, count: 9), barWidth: 5, spacing: 5, maxLength: 5, style: .dim)
             }
-            actions.padding(.top, 4)
+            .padding(.bottom, 4)
+            VStack(spacing: 6) {
+                Text(title).font(.nightHeadline).foregroundStyle(Night.text)
+                // No fixedSize here: it would make the window's minimum height huge.
+                Text(message).font(.nightSecondary).foregroundStyle(Night.text2)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                    .lineLimit(6)
+                    .frame(maxWidth: 400)
+            }
+            actions.padding(.top, 6)
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -299,5 +523,14 @@ struct CozyEmptyState<Actions: View>: View {
 extension CozyEmptyState where Actions == EmptyView {
     init(symbol: String, title: String, message: String) {
         self.init(symbol: symbol, title: title, message: message) { EmptyView() }
+    }
+}
+
+/// A 1 px divider in the line color.
+struct NightDivider: View {
+    var vertical = false
+    var body: some View {
+        Rectangle().fill(Night.line)
+            .frame(width: vertical ? 1 : nil, height: vertical ? nil : 1)
     }
 }
