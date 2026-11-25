@@ -277,7 +277,11 @@ enum VoiceBench {
         let ms = await MainActor.run { ModelStore.shared }
         var engines: [String: Any] = [:]
         var skipped: [String] = []
-        for engine in DictationEngine.allCases {
+        // `--engines parakeet-v2,parakeet-v3` runs only those (default: all).
+        let only = SelfTest.argValue("--engines").map { Set($0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }) }
+        let selected = DictationEngine.allCases.filter { only == nil || only!.contains("all") || only!.contains($0.rawValue) }
+        out["engines_selected"] = selected.map(\.rawValue)
+        for engine in selected {
             var e: [String: Any] = ["title": engine.title, "download_bytes": engine.downloadBytes]
             if overBudget() { skipped.append("\(engine.rawValue): all sets (time budget)"); continue }
             do {

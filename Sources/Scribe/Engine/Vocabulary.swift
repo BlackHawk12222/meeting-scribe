@@ -23,6 +23,11 @@
 //     just the term split up, "Swift UI" → "SwiftUI"), and terms of 3 characters or fewer
 //     ("CAD", "VEX", "V5") are never given to the helper at all: they come only from the
 //     text pass, which needs the exact spoken spelling ("cad", "c a d", "v five").
+//     voice-test: the helper heard "So cute!" as the non-word "Sugud." and made it "Xcode."
+//     So a swap now also needs the heard text to be SPELLED like the term (normalized edit
+//     distance ≤ 0.34 and same first letter or consonant skeleton), never touches a single
+//     word under 4 letters, and never touches the end of a reply of 3 words or fewer — unless
+//     the heard text is just the term split up ("Swift UI" → "SwiftUI").
 
 import Foundation
 
@@ -266,12 +271,13 @@ enum Vocabulary {
     }
 
     /// May the acoustic helper replace the heard words `original` with the term `replacement`?
+    /// `utterance` = the whole transcript the words came from (for the short-reply rule).
     static func acousticReplacementAllowed(original: String, replacement: String, dict: Set<String>,
-                                           terms: [VocabularyTerm] = Vocabulary.terms) -> Bool {
+                                           terms: [VocabularyTerm] = Vocabulary.terms,
+                                           utterance: String? = nil) -> Bool {
         let term = core(replacement).lowercased()
         guard term.count >= acousticMinTermLength else { return false }      // "CAD", "VEX", "V5": text pass only
-        let words = original.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "\n" || $0 == "\t" })
-            .map(String.init).filter { $0.contains(where: { $0.isLetter || $0.isNumber }) }
+        let words = splitWords(original)
         guard !words.isEmpty else { return false }
         // Never overwrite another term that was already heard ("Vex V5" → "Xcode").
         let otherTerms = Set(terms.filter { core($0.text).lowercased() != term }
@@ -284,13 +290,54 @@ enum Vocabulary {
             let limit = term.count >= 6 ? 1 : 0
             if editDistance(joined, term, limit: limit) <= limit { return true }
         }
-        // Otherwise only when something heard isn't a real word ("OnShade" → "Onshape"): a word of
-        // 3+ letters (no digits) missing from the word list. "cute", "head", "practise", "notion"
-        // are real words: keep what was said.
+        // voice-test: a single short heard word ("Done", "cute") is never swapped.
+        if words.count == 1, core(words[0]).count < 4 { return false }
+        // …nor the last word(s) of a short reply ("So cute!" heard as "Sugud." → "Xcode.").
+        if let u = utterance, isTailOfShortUtterance(words, utterance: u) { return false }
+        // The heard text must be spelled like the term: normalized edit distance ≤ 0.34 and the
+        // same first letter or the same consonant skeleton ("OnShade" ≈ "Onshape"; "Sugud" ≠ "Xcode").
+        guard similarSpelling(joined, term) else { return false }
+        // And something heard isn't a real word ("OnShade"): a word of 3+ letters (no digits)
+        // missing from the word list. "cute", "head", "practise", "notion" are real words.
         return words.contains { w in
             let c = core(w)
             return c.count >= 3 && c.allSatisfy(\.isLetter) && !isEnglishWord(w, dict: dict)
         }
+    }
+
+    static func splitWords(_ s: String) -> [String] {
+        s.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "\n" || $0 == "\t" })
+            .map(String.init).filter { $0.contains(where: { $0.isLetter || $0.isNumber }) }
+    }
+
+    /// Max normalized edit distance between heard text and term for an acoustic swap.
+    static let acousticMaxDistance = 0.34
+
+    /// "onshade" ~ "onshape": edit distance / longer length ≤ 0.34, plus the same first letter or
+    /// the same consonant skeleton (vowels dropped, doubled letters merged).
+    static func similarSpelling(_ heard: String, _ term: String) -> Bool {
+        let a = core(heard).lowercased(), b = core(term).lowercased()
+        guard !a.isEmpty, !b.isEmpty else { return false }
+        let n = max(a.count, b.count)
+        let d = editDistance(a, b, limit: n)
+        guard Double(d) / Double(n) <= acousticMaxDistance else { return false }
+        return a.first == b.first || consonantSkeleton(a) == consonantSkeleton(b)
+    }
+
+    static func consonantSkeleton(_ s: String) -> String {
+        var out = ""
+        for c in s.lowercased() where c.isLetter && !"aeiouy".contains(c) {
+            if out.last != c { out.append(c) }
+        }
+        return out
+    }
+
+    /// The heard words are the end of an utterance of 3 words or fewer.
+    static func isTailOfShortUtterance(_ heard: [String], utterance: String) -> Bool {
+        let all = splitWords(utterance).map { core($0).lowercased() }
+        guard !all.isEmpty, all.count <= 3 else { return false }
+        let h = heard.map { core($0).lowercased() }
+        return h.count <= all.count && Array(all.suffix(h.count)) == h
     }
 
     /// Apply only the helper's swaps that pass `acousticReplacementAllowed`.
@@ -303,7 +350,7 @@ enum Vocabulary {
         var accepted: [(from: String, to: String)] = []
         var rejected: [(from: String, to: String)] = []
         for r in replacements {
-            if !r.to.isEmpty, acousticReplacementAllowed(original: r.from, replacement: r.to, dict: d) { accepted.append(r) } else { rejected.append(r) }
+            if !r.to.isEmpty, acousticReplacementAllowed(original: r.from, replacement: r.to, dict: d, utterance: original) { accepted.append(r) } else { rejected.append(r) }
         }
         if accepted.isEmpty { return (original, [], rejected) }
         if rejected.isEmpty { return (rescored, accepted, []) }

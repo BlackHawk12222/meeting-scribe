@@ -146,20 +146,35 @@ enum TextCleanup {
     // sentence: the next word can't start a typed sentence ("and", "because", "that"…), or
     // the words before it can't end one ("…to.", "…the.", "…is.", "…probably.").
 
-    static let pauseJoiners: Set<String> = ["and", "because", "or", "than", "that", "which", "whatever",
+    /// A next word that continues the sentence ("…after lunch. And bring water").
+    /// ("that", "but", "so" start real sentences too often to count.)
+    static let pauseJoiners: Set<String> = ["and", "because", "or", "than", "which", "whatever",
                                             "to", "of", "nor", "was", "were"]
+    /// A last word that can't end a typed sentence ("…need to.", "…the.", "…probably.").
+    /// Words that often DO end one ("it", "you", "that", "her", "so", "in", "on", "can", "want"…) aren't here.
     static let danglingEnd: Set<String> = [
-        "the", "a", "an", "to", "of", "is", "are", "was", "were", "be", "and", "or", "but", "so", "because",
-        "my", "your", "our", "their", "his", "her", "its", "with", "for", "in", "on", "at", "from", "into",
-        "about", "that", "this", "these", "those", "probably", "should", "would", "could", "will", "can",
-        "need", "want", "just", "really", "maybe", "um", "uh", "like", "than", "if", "when", "we", "you",
-        "they", "i", "he", "she", "it", "very", "some", "any",
+        "the", "a", "an", "to", "of", "and", "or", "but", "because", "nor",
+        "my", "your", "our", "their", "its", "with", "for", "from", "into", "onto", "at",
+        "probably", "just", "very", "um", "uh", "than", "if", "when", "we", "they", "i", "he", "she",
+        "is", "are", "was", "were",
     ]
-    private static let rePausePeriod = re("(?<![\\w.])([A-Za-z'’]{2,}|[Ia])\\. ([A-Z][a-z'’]*)\\b")
+    /// "is/are/was/were" end a real sentence after these: "where it is.", "here we are.", "that's how it was."
+    static let copulaEnders: Set<String> = ["it", "that", "this", "what", "where", "who", "how", "here", "there",
+                                            "we", "you", "they", "he", "she", "i", "which", "whatever", "things"]
+    // "<word>. <Capitalized>" — the next word is matched in a lookahead, so "lunch. And. Bring" can
+    // be merged twice in one pass.
+    private static let rePausePeriod = re("(?<![\\p{L}\\p{N}.'’])([\\p{L}'’]{2,}|[Ia])\\. (?=([A-Z][\\p{L}\\p{N}'’]*))")
 
-    /// True when "…<previous>. <next>…" is a pause, not a real sentence end.
-    static func isPauseCut(previous: String, next: String) -> Bool {
-        pauseJoiners.contains(next.lowercased()) || danglingEnd.contains(previous.lowercased())
+    /// True when "…<beforePrevious> <previous>. <next>…" is a pause, not a real sentence end.
+    /// `nextEndsQuestion`: the sentence that starts at `next` ends with "?" ("Was it fine?").
+    static func isPauseCut(previous: String, next: String, beforePrevious: String? = nil,
+                           nextEndsQuestion: Bool = false) -> Bool {
+        let p = previous.lowercased(), n = next.lowercased()
+        if pauseJoiners.contains(n), !(nextEndsQuestion && ["was", "were", "which"].contains(n)) { return true }
+        if ["is", "are", "was", "were"].contains(p) {
+            return !copulaEnders.contains((beforePrevious ?? "").lowercased())
+        }
+        return danglingEnd.contains(p)
     }
 
     /// Next word after a dropped pause period: everyday words go lowercase; "I", names, terms keep
@@ -171,6 +186,18 @@ enum TextCleanup {
         return f.lowercased() + word.dropFirst()
     }
 
+    /// Last word of `s` (punctuation trimmed), "" if `s` ends in punctuation other than spaces.
+    static func lastWord(_ s: String) -> String {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        guard let l = t.last, l.isLetter || l.isNumber || l == "'" || l == "’" else { return "" }
+        return t.split(separator: " ").last.map(String.init) ?? ""
+    }
+
+    /// The sentence starting at `s` ends with "?" (first of . ? ! that follows).
+    static func endsQuestion(_ s: Substring) -> Bool {
+        s.first(where: { ".?!".contains($0) }) == "?"
+    }
+
     static func mergePausePeriods(_ s: String) -> String {
         let ns = s as NSString
         let matches = rePausePeriod.matches(in: s, range: NSRange(location: 0, length: ns.length))
@@ -178,10 +205,16 @@ enum TextCleanup {
         var out = ""
         var last = 0
         for m in matches {
-            let prev = ns.substring(with: m.range(at: 1)), next = ns.substring(with: m.range(at: 2))
-            out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
-            out += isPauseCut(previous: prev, next: next) ? prev + " " + continuing(next) : ns.substring(with: m.range)
-            last = m.range.location + m.range.length
+            let pr = m.range(at: 1), nr = m.range(at: 2)
+            let prev = ns.substring(with: pr), next = ns.substring(with: nr)
+            if pr.location >= last {
+                out += ns.substring(with: NSRange(location: last, length: pr.location - last)) + prev
+            }   // else: `prev` was the previous match's next word, already written
+            let before = lastWord(ns.substring(to: pr.location))
+            let q = endsQuestion(Substring(ns.substring(from: nr.location)))
+            out += isPauseCut(previous: prev, next: next, beforePrevious: before, nextEndsQuestion: q)
+                ? " " + continuing(next) : ". " + next
+            last = nr.location + nr.length
         }
         return out + ns.substring(from: last)
     }
@@ -197,26 +230,17 @@ enum TextCleanup {
         for next in parts.dropFirst() {
             let firstWord = String(next.prefix { $0.isLetter || $0 == "'" || $0 == "’" })
             let lowerFirst = firstWord.lowercased()
-            // Keep the sentence break if the piece ended with ? or !, or ended with "." and the
-            // next piece starts with a word that typically opens a sentence AND isn't a
-            // continuation word (and/but/or/so/because/which/that/to/of…).
-            let continuation: Set<String> = ["and", "but", "or", "so", "because", "which", "that", "who", "to", "of",
-                                             "in", "on", "for", "with", "than", "then", "if", "when", "while",
-                                             "the", "a", "an", "is", "are", "was", "were", "be", "it", "maybe",
-                                             "probably", "like", "um", "uh", "at", "by", "from", "about", "into"]
+            // Keep the model's sentence break unless the pause clearly cut one: the next piece
+            // starts with "and/because/or…", or this one ends on "to/the/probably…".
+            // (voice-test: the older rule merged before almost any everyday word:
+            // "…quiz on cells. If I have time" became "…quiz on cells if I have time".)
             let endsQuestion = out.hasSuffix("?") || out.hasSuffix("!")
-            let endsPeriod = out.hasSuffix(".")
-            // A short tail (< 3 words) before the period was almost certainly cut by the pause.
-            let lastSentenceWords = out.split(whereSeparator: { ".!?".contains($0) }).last?
-                .split(separator: " ").count ?? 0
-            // A piece ending on "to", "the", "and"… was cut by the pause, whatever comes next.
-            let lastWord = out.split(separator: " ").last.map { $0.trimmingCharacters(in: .punctuationCharacters).lowercased() } ?? ""
-            let dangling = continuation.contains(lastWord) || ["my", "our", "your", "their", "his", "her", "this", "that", "we", "you", "they"].contains(lastWord)
-            _ = lastSentenceWords; _ = dangling
-            // voice-test: keep the model's sentence break unless the pause clearly cut one (the
-            // older rule merged before almost any everyday word: "…quiz on cells if I have time").
-            let endsSentence = endsQuestion || endsPeriod
-            let newSentence = endsSentence && !(endsPeriod && isPauseCut(previous: lastWord, next: firstWord))
+            let endsPeriod = out.hasSuffix(".") && !out.hasSuffix("..")
+            let words = out.split(separator: " ").map { $0.trimmingCharacters(in: .punctuationCharacters) }
+            let lastWord = words.last ?? ""
+            let beforeLast = words.count >= 2 ? words[words.count - 2] : ""
+            let newSentence = endsQuestion || (endsPeriod && !isPauseCut(previous: lastWord, next: firstWord, beforePrevious: beforeLast,
+                                                                          nextEndsQuestion: Self.endsQuestion(Substring(next))))
             if newSentence {
                 out += " " + next
                 continue

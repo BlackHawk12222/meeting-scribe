@@ -121,6 +121,25 @@ extension SelfTest {
         check("join: 'I' stays capital", j3 == "Then we need to I think fix the intake.", j3)
         let j4 = TextCleanup.joinChunks(["Send it to.", "Figma tomorrow."], vocabulary: ["Figma"])
         check("join: vocabulary term keeps its capital", j4.contains("Figma"), j4)
+        // Pause periods inside one transcript (voice-test): dropped only where the pause cut a sentence.
+        let pp: [(String, String, String)] = [
+            ("pause: '. And' joins", "Coach said we need to be there right after lunch. And bring water",
+             "Coach said we need to be there right after lunch and bring water"),
+            ("pause: '…plan is. We' joins", "So the plan is. We test the robot on Tuesday.", "So the plan is we test the robot on Tuesday."),
+            ("pause: real sentence ends kept", "I finished the robot today. Tomorrow we test it. Then we fix whatever breaks.",
+             "I finished the robot today. Tomorrow we test it. Then we fix whatever breaks."),
+            ("pause: 'where it is.' is a real end", "That's where it is. We can go.", "That's where it is. We can go."),
+            ("pause: question after 'Was' kept", "I fixed the arm. Was it the motor?", "I fixed the arm. Was it the motor?"),
+            ("pause: 'I' keeps its capital", "Then we need to. I think we should ask Priya.", "Then we need to I think we should ask Priya."),
+            ("pause: names and terms keep capitals", "Send it to. Priya and push to. GitHub tonight.", "Send it to Priya and push to GitHub tonight."),
+            ("pause: abbreviations untouched", "We met Mr. Smith at 3 PM. The U.S. team won.", "We met Mr. Smith at 3 PM. The U.S. team won."),
+        ]
+        for (name, input, want) in pp {
+            let got = TextCleanup.rules(input)
+            check(name, got == want, got)
+        }
+        let pl = TextCleanup.light("we should probably. And then add a motor.")
+        check("pause: light() merges too", pl == "We should probably and then add a motor.", pl)
         // Stray capitals.
         let c1 = TextCleanup.rules("we should probably, The motor is hot and We can fix it")
         check("rules: stray mid-sentence capitals lowered", c1 == "We should probably, the motor is hot and we can fix it", c1)
@@ -158,6 +177,22 @@ extension SelfTest {
         let g2 = Vocabulary.guardAcoustic(original: "He nods his head.", rescored: "He nods his CAD.",
                                           replacements: [(from: "head.", to: "CAD")], dict: dict)
         check("acoustic guard: all refused → model text unchanged", g2.text == "He nods his head.", g2.text)
+        // voice-test: swaps need a spelling match ("So cute!" heard as "Sugud." became "Xcode.").
+        let acoustic2: [(String, String, String?, Bool)] = [
+            ("Sugud.", "Xcode", "Sugud.", false), ("Sugud", "Xcode", nil, false), ("Done", "Xcode", "Done.", false),
+            ("One sec", "Onshape", "One sec.", false), ("Vex V5", "Xcode", "The Vex V5 robot.", false),
+            ("cute", "CAD", "So cute.", false), ("head", "CAD", "He nods his head.", false), ("practise", "CAD", "I will practise it.", false),
+            ("OnShade", "Onshape", "Open the OnShade file.", true), ("OnShade", "Onshape", nil, true),
+            ("Swift UI", "SwiftUI", "Swift UI.", true), ("Swift UI", "SwiftUI", "I built it in Swift UI today.", true),
+        ]
+        for (heard, term, utt, want) in acoustic2 {
+            let got = Vocabulary.acousticReplacementAllowed(original: heard, replacement: term, dict: dict, utterance: utt)
+            check("acoustic guard: \(heard) → \(term) \(want ? "kept" : "refused")", got == want, "allowed=\(got)")
+        }
+        check("acoustic guard: spelling similarity", Vocabulary.similarSpelling("onshade", "onshape") && !Vocabulary.similarSpelling("sugud", "xcode")
+              && !Vocabulary.similarSpelling("done", "xcode"), "")
+        let g3 = Vocabulary.guardAcoustic(original: "Sugud.", rescored: "Xcode.", replacements: [(from: "Sugud.", to: "Xcode")], dict: dict)
+        check("acoustic guard: short reply 'Sugud.' stays", g3.text == "Sugud." && g3.accepted.isEmpty, g3.text)
         // Speed: rules + vocabulary on a 200-word dictation.
         let long = String(repeating: "um so I I I think we need twenty five percent more of the onshape thing, uh, and then. The robot works. ", count: 9)
         _ = Vocabulary.apply(TextCleanup.rules(long))

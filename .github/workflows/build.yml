@@ -22,6 +22,9 @@ on:
       voicebench:
         description: "Also run the dictation engine benchmark (Parakeet v2/v3, Whisper turbo/distil; ~1 h, downloads ~1.7 GB)"
         default: "false"
+      voicebench_engines:
+        description: "Voice benchmark engines: all, or a comma list (parakeet-v2,parakeet-v3,…)"
+        default: "all"
 permissions:
   contents: write
 concurrency:
@@ -120,7 +123,8 @@ jobs:
         run: |
           set -o pipefail
           ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --selftest --suite voicebench \
-            --libri-dir "$PWD/Tests/librispeech" --noise-wav "$PWD/Tests/noise/crowd_noise_16k.wav" --budget-minutes 62 | tee voicebench.out
+            --libri-dir "$PWD/Tests/librispeech" --noise-wav "$PWD/Tests/noise/crowd_noise_16k.wav" --budget-minutes 62 \
+            --engines "${{ github.event.inputs.voicebench_engines || 'all' }}" | tee voicebench.out
           grep '^SELFTEST_JSON:' voicebench.out | sed 's/^SELFTEST_JSON://' > voicebench.json
           grep '^VOICEBENCH_ROWS:' voicebench.out | sed 's/^VOICEBENCH_ROWS://' > voicebench-rows.jsonl
           python3 -m json.tool voicebench.json > /dev/null && echo "voicebench.json OK"
