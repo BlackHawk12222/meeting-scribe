@@ -341,6 +341,13 @@ enum SelfTest {
             "suite": suite,
             "speech_model": SpeechModel.current.title,
         ]
+        // voice-test branch: dictation engine comparison only (see VoiceBench.swift).
+        if suite == "voicebench" {
+            report["voicebench"] = await VoiceBench.run()
+            let data = (try? JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])) ?? Data()
+            print("SELFTEST_JSON:" + (String(data: data, encoding: .utf8) ?? "{}"))
+            return 0
+        }
         do {
             // Models: ModelStore compares the bundled manifest with the disk and downloads only
             // what's missing (CI restores a model cache, so usually nothing).

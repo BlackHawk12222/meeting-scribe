@@ -745,6 +745,309 @@
      "gitSha1": "33b95831722563db5362641673b37885e25fb47a"
     }
    ]
+  },
+  {
+   "id": "whisper-turbo",
+   "title": "Speech model \u00b7 Whisper large-v3 turbo (WhisperKit)",
+   "group": "optional",
+   "repo": "argmaxinc/whisperkit-coreml",
+   "fluidRevision": "main",
+   "commit": "0f63a7800b00dd0226abd051b906c246e1907482",
+   "version": "0f63a7800b",
+   "hash": "609d4c7a930b7163d09746a49613ca812e0e8292a2da0f2c97e8aa74430eae78",
+   "totalBytes": 645668913,
+   "files": [
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/AudioEncoder.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "0dd9f529c744ed3c6be67f699588f7aadc4f366b5b7301dc31bd3f199944fbcc",
+     "gitSha1": null
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/AudioEncoder.mlmodelc/coremldata.bin",
+     "size": 348,
+     "sha256": "ffa9eb76e8e9d9be75a4d527e5249e61d67fd43081c5aa110fd24efa6c8c5ea3",
+     "gitSha1": null
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/AudioEncoder.mlmodelc/metadata.json",
+     "size": 1974,
+     "sha256": null,
+     "gitSha1": "5820827b232e51b0e914d1b0e78da9093bda4edb"
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/AudioEncoder.mlmodelc/model.mil",
+     "size": 7589739,
+     "sha256": null,
+     "gitSha1": "2c5e6fcd0383e7762f89abd23e34b3fe4cc356ab"
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/AudioEncoder.mlmodelc/weights/weight.bin",
+     "size": 421968768,
+     "sha256": "e4740fa28ed65907af754af893dfce98473fafb84dd8d718ad346985fe7678c1",
+     "gitSha1": null
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/MelSpectrogram.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "c5be419f8622083ac7046306400643539f0e7577c843448c36defc090d41e7ce",
+     "gitSha1": null
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/MelSpectrogram.mlmodelc/coremldata.bin",
+     "size": 329,
+     "sha256": "98efa1e351b759e078c4044668926d32bee886caf7596ae897e08e21da45565a",
+     "gitSha1": null
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/MelSpectrogram.mlmodelc/metadata.json",
+     "size": 1850,
+     "sha256": null,
+     "gitSha1": "fa0c2e5993006c311ba50d307cf563ae10a16b5f"
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/MelSpectrogram.mlmodelc/model.mil",
+     "size": 10143,
+     "sha256": null,
+     "gitSha1": "16b67b0978ac178a7540e8520915d2473d4bae03"
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/MelSpectrogram.mlmodelc/weights/weight.bin",
+     "size": 373376,
+     "sha256": "009d9fb8f6b589accfa08cebf1c712ef07c3405229ce3cfb3a57ee033c9d8a49",
+     "gitSha1": null
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/TextDecoder.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "4b5119bdc621c3c494f63846dc3ed43852e88826fc3b6345d42272d4b7e67724",
+     "gitSha1": null
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/TextDecoder.mlmodelc/coremldata.bin",
+     "size": 633,
+     "sha256": "605dad4099a82cf2c7afe93e6d8e322f1c16d4160ab27bd017ec2517b81c1bdd",
+     "gitSha1": null
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/TextDecoder.mlmodelc/metadata.json",
+     "size": 4924,
+     "sha256": null,
+     "gitSha1": "d85561cc6242beaa37dbe3fbd510e7384a3f5c84"
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/TextDecoder.mlmodelc/model.mil",
+     "size": 217177,
+     "sha256": null,
+     "gitSha1": "8958c6803ae0c8eea0ea4ce9de9d632d407e5db3"
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/TextDecoder.mlmodelc/weights/weight.bin",
+     "size": 203199860,
+     "sha256": "d69700903d518ada33170ab77faaaf464496fb9ff65752c6d5a6109aa2fb02db",
+     "gitSha1": null
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/TextDecoderContextPrefill.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "97639d36c7b137ea51c3c39b175911788f4d4a601ab03cd67a4b14164c3145e1",
+     "gitSha1": null
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/TextDecoderContextPrefill.mlmodelc/coremldata.bin",
+     "size": 380,
+     "sha256": "2c159f5c862ec187092ea58e755d8c0b298952e22f3d75da023d7693c1c7389e",
+     "gitSha1": null
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/TextDecoderContextPrefill.mlmodelc/metadata.json",
+     "size": 2240,
+     "sha256": null,
+     "gitSha1": "0b95fc53b8ba1b1a2c456910e6a9d9b1df36d6ea"
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/TextDecoderContextPrefill.mlmodelc/model.mil",
+     "size": 4092,
+     "sha256": null,
+     "gitSha1": "3e58aef47f462dfe6e83a60084bf2f2b7f4e93e2"
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/TextDecoderContextPrefill.mlmodelc/weights/weight.bin",
+     "size": 12288192,
+     "sha256": "1310070082639173e9d81508c5f220692d489e85655aa6883cc1c7506da7fcfd",
+     "gitSha1": null
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/config.json",
+     "size": 1149,
+     "sha256": null,
+     "gitSha1": "f6c3db01a3124f90b3bfbf3d58e47ba5de1f5ccd"
+    },
+    {
+     "path": "openai_whisper-large-v3-v20240930_turbo_632MB/generation_config.json",
+     "size": 2767,
+     "sha256": null,
+     "gitSha1": "a023f6f947b0fc4ab7a2986a1c23b014836ec720"
+    }
+   ]
+  },
+  {
+   "id": "whisper-distil",
+   "title": "Speech model \u00b7 Whisper distil-large-v3 (WhisperKit)",
+   "group": "optional",
+   "repo": "argmaxinc/whisperkit-coreml",
+   "fluidRevision": "main",
+   "commit": "0f63a7800b00dd0226abd051b906c246e1907482",
+   "version": "0f63a7800b",
+   "hash": "79b4d774e5a96b978c0b440932f7e6ebb7340faaac45f66139d6a1ed57b7b6e7",
+   "totalBytes": 594534261,
+   "files": [
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/AudioEncoder.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "79120bd7c421c5c29ef5701ec2df116ef1b663951a3a0ac183147e015d35f2ac",
+     "gitSha1": null
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/AudioEncoder.mlmodelc/coremldata.bin",
+     "size": 348,
+     "sha256": "ed121e756d637301566cc86a4787e2adece71c438774ed1e5652a76d4f9ed62b",
+     "gitSha1": null
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/AudioEncoder.mlmodelc/metadata.json",
+     "size": 1933,
+     "sha256": null,
+     "gitSha1": "5ad03b25a2e47407001ae351d43f88f736b47628"
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/AudioEncoder.mlmodelc/model.mil",
+     "size": 1138802,
+     "sha256": null,
+     "gitSha1": "7dc1639a0ed574cce292407b83df537c1b283fc6"
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/AudioEncoder.mlmodelc/weights/weight.bin",
+     "size": 353908416,
+     "sha256": "8f3ac62177a84bba905517f2546f559fff48c8b27eb57139f8dd7b11a283bc4d",
+     "gitSha1": null
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/MelSpectrogram.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "091a361134891f94e613562771beea0d93a9aefbc6984ba86c60f856e07a508f",
+     "gitSha1": null
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/MelSpectrogram.mlmodelc/coremldata.bin",
+     "size": 329,
+     "sha256": "f3c5778c86d6fbc6a9817a56dbcac05a946a4d95c77f6db8355572f3be9e9a68",
+     "gitSha1": null
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/MelSpectrogram.mlmodelc/metadata.json",
+     "size": 1850,
+     "sha256": null,
+     "gitSha1": "13fcb044275d5f71dbffab0fdbcb3b173bb0955e"
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/MelSpectrogram.mlmodelc/model.mil",
+     "size": 10187,
+     "sha256": null,
+     "gitSha1": "4cbec89bb76fb8a5edf95927d3a888989f287ff4"
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/MelSpectrogram.mlmodelc/weights/weight.bin",
+     "size": 373376,
+     "sha256": "1f0c972cf2fd8de717c5129818259ff2a79ba41552b51a024c8d89eaf6fe4496",
+     "gitSha1": null
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/TextDecoder.mlmodelc/analytics/coremldata.bin",
+     "size": 243,
+     "sha256": "a7a330a17952d9875fbb276af9f556979618bbe6b3087e22efe96a92f51efac2",
+     "gitSha1": null
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/TextDecoder.mlmodelc/coremldata.bin",
+     "size": 633,
+     "sha256": "a7372960953afc4893051757be8b0f78b1ed2d582ef5822b806adde589e097a8",
+     "gitSha1": null
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/TextDecoder.mlmodelc/metadata.json",
+     "size": 4750,
+     "sha256": null,
+     "gitSha1": "def9a52b0f9183372d20becc8656ab57b86c558b"
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/TextDecoder.mlmodelc/model.mil",
+     "size": 102862,
+     "sha256": null,
+     "gitSha1": "1acd13bf081af0164949cefafda77a0b100ae990"
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/TextDecoder.mlmodelc/weights/weight.bin",
+     "size": 238986036,
+     "sha256": "0a38bc3b78a21d5bd912bd8ce72762456f8cdcfdfec5ce3767d678584e6e8d6c",
+     "gitSha1": null
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/config.json",
+     "size": 1156,
+     "sha256": null,
+     "gitSha1": "35fb9504486c4c3df76f5f84aad0bdffd3de00f6"
+    },
+    {
+     "path": "distil-whisper_distil-large-v3_594MB/generation_config.json",
+     "size": 2854,
+     "sha256": null,
+     "gitSha1": "8d1525665be3225ab0cbd947863a3f75fe5a5b2b"
+    }
+   ]
+  },
+  {
+   "id": "whisper-tokenizer",
+   "title": "Whisper tokenizer",
+   "group": "optional",
+   "repo": "openai/whisper-large-v3",
+   "fluidRevision": "main",
+   "commit": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+   "version": "06f233fe06",
+   "hash": "fe89234537210ddc2add7a81300856bbbf2574ce14e20cdfbc785a417c03deea",
+   "totalBytes": 2801452,
+   "files": [
+    {
+     "path": "added_tokens.json",
+     "size": 34648,
+     "sha256": null,
+     "gitSha1": "1b33526d33aaa60d79f78ae8651dae50b730185a"
+    },
+    {
+     "path": "config.json",
+     "size": 1272,
+     "sha256": null,
+     "gitSha1": "14c6c8cf48b64ebb1cb8b637e2b0fab3a9774972"
+    },
+    {
+     "path": "special_tokens_map.json",
+     "size": 2072,
+     "sha256": null,
+     "gitSha1": "3c18e97162d572f2b1d62e7e1c7b805f1be11dbe"
+    },
+    {
+     "path": "tokenizer.json",
+     "size": 2480617,
+     "sha256": null,
+     "gitSha1": "3a5e2ba63acdcac9a19ba56cf9bd27f185bfff61"
+    },
+    {
+     "path": "tokenizer_config.json",
+     "size": 282843,
+     "sha256": null,
+     "gitSha1": "06ffdc8308eae6bb7bd1fdd81e94b0a881a539ab"
+    }
+   ]
   }
  ]
 }

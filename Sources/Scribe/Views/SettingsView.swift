@@ -466,20 +466,23 @@ struct VocabularySettingsTab: View {
 
 struct ModelSettingsTab: View {
     @EnvironmentObject var store: Store
-    @AppStorage("speechModel") private var speechModel = SpeechModel.english.rawValue
+    @EnvironmentObject var models: ModelStore
+    @AppStorage(DictationEngine.key) private var engineRaw = DictationEngine.current.rawValue
     @AppStorage("aiNotes") private var aiNotes = true
+    @State private var showVoiceTest = false
+    @StateObject private var voiceTest = VoiceTestModel()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SettingsCard(title: "Speech model",
-                         footer: "Runs on this Mac's Neural Engine with Core ML. Downloads once (~500 MB), then works with no internet.") {
-                ForEach(Array(SpeechModel.choices.enumerated()), id: \.element.id) { i, m in
+            SettingsCard(title: "Dictation model",
+                         footer: "Runs on this Mac's Neural Engine with Core ML. Downloads once, then works with no internet.") {
+                ForEach(Array(DictationEngine.allCases.enumerated()), id: \.element.id) { i, m in
                     if i > 0 { NightDivider() }
-                    Button { speechModel = m.rawValue } label: {
+                    Button { engineRaw = m.rawValue } label: {
                         HStack(spacing: 12) {
                             ZStack {
-                                Circle().strokeBorder(speechModel == m.rawValue ? Color.clear : Night.line2, lineWidth: 1.5)
-                                if speechModel == m.rawValue {
+                                Circle().strokeBorder(engineRaw == m.rawValue ? Color.clear : Night.line2, lineWidth: 1.5)
+                                if engineRaw == m.rawValue {
                                     Circle().fill(Night.gradient)
                                     Circle().fill(Color.white).frame(width: 6, height: 6)
                                 }
@@ -487,7 +490,8 @@ struct ModelSettingsTab: View {
                             .frame(width: 18, height: 18)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(m.title).font(.scribe(13.5, 700)).foregroundStyle(Night.text)
-                                Text(m.detail).font(.scribe(12, 500)).foregroundStyle(Night.text3)
+                                Text(m.detail + (m.componentIDs.allSatisfy { models.isInstalled($0) } ? "" : " Downloads \(ModelStore.mb(m.downloadBytes)) when picked."))
+                                    .font(.scribe(12, 500)).foregroundStyle(Night.text3)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             Spacer(minLength: 0)
@@ -496,6 +500,15 @@ struct ModelSettingsTab: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                }
+                NightDivider()
+                SettingRow(title: "Test my voice", detail: "Read 20 sentences; see which model gets your voice right.") {
+                    Button("Test my voice…") { showVoiceTest = true }
+                        .buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
+                }
+                if !store.whisperStatus.isEmpty {
+                    NightDivider()
+                    CardNote(text: store.whisperStatus)
                 }
                 NightDivider()
                 HStack(spacing: 12) {
@@ -524,7 +537,13 @@ struct ModelSettingsTab: View {
                           isOn: $aiNotes)
             }
         }
-        .onChange(of: speechModel) { _, _ in Task { await store.prepareEngine() } }
+        .onChange(of: engineRaw) { _, new in
+            if let e = DictationEngine(rawValue: new) { DictationEngine.select(e) }
+            Task { await store.prepareEngine() }
+        }
+        .sheet(isPresented: $showVoiceTest) {
+            VoiceTestView(model: voiceTest).environmentObject(store).environmentObject(models)
+        }
     }
 }
 

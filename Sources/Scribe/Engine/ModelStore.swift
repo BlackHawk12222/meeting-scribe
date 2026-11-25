@@ -163,6 +163,8 @@ final class ModelStore: ObservableObject {
         switch c.id {
         case "asr-ultra": return SpeechModel.offerAccurate
         case "ctc-110m": return Vocabulary.acousticBoost
+        case "whisper-turbo", "whisper-distil", "whisper-tokenizer":
+            return DictationEngine.current.componentIDs.contains(c.id)
         default: return true
         }
     }

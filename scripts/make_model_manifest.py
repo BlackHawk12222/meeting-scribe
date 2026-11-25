@@ -42,6 +42,17 @@ COMPONENTS = [
     dict(id="ctc-110m", title="Vocabulary helper (Parakeet CTC 110M)", group="optional",
          repo="FluidInference/parakeet-ctc-110m-coreml", fluid_revision="main",
          required=["MelSpectrogram.mlmodelc", "AudioEncoder.mlmodelc", "vocab.json", "tokenizer.json"]),
+    # voice-test: optional Whisper dictation engines (WhisperKit, Core ML, by Argmax). Not loaded by
+    # FluidAudio: `subfolder` = take every file in that folder of the repo; `only` = just these files.
+    dict(id="whisper-turbo", title="Speech model · Whisper large-v3 turbo (WhisperKit)", group="optional",
+         repo="argmaxinc/whisperkit-coreml", fluid_revision="main",
+         subfolder="openai_whisper-large-v3-v20240930_turbo_632MB"),
+    dict(id="whisper-distil", title="Speech model · Whisper distil-large-v3 (WhisperKit)", group="optional",
+         repo="argmaxinc/whisperkit-coreml", fluid_revision="main",
+         subfolder="distil-whisper_distil-large-v3_594MB"),
+    dict(id="whisper-tokenizer", title="Whisper tokenizer", group="optional",
+         repo="openai/whisper-large-v3", fluid_revision="main",
+         only=["config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "added_tokens.json"]),
 ]
 
 
@@ -80,14 +91,22 @@ def main():
         rev = c["fluid_revision"]
         commit = get(f"{HF}/api/models/{c['repo']}/revision/{rev}")[0]["sha"]
         files = []
-        root_items = tree(c["repo"], commit, "")
+        if c.get("subfolder") or c.get("only"):
+            if c.get("subfolder"):
+                files = [i for i in tree(c["repo"], commit, c["subfolder"]) if i["type"] == "file"]
+            else:
+                files = [i for i in tree(c["repo"], commit, "") if i["type"] == "file" and i["path"] in c["only"]]
+            c["required"] = [c["subfolder"]] if c.get("subfolder") else c["only"]
+            root_items = []
+        else:
+            root_items = tree(c["repo"], commit, "")
         for item in root_items:
             p = item["path"]
             if item["type"] != "file" or "/" in p:
                 continue
             if p in c["required"] or p.endswith((".json", ".txt")):
                 files.append(item)
-        for req in c["required"]:
+        for req in ([] if (c.get("subfolder") or c.get("only")) else c["required"]):
             if req.endswith((".mlmodelc", ".mlpackage")):
                 files += [i for i in tree(c["repo"], commit, req) if i["type"] == "file"]
         entries = []

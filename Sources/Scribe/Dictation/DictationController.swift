@@ -28,9 +28,22 @@ enum Dictation {
     /// Longer ones give Apple Intelligence at most this long, then paste the rule-cleaned text.
     static let aiTimeout: Double = 1.2
 
+    /// `engine`: which dictation engine (nil = the one picked in Settings). A Whisper engine that
+    /// isn't loaded yet falls back to Parakeet for this dictation instead of making you wait.
     static func run(samples: [Float], useAI: Bool, removeFillers: Bool, live: Bool = false,
-                    session: UUID? = nil, asrOverride: AsrManager? = nil) async throws -> Result {
-        let t = try await SpeechEngine.shared.dictate(samples: samples, live: live, session: session, asrOverride: asrOverride)
+                    session: UUID? = nil, asrOverride: AsrManager? = nil,
+                    engine: DictationEngine? = nil) async throws -> Result {
+        let chosen = engine ?? DictationEngine.current
+        var external: (@Sendable ([Float]) async throws -> String)? = nil
+        var useWhisper = false
+        if chosen.isWhisper, asrOverride == nil {
+            if engine != nil { useWhisper = true } else { useWhisper = await WhisperEngine.shared.isLoaded(chosen) }
+        }
+        if useWhisper {
+            external = { audio in try await WhisperEngine.shared.transcribe(audio, engine: chosen) }
+        }
+        let t = try await SpeechEngine.shared.dictate(samples: samples, live: live, session: session,
+                                                      asrOverride: asrOverride, external: external)
         let t0 = Date()
         // Rules (fillers, false starts, numbers, capitals) then your vocabulary list. Both < 20 ms.
         let rulesText = Vocabulary.apply(removeFillers ? TextCleanup.rules(t.text) : TextCleanup.light(t.text))
@@ -182,7 +195,7 @@ final class DictationController: ObservableObject {
         session = UUID()
         let mySession = session
         liveConsumer = Task.detached(priority: .userInitiated) {
-            await SpeechEngine.shared.liveVadStart(session: mySession)
+            await SpeechEngine.shared.liveVadStart(session: mySession, earlyParts: !DictationEngine.current.isWhisper)
             for await chunk in stream { await SpeechEngine.shared.liveVadFeed(chunk) }
         }
         do {
