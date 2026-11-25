@@ -151,6 +151,8 @@ struct DictationTranscript: Sendable {
     var vadMode: String = ""      // "single pass (live VAD)", "one pass", "incremental…" or "skipped (short clip)"
     var boostSeconds: Double = 0  // time the vocabulary helper (CTC) took
     var boostReplacements: [String] = []
+    /// Tachys: "hit" (speculative pass reused), "miss", "full" (end not quiet yet), "off".
+    var tachys: String = "off"
 }
 
 actor SpeechEngine {
@@ -191,14 +193,16 @@ actor SpeechEngine {
             let needVad = vad == nil
             async let vadLoad: VadManager? = needVad ? (try? await VadManager(config: VadConfig(defaultThreshold: 0.75))) : nil
             let tm = Date()
-            let models = try await AsrModels.downloadAndLoad(version: model.version, progressHandler: { p in
+            // Tachys: explicit Core ML compute units (Neural Engine by default = FluidAudio's default).
+            let models = try await AsrModels.downloadAndLoad(configuration: TachysEngine.modelConfiguration(),
+                                                             version: model.version, progressHandler: { p in
                 switch p.phase {
                 case .listing: status("Finding speech model files…", p.fractionCompleted)
                 case .downloading: status("Downloading speech model…", p.fractionCompleted)
                 case .compiling: status("Optimizing speech model for this Mac…", nil)
                 }
             })
-            Perf.log.info("Parakeet Core ML load: \(Date().timeIntervalSince(tm) * 1000, format: .fixed(precision: 0))ms")
+            Perf.log.info("Parakeet Core ML load: \(Date().timeIntervalSince(tm) * 1000, format: .fixed(precision: 0))ms (compute: \(TachysEngine.computeLabel, privacy: .public))")
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
             let second = AsrManager(config: .default)
@@ -215,11 +219,18 @@ actor SpeechEngine {
             changed = true
         }
         Perf.log.info("dictation models loaded in \(Date().timeIntervalSince(t0) * 1000, format: .fixed(precision: 0))ms")
+        // Tachys: a dictation pressed while the models were loading starts NOW (its own pass warms
+        // the model), instead of waiting behind the synthetic warm-up below.
+        let fast = TachysEngine.enabled
+        let someoneWaiting = fast && !dictationWaiters.isEmpty
+        if fast { resumeDictationWaiters() }
         if warm && changed {
             status("Warming up…", nil)
-            await prewarm()
+            await prewarm(skipAsr: someoneWaiting)
         }
         resumeDictationWaiters()
+        TachysEngine.record(launchReadyMs: Date().timeIntervalSince(TachysEngine.processStart) * 1000)
+        Perf.log.info("Tachys launch→ready: \(Date().timeIntervalSince(TachysEngine.processStart) * 1000, format: .fixed(precision: 0))ms (process start → dictation models loaded\(warm && changed ? " + warmed" : "", privacy: .public))")
     }
 
     // MARK: Waiting for the models (a dictation that started while they were loading)
@@ -279,6 +290,10 @@ actor SpeechEngine {
     private var liveSegmentStart: Int?
     /// Sentences already transcribed WHILE the key was still held: (where it ended, its text).
     private var liveEarly: [(end: Int, task: Task<String, Error>)] = []
+    /// Tachys: the speculative final pass (see TachysEngine.swift).
+    private var tachys = TachysEngine()
+    /// True while dictate() catches the VAD up after release (no new speculation then).
+    private var tachysReleasing = false
 
     /// How the voice detector cuts speech while you hold the key.
     /// 0.5 ("I pause while thinking", default on): a split needs ≥ 1.3 s of silence (0.4 used
@@ -328,6 +343,7 @@ actor SpeechEngine {
         liveEarly = []
         liveSession = session
         liveActive = vad != nil
+        tachys.reset(active: liveActive && earlyParts && TachysEngine.enabled)
     }
 
     func liveVadCancel() {
@@ -339,6 +355,7 @@ actor SpeechEngine {
         for e in liveEarly { e.task.cancel() }
         liveEarly = []
         liveSession = nil
+        tachys.reset(active: false)
     }
 
     /// Feed microphone audio (16 kHz mono) as it's recorded.
@@ -356,7 +373,7 @@ actor SpeechEngine {
         }
     }
 
-    private func vadStep(_ vad: VadManager, _ chunk: [Float]) async {
+    private func vadStep(_ vad: VadManager, _ chunk: [Float], end: Int? = nil) async {
         guard let r = try? await vad.processStreamingChunk(chunk, state: liveState, config: liveConfig) else {
             liveActive = false          // fall back to the one-pass VAD for this clip
             return
@@ -364,6 +381,10 @@ actor SpeechEngine {
         liveState = r.state
         liveResults.append(VadResult(probability: r.probability, isVoiceActive: r.probability >= 0.5,
                                      processingTime: 0, outputState: r.state.modelState))
+        if tachys.active {
+            tachys.observe(sliceEnd: end ?? min(liveResults.count * VadManager.chunkSize, liveAudio.count), probability: r.probability)
+            await tachysSpeculate()
+        }
         // A sentence just ended (≥ 0.5 s of silence) while you're still holding the key:
         // transcribe it NOW, so at release only the last bit is left.
         if let ev = r.event {
@@ -383,6 +404,59 @@ actor SpeechEngine {
                 }
             }
         }
+    }
+
+    // MARK: Tachys (speculative final pass, see TachysEngine.swift)
+
+    /// The exact array the one-pass release path feeds Parakeet for `samples` (VAD trim from the
+    /// live results, glue, pad to 1 s). Used for the speculative pass; dictate() builds the same.
+    private func tachysInput(_ samples: [Float], results: [VadResult], config: VadSegmentationConfig) async -> [Float] {
+        var segments: [VadSegment] = []
+        if let vad, Double(samples.count) / 16_000 >= Self.skipVadBelowSeconds {
+            let chunk = VadManager.chunkSize
+            let n = (samples.count + chunk - 1) / chunk
+            guard results.count >= n else { return [] }
+            segments = await vad.segmentSpeech(from: Array(results.prefix(n)), totalSamples: samples.count, config: config)
+        }
+        var parts: [[Float]] = []
+        for seg in segments {
+            let a = max(0, min(seg.startSample(sampleRate: 16_000), samples.count))
+            let b = max(a, min(seg.endSample(sampleRate: 16_000), samples.count))
+            if b > a { parts.append(Array(samples[a..<b])) }
+        }
+        var speech = parts.isEmpty ? samples : Self.glue(parts)
+        if speech.count < 16_000 { speech += [Float](repeating: 0, count: 16_000 - speech.count) }
+        return speech
+    }
+
+    /// Called after every live VAD slice: once the end of speech has been quiet for the tail pad,
+    /// transcribe what the release would transcribe, in the background.
+    private func tachysSpeculate() async {
+        guard tachys.active, !tachysReleasing, liveEarlyEnabled, let asr = dictationAsr,
+              let c = tachys.cut(available: liveAudio.count), c <= TachysEngine.maxSpeculativeSamples,
+              tachys.speculation?.cut != c else { return }
+        let mySession = liveSession
+        let audio = Array(liveAudio[..<c])
+        let input = await tachysInput(audio, results: liveResults, config: liveConfig)
+        // The recording may have been cancelled/restarted (or sped past) while we awaited.
+        guard tachys.active, liveSession == mySession, !input.isEmpty, tachys.speculation?.cut != c else { return }
+        let task = Task { () throws -> ASRResult in
+            var st = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
+            return try await asr.transcribe(input, decoderState: &st)
+        }
+        tachys.speculation = TachysEngine.Speculation(cut: c, input: input, task: task, startedAt: Date())
+        tachys.speculationsStarted += 1
+        Perf.log.info("Tachys: speculative pass #\(self.tachys.speculationsStarted) on \(Double(c) / 16_000, format: .fixed(precision: 2))s while the key is held")
+    }
+
+    /// The user had already stopped talking when they let go (so the 150 ms tail wait is useless).
+    func tachysQuietNow() -> Bool { liveActive && tachys.active && tachys.quietAtEnd }
+
+    /// Self-test: wait for the running speculative pass (simulates the user still holding the key).
+    func tachysWaitForSpeculation() async -> Bool {
+        guard let spec = tachys.speculation else { return false }
+        _ = try? await spec.task.value
+        return true
     }
 
     /// Why a 2 s clip costs about as much as a 15 s one: FluidAudio 0.18.3 pads every Parakeet
@@ -405,9 +479,10 @@ actor SpeechEngine {
     /// `live`: the clip's audio was also fed to liveVadFeed while recording.
     /// `external`: another engine (Whisper) does step 2 on the trimmed speech instead of Parakeet;
     /// then everything is always ONE pass (no early sentences) and the vocabulary helper is skipped.
-    func dictate(samples: [Float], live requestedLive: Bool = false, session: UUID? = nil,
+    func dictate(samples rawSamples: [Float], live requestedLive: Bool = false, session: UUID? = nil,
                  asrOverride: AsrManager? = nil,
                  external: (@Sendable ([Float]) async throws -> String)? = nil) async throws -> DictationTranscript {
+        var samples = rawSamples        // Tachys may end it 0.4 s after the last voice (below)
         let resolvedAsr = asrOverride ?? dictationAsr
         guard external != nil || resolvedAsr != nil else { throw EngineError.notReady }
         // Live state from a different recording must never be used for this one.
@@ -420,20 +495,42 @@ actor SpeechEngine {
         // 1) Find the speech with Silero VAD (like Handy does). Less audio = faster, and the
         //    model can't "hear" words in background hiss. Pauses are squeezed to ~0.3 s.
         let t0 = Date()
+        while liveDraining { try? await Task.sleep(nanoseconds: 2_000_000) }   // let the queue finish
+        // Tachys: catch the live VAD up on every slice (short clips too), then end the input 0.4 s
+        // after the last voice, exactly as the speculative pass did (TachysEngine.swift).
+        let useTachys = external == nil && live && liveActive && tachys.active
+        var tachysMode = "off"
+        if useTachys, let vad {
+            tachysReleasing = true
+            let chunk = VadManager.chunkSize
+            var offset = liveResults.count * chunk
+            while offset < samples.count {
+                let end = min(samples.count, offset + chunk)
+                await vadStep(vad, Array(samples[offset..<end]), end: end)
+                offset += chunk
+            }
+            tachysReleasing = false
+            if let c = tachys.cut(available: samples.count), c < samples.count {
+                samples = Array(samples[..<c])
+                tachysMode = "miss"
+            } else {
+                tachysMode = "full"
+            }
+        }
         var speech = samples
         var vadMode = "skipped (short clip)"
-        while liveDraining { try? await Task.sleep(nanoseconds: 2_000_000) }   // let the queue finish
         var segments: [VadSegment] = []
-        if let vad, audioSeconds >= Self.skipVadBelowSeconds {
+        if let vad, Double(samples.count) / 16_000 >= Self.skipVadBelowSeconds {
             let chunk = VadManager.chunkSize
-            if live, liveActive, liveResults.count * chunk <= samples.count {
+            let n = (samples.count + chunk - 1) / chunk
+            if live, liveActive, liveResults.count * chunk <= samples.count || (useTachys && liveResults.count >= n) {
                 // Only the slices recorded after the last live step are left.
                 var offset = liveResults.count * chunk
                 while offset < samples.count {
                     await vadStep(vad, Array(samples[offset..<min(samples.count, offset + chunk)]))
                     offset += chunk
                 }
-                segments = await vad.segmentSpeech(from: liveResults, totalSamples: samples.count, config: config)
+                segments = await vad.segmentSpeech(from: Array(liveResults.prefix(n)), totalSamples: samples.count, config: config)
                 vadMode = "single pass (live VAD)"
             } else {
                 segments = try await vad.segmentSpeech(samples, config: config)
@@ -482,6 +579,7 @@ actor SpeechEngine {
         // sides of every pause (0.4 stitched separately transcribed pieces → stray capitals).
         if !parts.isEmpty { speech = Self.glue(parts.map { $0.audio }) }
         // No speech found at all? Keep the raw audio rather than risk dropping a quiet voice.
+        let speculation = useTachys ? tachys.speculation : nil
         liveVadCancel()
         let vadSeconds = Date().timeIntervalSince(t0)
 
@@ -501,8 +599,19 @@ actor SpeechEngine {
 
         // 2) Speech -> text.
         let t1 = Date()
-        var state = TdtDecoderState.make(decoderLayers: await dictationAsr.decoderLayerCount)
-        let result = try await dictationAsr.transcribe(speech, decoderState: &state)
+        // Tachys: the same input was already transcribed while the key was held → reuse it.
+        var reused: ASRResult? = nil
+        if let spec = speculation, spec.cut == samples.count, spec.input == speech {
+            reused = try? await spec.task.value
+            if reused != nil { tachysMode = "hit" }
+        }
+        let result: ASRResult
+        if let reused {
+            result = reused
+        } else {
+            var state = TdtDecoderState.make(decoderLayers: await dictationAsr.decoderLayerCount)
+            result = try await dictationAsr.transcribe(speech, decoderState: &state)
+        }
         var text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let asrSeconds = Date().timeIntervalSince(t1)
 
@@ -523,11 +632,11 @@ actor SpeechEngine {
             }
             boostSeconds = Date().timeIntervalSince(t2)
         }
-        Perf.log.info("dictate: audio \(audioSeconds, format: .fixed(precision: 2))s, VAD \(vadMode, privacy: .public) \(vadSeconds * 1000, format: .fixed(precision: 0))ms, ASR \(asrSeconds * 1000, format: .fixed(precision: 0))ms, vocab \(boostSeconds * 1000, format: .fixed(precision: 0))ms")
+        Perf.log.info("dictate: audio \(audioSeconds, format: .fixed(precision: 2))s, VAD \(vadMode, privacy: .public) \(vadSeconds * 1000, format: .fixed(precision: 0))ms, ASR \(asrSeconds * 1000, format: .fixed(precision: 0))ms (Tachys \(tachysMode, privacy: .public)), vocab \(boostSeconds * 1000, format: .fixed(precision: 0))ms")
         return DictationTranscript(text: text, audioSeconds: audioSeconds,
                                    speechSeconds: Double(speech.count) / 16_000,
                                    vadSeconds: vadSeconds, asrSeconds: asrSeconds, vadMode: vadMode,
-                                   boostSeconds: boostSeconds, boostReplacements: replaced)
+                                   boostSeconds: boostSeconds, boostReplacements: replaced, tachys: tachysMode)
     }
 
     /// The voice benchmark's "one full-utterance pass": the whole clip, no voice detector, no
@@ -586,10 +695,10 @@ actor SpeechEngine {
 
     /// Run each dictation model once on silence so Core ML finishes its one-time setup
     /// ("specialization" for this Mac's Neural Engine) at launch, not on your first dictation.
-    func prewarm() async {
+    func prewarm(skipAsr: Bool = false) async {
         let t0 = Date()
         if let vad { _ = try? await vad.process([Float](repeating: 0, count: VadManager.chunkSize * 2)) }
-        if let dictationAsr {
+        if !skipAsr, let dictationAsr {
             // Real speech (the bundled 16 s test clip's first 3 s) if we have it, so the decoder
             // path is warmed too, not only the encoder on silence.
             var st = TdtDecoderState.make(decoderLayers: await dictationAsr.decoderLayerCount)

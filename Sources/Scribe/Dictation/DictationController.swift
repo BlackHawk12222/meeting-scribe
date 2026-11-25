@@ -273,7 +273,9 @@ final class DictationController: ObservableObject {
         let mySession = session
         Task {
             // Keep listening 150 ms after you let go, so the last sound isn't cut off.
-            try? await Task.sleep(nanoseconds: 150_000_000)
+            // Tachys: skipped when you had already stopped talking (≥ 0.4 s of quiet at the end).
+            let quiet = await SpeechEngine.shared.tachysQuietNow()
+            if !quiet { try? await Task.sleep(nanoseconds: 150_000_000) }
             let samples = mic.stop()
             let consumer = stopLiveFeed(cancel: false)
             guard Double(samples.count) / 16_000 >= Self.minimumHold else {
@@ -306,7 +308,10 @@ final class DictationController: ObservableObject {
                 store?.addDictation(DictationEntry(date: Date(), text: r.text, raw: r.transcript.text, method: r.method,
                                                    audioSeconds: r.transcript.audioSeconds,
                                                    latencySeconds: Date().timeIntervalSince(released)))
-                Perf.log.info("key release → text inserted: \(Date().timeIntervalSince(released) * 1000, format: .fixed(precision: 0))ms")
+                let releaseMs = Date().timeIntervalSince(released) * 1000
+                Perf.log.info("key release → text inserted: \(releaseMs, format: .fixed(precision: 0))ms")
+                Perf.log.info("Tachys release→text: \(releaseMs, format: .fixed(precision: 0))ms (speculative pass: \(r.transcript.tachys, privacy: .public), tail wait skipped: \(quiet, privacy: .public), audio \(r.transcript.audioSeconds, format: .fixed(precision: 1))s)")
+                if r.transcript.tachys != "off" { TachysEngine.record(releaseToTextMs: releaseMs, hit: r.transcript.tachys == "hit") }
                 switch outcome {
                 case .typedDirectly, .pasted: flash(.done("Done"))
                 case .noTextBox: flash(.done("Copied — no text box selected"))
