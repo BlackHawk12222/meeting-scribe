@@ -88,7 +88,7 @@ A 4-point scale. Only use these numbers: **4, 8, 12, 16, 20, 24, 32** (`Night.s4
 
 | Token | Value | Where |
 |---|---|---|
-| `gutterLeading` / `gutterTrailing` | 20 / 18 | page edges |
+| `gutterLeading` / `gutterTrailing` | 24 / 18 | page edges (24 keeps titles clear of the window buttons) |
 | `cardGap` | 12 | between cards |
 | `cardPadding` | 14 | inside cards |
 | `rowPaddingH` / `rowPaddingV` | 12 / 8 | inside list rows |

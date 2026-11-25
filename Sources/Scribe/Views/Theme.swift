@@ -129,7 +129,7 @@ enum Night {
     // MARK: Layout
     static let railWidth: CGFloat = 52, headerHeight: CGFloat = 52
     static let meetingsListWidth: CGFloat = 230, settingsListWidth: CGFloat = 124
-    static let gutterLeading: CGFloat = 20, gutterTrailing: CGFloat = 18, cardGap: CGFloat = 12
+    static let gutterLeading: CGFloat = 24, gutterTrailing: CGFloat = 18, cardGap: CGFloat = 12
     static let cardPadding: CGFloat = 14
     static let rowPaddingH: CGFloat = 12, rowPaddingV: CGFloat = 8
 

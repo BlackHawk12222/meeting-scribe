@@ -233,11 +233,11 @@ struct WindowChrome: NSViewRepresentable {
         w.styleMask.insert(.fullSizeContentView)
         w.isMovableByWindowBackground = true
         w.titlebarSeparatorStyle = .none
-        w.backgroundColor = NSColor.night(0xF8F5EF, 0x0E0E11)
+        w.backgroundColor = NSColor.night(0xF6F5FA, 0x0E0E11)
         placeTrafficLights(w)
     }
 
-    /// Nudges the close/minimize/zoom buttons toward 18/18 from the window's top-left corner
+    /// Nudges the close/minimize/zoom buttons toward 12/18 from the window's top-left corner
     /// (as far down as the titlebar view allows, so they stay clickable).
     @MainActor
     static func placeTrafficLights(_ w: NSWindow) {
@@ -247,7 +247,7 @@ struct WindowChrome: NSViewRepresentable {
             guard let b = w.standardWindowButton(kind), let sv = b.superview else { continue }
             let h = b.frame.height
             let y = max(0, sv.bounds.height - 18 - h + 2)
-            b.setFrameOrigin(NSPoint(x: 18 + CGFloat(i) * 20, y: y))
+            b.setFrameOrigin(NSPoint(x: 12 + CGFloat(i) * 20, y: y))
         }
     }
 }

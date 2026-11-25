@@ -573,7 +573,7 @@ struct MeetingsPage: View {
         let shown = store.meetings.filter { query.isEmpty || found[$0.id] != nil }
         return VStack(alignment: .leading, spacing: 0) {
             PageHeader(title: "Meetings", subtitle: "\(store.meetings.count)")
-                .padding(.leading, Night.s16)
+                .padding(.leading, Night.gutterLeading)
                 .padding(.trailing, Night.s12)
             NightSearchField(text: $query, prompt: "Search meetings", width: Night.meetingsListWidth - 2 * Night.s12, focusRequest: searchFocus)
                 .padding(.horizontal, Night.s12)
