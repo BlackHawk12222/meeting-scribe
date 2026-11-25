@@ -1,0 +1,8 @@
+build/
+dist/
+models/
+*.spec
+packaging/Scribe.ico
+__pycache__/
+Scribe-Windows.zip
+selftest*.txt

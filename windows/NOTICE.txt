@@ -1,0 +1,29 @@
+Scribe for Windows - third-party notices
+========================================
+
+Scribe runs speech recognition on your PC with the following components.
+
+NVIDIA Parakeet TDT 0.6B v2 (speech recognition model)
+  Copyright (c) NVIDIA Corporation.
+  Licensed under the Creative Commons Attribution 4.0 International License (CC BY 4.0):
+  https://creativecommons.org/licenses/by/4.0/
+  Model card: https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2
+  Scribe uses the int8 ONNX export published by the sherpa-onnx project
+  (sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8). The weights were quantized to int8 and
+  converted to ONNX; they are downloaded on first launch and are not modified by Scribe.
+
+sherpa-onnx (speech recognition engine)
+  Copyright (c) Xiaomi Corporation and the k2-fsa contributors.
+  Licensed under the Apache License, Version 2.0:
+  https://www.apache.org/licenses/LICENSE-2.0
+  Source: https://github.com/k2-fsa/sherpa-onnx
+
+ONNX Runtime (bundled inside sherpa-onnx)
+  Copyright (c) Microsoft Corporation. MIT License.
+  https://github.com/microsoft/onnxruntime
+
+Other open-source libraries bundled in this build
+  Python (PSF License), NumPy (BSD-3-Clause), sounddevice (MIT) and PortAudio (MIT),
+  pynput (LGPL-3.0), pystray (LGPL-3.0), Pillow (MIT-CMU / HPND), Tcl/Tk (BSD-style).
+  pynput and pystray are included as unmodified Python packages inside the _internal folder
+  and can be replaced by the user.

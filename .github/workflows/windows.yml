@@ -1,0 +1,90 @@
+# Scribe for Windows (preview): tests the dictation engine on a Windows runner and builds
+# Scribe-Windows.zip (PyInstaller folder build with Scribe.exe, unsigned).
+# Separate from build.yml (the Mac app); runs only for the `windows` branch or by hand.
+name: build-windows-app
+on:
+  push:
+    branches: [windows]
+    paths: ["windows/**", ".github/workflows/windows.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: windows/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Cache speech model
+        uses: actions/cache@v4
+        with:
+          path: windows/models
+          key: parakeet-tdt-0.6b-v2-int8-sherpa
+
+      - name: Import check (GUI and Windows-only modules)
+        run: python -c "import scribe.app, scribe.ui, scribe.hotkey, scribe.win32, scribe.recorder, pystray, pynput.keyboard, sounddevice, tkinter; print('imports ok')"
+
+      - name: Engine test (download model if needed, transcribe a known clip)
+        run: |
+          python tests/test_transcribe.py ..\Resources\SelfTest\dictation_sample.wav ..\Resources\SelfTest\dictation_sample.txt --model-dir models 2>&1 | Tee-Object -FilePath test-output.txt
+          if ($LASTEXITCODE -ne 0) { throw "engine test failed" }
+
+      - name: Build Scribe.exe and Scribe-Windows.zip
+        run: ./packaging/build.ps1
+
+      - name: Packaged app self-test (Scribe.exe --selftest)
+        run: |
+          $out = Join-Path $PWD "selftest-exe.txt"
+          $wav = (Resolve-Path "..\Resources\SelfTest\dictation_sample.wav").Path
+          $models = (Resolve-Path "models").Path
+          $p = Start-Process -FilePath "dist\Scribe\Scribe.exe" -ArgumentList @("--selftest", "`"$wav`"", "--model-dir", "`"$models`"", "--out", "`"$out`"") -Wait -PassThru
+          Get-Content $out
+          if ($p.ExitCode -ne 0) { throw "Scribe.exe --selftest exited with $($p.ExitCode)" }
+          if (-not (Select-String -Path $out -Pattern "text=.*absolutely correct")) { throw "unexpected transcript" }
+
+      - name: Packaged app smoke run (tray + hotkey start, then quit)
+        continue-on-error: true
+        run: |
+          $fake = Join-Path $env:RUNNER_TEMP "appdata"
+          New-Item -ItemType Directory -Force (Join-Path $fake "Scribe") | Out-Null
+          New-Item -ItemType Junction -Path (Join-Path $fake "Scribe\models") -Target (Resolve-Path models) | Out-Null
+          $env:LOCALAPPDATA = $fake
+          $p = Start-Process -FilePath "dist\Scribe\Scribe.exe" -PassThru
+          Start-Sleep -Seconds 40
+          $log = Join-Path $fake "Scribe\scribe.log"
+          if (Test-Path $log) { Get-Content $log } else { Write-Host "no log written" }
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force; Write-Host "app was still running after 40 s (expected)" } else { Write-Host "app exited early with $($p.ExitCode)" }
+          if (-not (Select-String -Path $log -Pattern "Hotkey hook started" -Quiet)) { throw "app did not reach the ready state" }
+          if (Select-String -Path $log -Pattern "Traceback" -Quiet) { throw "errors in log" }
+
+      - name: Size of the build
+        run: Get-Item Scribe-Windows.zip | Format-List Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Scribe-Windows
+          path: |
+            windows/Scribe-Windows.zip
+            windows/test-output.txt
+            windows/selftest-exe.txt
+          compression-level: 0
+          retention-days: 14
