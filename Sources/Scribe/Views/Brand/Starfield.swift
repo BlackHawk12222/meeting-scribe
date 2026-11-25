@@ -32,33 +32,10 @@ struct Starfield: View {
     }
 
     var body: some View {
-        // Dark: the Night Sky (sparkles + dots, a soft glow on the 3 biggest).
-        // Light (0.7.2 "Daylight"): only 5 small sparkles, very faint, no dots, no glow — a hint
-        // of the brand on paper, not a night sky pasted on white.
-        let dark = scheme == .dark
-        let color = dark ? Color(hex: 0xC9CAFF) : Color(hex: 0xA8A3EC)
-        let list = dark ? stars : Array(stars.prefix(5)).map { var s = $0; s.r = min(s.r, 4); s.o = 0.10 + s.o * 0.3; return s }
-        let k = intensity
-        Canvas(rendersAsynchronously: false) { ctx, size in
-            for s in list {
-                let cx = s.x * size.width, cy = s.y * size.height
-                if s.sparkle {
-                    let rect = CGRect(x: cx - s.r * 1.3, y: cy - s.r * 1.3, width: s.r * 2.6, height: s.r * 2.6)
-                    if dark, s.r >= 5 {
-                        var g = ctx
-                        g.addFilter(.blur(radius: s.r * 0.9))
-                        g.fill(Sparkle().path(in: rect.insetBy(dx: -s.r * 0.8, dy: -s.r * 0.8)),
-                               with: .color(color.opacity(0.18 * k)))
-                    }
-                    ctx.fill(Sparkle().path(in: rect), with: .color(color.opacity(s.o * k)))
-                } else {
-                    ctx.fill(Path(ellipseIn: CGRect(x: cx - s.r, y: cy - s.r, width: s.r * 2, height: s.r * 2)),
-                             with: .color(color.opacity(s.o * k)))
-                }
-            }
-        }
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
+        // 0.7.3 "Poster": flat backgrounds, no sky. Kept as an empty view so old call sites compile.
+        Color.clear
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

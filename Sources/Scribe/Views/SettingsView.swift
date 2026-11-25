@@ -11,111 +11,143 @@ import ServiceManagement
 import AVFoundation
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case dictation, overlay, vocabulary, models, permissions, general, sync, about
+    case general, dictation, meetings, vocabulary, models, updates
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .general: return "General"
         case .dictation: return "Dictation"
-        case .overlay: return "Overlay"
+        case .meetings: return "Meetings"
         case .vocabulary: return "Vocabulary"
         case .models: return "Models"
-        case .permissions: return "Permissions"
-        case .general: return "General"
-        case .sync: return "Sync"
-        case .about: return "About"
+        case .updates: return "Updates"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .general: return "gearshape"
+        case .dictation: return "mic"
+        case .meetings: return "waveform"
+        case .vocabulary: return "character.book.closed"
+        case .models: return "cpu"
+        case .updates: return "arrow.down.circle"
+        }
+    }
+    var subtitle: String {
+        switch self {
+        case .general: return "How Scribe looks and starts."
+        case .dictation: return "How you talk to type, and where the capsule sits."
+        case .meetings: return "Recording, notes, and where they're saved."
+        case .vocabulary: return "Words Scribe should spell your way."
+        case .models: return "What runs on this Mac."
+        case .updates: return "New versions, and who made what."
         }
     }
 }
 
 /// The Settings window (⌘,): the same page as the main window's Settings destination.
 struct SettingsView: View {
-    var pane: SettingsPane = .dictation
+    var pane: SettingsPane = .general
     var body: some View {
         SettingsPage(initial: pane, inWindow: false)
             .frame(width: SettingsView.size.width, height: SettingsView.size.height)
     }
-    static let size = CGSize(width: 860, height: 620)
+    static let size = CGSize(width: 900, height: 640)
 }
 
+/// 0.7.3 "Poster" Settings: a section list on the sidebar color (icon + name) and the pane on the
+/// right with a big title, a one-line description and hairline-labeled groups of rows.
 struct SettingsPage: View {
     @State private var pane: SettingsPane
     var inWindow: Bool
 
-    init(initial: SettingsPane = .dictation, inWindow: Bool = true) {
+    init(initial: SettingsPane = .general, inWindow: Bool = true) {
         _pane = State(initialValue: initial)
         self.inWindow = inWindow
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            PageHeader(title: "Settings") {
-                Text("Scribe \(Updater.currentVersion)").font(.nightMeta).foregroundStyle(Night.text3)
-            }
-            .padding(.leading, inWindow ? Night.gutterLeading : 96)
-            .padding(.trailing, Night.gutterTrailing)
-            HStack(alignment: .top, spacing: Night.s16) {
-                paneList.frame(width: Night.settingsListWidth)
-                ScrollView {
-                    paneContent
-                        .frame(maxWidth: 600, alignment: .leading)
-                        .padding(.bottom, Night.s24)
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(SettingsPane.allCases) { p in
+                    NightSidebarItem(title: p.title, symbol: p.symbol, selected: p == pane) { pane = p }
                 }
-                .scrollIndicators(.never)
+                Spacer(minLength: 0)
+                Text("Scribe \(Updater.currentVersion)").font(.nightMeta).foregroundStyle(Night.text3)
+                    .padding(.horizontal, Night.s12)
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, inWindow ? 16 : 52)
+            .padding(.bottom, 14)
+            .frame(width: Night.settingsListWidth)
+            .frame(maxHeight: .infinity)
+            .background(Night.rail)
+            NightDivider(vertical: true)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(pane.title).font(.pageTitle).tracking(-0.4).foregroundStyle(Night.text)
+                    Text(pane.subtitle).font(.nightBody).foregroundStyle(Night.text2).padding(.top, 4)
+                    paneContent.padding(.top, 26)
+                }
+                .frame(maxWidth: 640, alignment: .leading)
+                .padding(.horizontal, 36)
+                .padding(.top, inWindow ? 26 : 44)
+                .padding(.bottom, 32)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(.leading, inWindow ? Night.gutterLeading : 24)
-            .padding(.trailing, Night.gutterTrailing)
+            .scrollIndicators(.never)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background {
-            if !inWindow {
-                ZStack { Night.canvas; Starfield(seed: 23) }.ignoresSafeArea()
-            }
-        }
+        .background(Night.canvas.ignoresSafeArea())
         .foregroundStyle(Night.text)
-    }
-
-    private var paneList: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            ForEach(SettingsPane.allCases) { p in
-                let on = p == pane
-                NightSidebarItem(title: p.title, selected: on) { withAnimation(Night.spring) { pane = p } }
-            }
-        }
     }
 
     @ViewBuilder private var paneContent: some View {
         switch pane {
-        case .dictation: DictationSettingsTab()
-        case .overlay: OverlaySettingsTab()
+        case .general:
+            VStack(alignment: .leading, spacing: 26) {
+                GeneralSettingsTab()
+                PermissionsTab()
+            }
+        case .dictation:
+            VStack(alignment: .leading, spacing: 26) {
+                DictationSettingsTab()
+                OverlaySettingsTab()
+            }
+        case .meetings:
+            VStack(alignment: .leading, spacing: 26) {
+                MeetingsSettingsTab()
+                SyncSettingsTab()
+            }
         case .vocabulary: VocabularySettingsTab()
         case .models: ModelSettingsTab()
-        case .permissions: PermissionsTab()
-        case .general: GeneralSettingsTab()
-        case .sync: SyncSettingsTab()
-        case .about: AboutView(embedded: true)
+        case .updates:
+            VStack(alignment: .leading, spacing: 26) {
+                SettingsCard(title: "Updates") { UpdateSection() }
+                AboutView(embedded: true)
+            }
         }
     }
 }
 
 // MARK: - Building blocks
 
-/// A settings card: optional sparkle label above, rows inside, an optional footnote below.
+/// A settings group: a hairline-labeled title above, rows in a hairline card, an optional footnote.
 struct SettingsCard<Content: View>: View {
     var title: String? = nil
     var footer: String? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let title { SectionLabel(title: title).padding(.leading, 4) }
+        VStack(alignment: .leading, spacing: 10) {
+            if let title { HairlineHeader(title: title).padding(.bottom, 4) }
             VStack(alignment: .leading, spacing: 0) { content }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(NightCardBackground())
             if let footer {
                 Text(footer).font(.nightSecondary).foregroundStyle(Night.text3).lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, 2)
             }
         }
     }
@@ -130,22 +162,22 @@ struct SettingRow<Control: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.nightHeadline).foregroundStyle(Night.text)
+                Text(title).font(.system(size: 14.5, weight: .medium)).foregroundStyle(Night.text)
                     .fixedSize(horizontal: false, vertical: true)
                 if let detail {
-                    Text(detail).font(.nightSecondary).foregroundStyle(Night.text3)
+                    Text(detail).font(.nightSecondary).foregroundStyle(Night.text2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 10)
             control
         }
-        .padding(.horizontal, Night.rowPaddingH)
-        .padding(.vertical, Night.rowPaddingV + 2)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
     }
 }
 
-/// A row with a Night switch.
+/// A row with a switch.
 struct ToggleRow: View {
     var title: String
     var detail: String? = nil
@@ -169,9 +201,9 @@ struct ToggleRow: View {
 struct CardNote: View {
     var text: String
     var body: some View {
-        Text(text).font(.nightSecondary).foregroundStyle(Night.text3).lineSpacing(2)
+        Text(text).font(.nightSecondary).foregroundStyle(Night.text2).lineSpacing(2)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, Night.rowPaddingH).padding(.vertical, Night.rowPaddingV)
+            .padding(.horizontal, 16).padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -189,6 +221,8 @@ struct DictationSettingsTab: View {
     @AppStorage("directInsert") private var directInsert = true
     @AppStorage("dictationSounds") private var sounds = true
     @AppStorage("pauseWhileThinking") private var pauseWhileThinking = true
+    @AppStorage("doubleTapHandsFree") private var doubleTap = true
+    @AppStorage(DictationStyle.key) private var style = DictationStyle.natural.rawValue
 
     private var holdOptions: [(value: String, title: String)] { HoldKey.allCases.map { (value: $0.rawValue, title: $0.title) } }
     private var modeOptions: [(value: String, title: String)] {
@@ -208,6 +242,11 @@ struct DictationSettingsTab: View {
                 }
                 .disabled(mode == DictationMode.toggleOnly.rawValue)
                 NightDivider()
+                ToggleRow(title: "Double-tap for hands-free",
+                          detail: "Tap the hold key twice to keep listening without holding it; tap once more to stop",
+                          isOn: $doubleTap)
+                    .disabled(mode == DictationMode.toggleOnly.rawValue || holdKey == HoldKey.off.rawValue)
+                NightDivider()
                 SettingRow(title: "Mode") {
                     NightSegmented(selection: $mode, options: modeOptions)
                 }
@@ -217,7 +256,12 @@ struct DictationSettingsTab: View {
                 }
                 .disabled(mode == DictationMode.holdOnly.rawValue)
             }
-            SettingsCard(title: "Clean-up") {
+            SettingsCard(title: "Style", footer: (DictationStyle(rawValue: style) ?? .natural).example) {
+                SettingRow(title: "Style", detail: (DictationStyle(rawValue: style) ?? .natural).detail) {
+                    NightSegmented(selection: $style, options: DictationStyle.allCases.map { (value: $0.rawValue, title: $0.title) })
+                }
+            }
+            SettingsCard(title: "Clean-up (Natural style)") {
                 ToggleRow(title: "Clean up filler words", detail: "Removes “um”, “uh” and false starts", isOn: $removeFillers)
                 NightDivider()
                 ToggleRow(title: "Polish with Apple Intelligence",
@@ -235,7 +279,6 @@ struct DictationSettingsTab: View {
                 NightDivider()
                 ToggleRow(title: "Put my clipboard back after pasting", isOn: $restoreClipboard)
                 NightDivider()
-                ToggleRow(title: "Play a soft sound", detail: "When dictation starts and stops", isOn: $sounds)
             }
         }
         .onChange(of: holdKey) { _, _ in dictation.hotkeys.reload() }
@@ -247,13 +290,12 @@ struct DictationSettingsTab: View {
 
 struct OverlaySettingsTab: View {
     @AppStorage(OverlayPosition.key) private var overlayPosition = OverlayPosition.bottomCenter.rawValue
-    @AppStorage("showMeetingScroll") private var showMeetingScroll = true
     @State private var hasDragged = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SettingsCard(title: "Overlay",
-                         footer: "The small capsule appears on the screen you're working on, clear of the menu bar and Dock. Drag it to move it; Scribe remembers the spot for each display. Against the left or right edge it stands upright.") {
+            SettingsCard(title: "Capsule",
+                         footer: "The small black capsule appears on the screen you're working on, clear of the menu bar and Dock. Drag it to move it; Scribe remembers the spot for each display. Against the left or right edge it stands upright (34 pt wide).") {
                 HStack(alignment: .top, spacing: 18) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Overlay position").font(.nightHeadline).foregroundStyle(Night.text)
@@ -271,8 +313,6 @@ struct OverlaySettingsTab: View {
                     }
                 }
                 .padding(Night.cardPadding)
-                NightDivider()
-                ToggleRow(title: "Show the capsule while a meeting records", isOn: $showMeetingScroll)
             }
         }
         .onAppear { hasDragged = OverlayPosition.hasDragged }
@@ -389,9 +429,12 @@ struct VocabularySettingsTab: View {
     @State private var words: [String] = Vocabulary.words
     @State private var newWord = ""
     @AppStorage(Vocabulary.boostKey) private var acoustic = false
+    @State private var pairs: [DictionaryReplacements.Pair] = DictionaryReplacements.pairs
+    @State private var heard = ""
+    @State private var written = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 26) {
             SettingsCard(title: "Your words",
                          footer: "Names, apps and terms you use. Scribe spells them your way: “on shape” → Onshape, “swift ui” → SwiftUI, “v five” → V5. Close misspellings of longer words are fixed only when they aren't real English words.") {
                 HStack(spacing: 10) {
@@ -427,6 +470,37 @@ struct VocabularySettingsTab: View {
                 }
                 .padding(.horizontal, Night.rowPaddingH).padding(.vertical, Night.rowPaddingV)
             }
+            SettingsCard(title: "Replacements",
+                         footer: "When Scribe hears the left side, it writes the right side. Whole words, any capitalization. Applied in every Style, also Exact. The same list is on the Dictation page.") {
+                HStack(spacing: 8) {
+                    NightField(placeholder: "Heard, e.g. sweet UI", text: $heard, onSubmit: addPair)
+                    Image(systemName: "arrow.right").foregroundStyle(Night.text3)
+                    NightField(placeholder: "Written, e.g. SwiftUI", text: $written, onSubmit: addPair)
+                    Button("Add", action: addPair)
+                        .buttonStyle(.nightPrimary)
+                        .disabled(heard.trimmingCharacters(in: .whitespaces).isEmpty || written.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                .padding(Night.cardPadding)
+                if !pairs.isEmpty {
+                    NightDivider()
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(pairs) { p in
+                            HStack(spacing: 8) {
+                                Text(p.from).font(.nightBody).foregroundStyle(Night.text2)
+                                Image(systemName: "arrow.right").font(.system(size: 11)).foregroundStyle(Night.text3)
+                                Text(p.to).font(.nightBody).foregroundStyle(Night.text)
+                                Spacer()
+                                Button { DictionaryReplacements.remove(p); pairs = DictionaryReplacements.pairs } label: {
+                                    Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Night.text3)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Remove \(p.from)")
+                            }
+                            .padding(.horizontal, 16).padding(.vertical, 9)
+                        }
+                    }
+                }
+            }
             SettingsCard(footer: "Uses a small extra model (about 100 MB, downloaded once) to check your words against how they sounded, so misheard names can be fixed even when the spelling is far off. Off by default: it can sometimes swap an ordinary word for one of yours.") {
                 ToggleRow(title: "Also match against the audio",
                           detail: acoustic && !store.vocabularyBoostStatus.isEmpty ? store.vocabularyBoostStatus : nil,
@@ -434,6 +508,14 @@ struct VocabularySettingsTab: View {
             }
         }
         .onChange(of: acoustic) { _, _ in Task { await store.prepareVocabularyBoost() } }
+    }
+
+    private func addPair() {
+        let a = heard.trimmingCharacters(in: .whitespacesAndNewlines), b = written.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !a.isEmpty, !b.isEmpty else { return }
+        DictionaryReplacements.add(.init(from: a, to: b))
+        pairs = DictionaryReplacements.pairs
+        heard = ""; written = ""
     }
 
     private func add() {
@@ -459,13 +541,53 @@ struct ModelSettingsTab: View {
     @AppStorage("aiNotes") private var aiNotes = true
     @State private var showVoiceTest = false
     @StateObject private var voiceTest = VoiceTestModel()
+    /// The Tachys speed engine (built on its own branch). Read by the engine; default on.
+    @AppStorage("tachysEnabled") private var tachysEnabled = true
+    @State private var changing = false
+
+    private var statusText: String {
+        if store.engineReady { return "Ready" }
+        if store.engineError != nil { return "Problem" }
+        return "Loading…"
+    }
+    private var statusColor: Color {
+        store.engineReady ? Night.ok : (store.engineError != nil ? Night.live : Night.text3)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsCard(title: "Dictation model",
+        VStack(alignment: .leading, spacing: 26) {
+            SettingsCard(title: "Models") {
+                HStack(alignment: .center, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 8) {
+                            Text("Speech model").font(.system(size: 14.5, weight: .medium)).foregroundStyle(Night.text)
+                            Text((DictationEngine(rawValue: engineRaw) ?? .parakeetV2).shortTitle)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Night.onPrimary)
+                                .padding(.horizontal, 7)
+                                .frame(height: 20)
+                                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Night.primary))
+                        }
+                        Text("Runs on this Mac · nothing leaves your computer").font(.nightSecondary).foregroundStyle(Night.text2)
+                    }
+                    Spacer(minLength: 10)
+                    HStack(spacing: 6) {
+                        Circle().fill(statusColor).frame(width: 7, height: 7)
+                        Text(statusText).font(.nightSecondary).foregroundStyle(Night.text2)
+                    }
+                    Button(changing ? "Done" : "Change") { changing.toggle() }.buttonStyle(.nightSecondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 13)
+                NightDivider()
+                ToggleRow(title: "Tachys speed engine", detail: "Faster transcription on Apple silicon", isOn: $tachysEnabled)
+            }
+            if changing {
+            SettingsCard(title: "Choose a dictation model",
                          footer: "Runs on this Mac's Neural Engine with Core ML. Downloads once, then works with no internet.") {
                 ForEach(Array(DictationEngine.allCases.enumerated()), id: \.element.id) { i, m in
                     if i > 0 { NightDivider() }
+
                     Button { engineRaw = m.rawValue } label: {
                         HStack(spacing: 12) {
                             ZStack {
@@ -515,14 +637,10 @@ struct ModelSettingsTab: View {
                 }
                 .padding(.horizontal, Night.rowPaddingH).padding(.vertical, Night.rowPaddingV + 2)
             }
+            }
             SettingsCard(title: "Downloaded models",
                          footer: "Models live outside the app (in Application Support), so updating or reinstalling Scribe never downloads them again. Only missing or changed files are fetched. Verify re-checks every byte.") {
                 ModelComponentsList()
-            }
-            SettingsCard(title: "Meeting notes") {
-                ToggleRow(title: "Write notes with Apple Intelligence",
-                          detail: AppleIntelligence.statusText + ". On-device. Otherwise Scribe picks key sentences and action items from the transcript itself.",
-                          isOn: $aiNotes)
             }
         }
         .onChange(of: engineRaw) { _, new in
@@ -710,35 +828,35 @@ struct PermissionRow: View {
 // MARK: - General
 
 struct GeneralSettingsTab: View {
-    @AppStorage("noiseCleanup") private var noiseCleanup = true
     @AppStorage("onboarded") private var onboarded = true
     @AppStorage(AppearanceChoice.key) private var appearance = AppearanceChoice.system.rawValue
+    @AppStorage(DockPolicy.key) private var showInDock = true
+    @AppStorage("dictationSounds") private var sounds = true
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            SettingsCard(title: "Appearance") {
-                SettingRow(title: "Theme", detail: "Night by default when your Mac is dark; the light theme when it's light") {
+        VStack(alignment: .leading, spacing: 26) {
+            SettingsCard(title: "App") {
+                SettingRow(title: "Appearance", detail: "Match your Mac, or pick one") {
                     NightSegmented(selection: $appearance,
                                    options: AppearanceChoice.allCases.map { (value: $0.rawValue, title: $0.title) })
                 }
-            }
-            SettingsCard(title: "General") {
-                ToggleRow(title: "Open Scribe when I log in", detail: loginError, isOn: $launchAtLogin)
                 NightDivider()
-                ToggleRow(title: "Noise cleanup for meetings", detail: "Apple voice processing: reduces background noise while recording", isOn: $noiseCleanup)
+                ToggleRow(title: "Open at login", detail: loginError ?? "Start Scribe when you sign in", isOn: $launchAtLogin)
                 NightDivider()
-                SettingRow(title: "Welcome screen") {
-                    Button("Show again") { onboarded = false }.buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
+                ToggleRow(title: "Show in Dock", detail: "Off keeps Scribe in the menu bar only", isOn: $showInDock)
+                NightDivider()
+                ToggleRow(title: "Sounds", detail: "Play a soft tick when dictation starts and stops", isOn: $sounds)
+                NightDivider()
+                SettingRow(title: "Welcome screen", detail: "The first-run guide: models, microphone, typing") {
+                    Button("Show again") { onboarded = false }.buttonStyle(.nightSecondary)
                 }
-            }
-            SettingsCard(title: "Updates") {
-                UpdateSection()
             }
         }
         .onChange(of: launchAtLogin) { _, on in setLaunchAtLogin(on) }
         .onChange(of: appearance) { _, v in AppearanceChoice.apply(AppearanceChoice(rawValue: v) ?? .system) }
+        .onChange(of: showInDock) { _, on in DockPolicy.apply(on) }
     }
 
     /// SMAppService is Apple's modern "login item" API (macOS 13+).
@@ -750,6 +868,44 @@ struct GeneralSettingsTab: View {
         } catch {
             loginError = "macOS said no: \(error.localizedDescription). You can add Scribe in System Settings → General → Login Items."
             launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+}
+
+/// Settings › General › Show in Dock: a regular app (Dock + app menu) or menu bar only.
+enum DockPolicy {
+    static let key = "showInDock"
+    static var showInDock: Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
+
+    @MainActor
+    static func apply(_ show: Bool = DockPolicy.showInDock) {
+        let policy: NSApplication.ActivationPolicy = show ? .regular : .accessory
+        guard NSApp.activationPolicy() != policy else { return }
+        NSApp.setActivationPolicy(policy)
+        // Menu-bar-only drops the app out of the front; bring the Settings window back.
+        DispatchQueue.main.async { NSApp.activate(ignoringOtherApps: true) }
+    }
+}
+
+// MARK: - Meetings
+
+struct MeetingsSettingsTab: View {
+    @AppStorage("noiseCleanup") private var noiseCleanup = true
+    @AppStorage("showMeetingScroll") private var showMeetingScroll = true
+    @AppStorage("aiNotes") private var aiNotes = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 26) {
+            SettingsCard(title: "Recording") {
+                ToggleRow(title: "Noise cleanup", detail: "Apple voice processing: reduces background noise while recording", isOn: $noiseCleanup)
+                NightDivider()
+                ToggleRow(title: "Show the capsule while a meeting records", detail: "A red dot and a timer at the edge of the screen", isOn: $showMeetingScroll)
+            }
+            SettingsCard(title: "Notes") {
+                ToggleRow(title: "Write notes with Apple Intelligence",
+                          detail: AppleIntelligence.statusText + ". On-device. Otherwise Scribe picks key sentences and action items from the transcript itself.",
+                          isOn: $aiNotes)
+            }
         }
     }
 }

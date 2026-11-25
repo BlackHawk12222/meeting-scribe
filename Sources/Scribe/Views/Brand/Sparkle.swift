@@ -28,22 +28,18 @@ struct Sparkle: Shape {
     }
 }
 
-/// A sparkle, optionally with the icon's soft glow (~18% opacity).
+/// 0.7.3 "Poster": no sparkle icons. Old call sites get a small waveform glyph in the secondary
+/// text color instead (`glow` is ignored). The Sparkle shape stays for the app icon scripts.
 struct SparkleView: View {
     var size: CGFloat
     var glow = false
     var color: Color = Night.star
 
     var body: some View {
-        ZStack {
-            if glow {
-                Sparkle().fill(color.opacity(0.18))
-                    .frame(width: size * 1.7, height: size * 1.7)
-                    .blur(radius: size * 0.28)
-            }
-            Sparkle().fill(color).frame(width: size, height: size)
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
+        Image(systemName: "waveform")
+            .font(.system(size: size * 0.9, weight: .medium))
+            .foregroundStyle(color)
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }

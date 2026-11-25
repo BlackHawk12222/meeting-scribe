@@ -122,4 +122,13 @@ struct DictationEntry: Codable, Identifiable, Hashable {
     var audioSeconds: Double
     /// Time from releasing the key to the text being ready.
     var latencySeconds: Double
+    /// 0.7.3: the app the text went into (front app when you started talking). nil for older
+    /// entries, which count as "Other" in the per-app stats.
+    var appBundleID: String? = nil
+    var appName: String? = nil
+    /// 0.7.3: the Style used (natural / polished / exact). nil = before styles existed.
+    var style: String? = nil
+
+    /// Words in the final text (what the stats count).
+    var wordCount: Int { text.split(whereSeparator: { $0.isWhitespace }).count }
 }

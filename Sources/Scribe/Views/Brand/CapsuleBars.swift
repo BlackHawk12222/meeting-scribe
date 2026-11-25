@@ -58,14 +58,11 @@ struct CapsuleBars: View {
     }
 
     private var fill: AnyShapeStyle {
+        // 0.7.3 Poster: flat fills only.
         switch style {
-        case .gradient:
-            return AnyShapeStyle(axis == .horizontal ? Night.gradient : Night.gradientTab)
+        case .gradient: return AnyShapeStyle(Night.accent)
         case .dim: return AnyShapeStyle(Night.line2)
-        case .white:
-            return AnyShapeStyle(LinearGradient(colors: [Night.overlayAccentTop, Night.overlayAccentBottom],
-                                                startPoint: axis == .horizontal ? .top : .leading,
-                                                endPoint: axis == .horizontal ? .bottom : .trailing))
+        case .white: return AnyShapeStyle(Color(hex: 0xEDEDF0))
         case .solid: return AnyShapeStyle(Night.accent)
         }
     }

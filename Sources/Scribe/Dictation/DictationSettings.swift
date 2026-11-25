@@ -111,6 +111,8 @@ enum DictationSettings {
     static var restoreClipboard: Bool { defaults.object(forKey: "restoreClipboard") as? Bool ?? true }
     static var trailingSpace: Bool { defaults.object(forKey: "trailingSpace") as? Bool ?? true }
     static var sounds: Bool { defaults.object(forKey: "dictationSounds") as? Bool ?? true }
+    /// 0.7.3: double-tap the hold key for hands-free (tap once more to stop). Default on.
+    static var doubleTapHandsFree: Bool { defaults.object(forKey: "doubleTapHandsFree") as? Bool ?? true }
     /// "I pause while thinking": needs ≥ 1.3 s of silence (not 0.5 s) before a pause can split
     /// anything while the key is held. Default on.
     static var pauseWhileThinking: Bool { defaults.object(forKey: "pauseWhileThinking") as? Bool ?? true }

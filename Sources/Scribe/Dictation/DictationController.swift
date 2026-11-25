@@ -10,6 +10,7 @@
 // The same `Dictation.run` pipeline is used by the self-test on GitHub's Mac.
 
 import AppKit
+import AVFoundation
 import os
 import Combine
 import FluidAudio
@@ -108,6 +109,12 @@ final class DictationController: ObservableObject {
     private var hideWork: DispatchWorkItem?
     /// Where the text goes: the app + text box in front when you started talking.
     private var target: FocusTarget?
+    /// 0.7.3 hands-free: double-tap the hold key to keep listening without holding; tap once to stop.
+    @Published private(set) var handsFree = false
+    private var lastTapAt: Date?
+    private var swallowNextRelease = false
+    /// Two taps closer than this = hands-free.
+    static let doubleTapWindow: TimeInterval = 0.45
 
     /// Holding less than this = an accidental tap: ignored (Handy uses 300 ms too).
     static let minimumHold: TimeInterval = 0.3
@@ -152,13 +159,37 @@ final class DictationController: ObservableObject {
         }
         // Build the mic engine now (the mic stays off), so the first press doesn't pay for it.
         if Permissions.microphoneGranted { mic.prepare() }
-        hotkeys.onHoldStart = { [weak self] in self?.begin() }
+        hotkeys.onHoldStart = { [weak self] in
+            guard let self else { return }
+            // Hands-free and listening: this tap stops it (its release is ignored).
+            if self.handsFree, self.state == .listening {
+                self.swallowNextRelease = true
+                self.finish()
+                return
+            }
+            let isDoubleTap = DictationSettings.doubleTapHandsFree
+                && (self.lastTapAt.map { Date().timeIntervalSince($0) < Self.doubleTapWindow } ?? false)
+            self.lastTapAt = nil
+            self.begin()
+            if isDoubleTap, self.state == .listening {
+                self.handsFree = true
+                self.swallowNextRelease = true
+            }
+        }
         hotkeys.onHoldEnd = { [weak self] held in
             guard let self else { return }
-            if held < Self.minimumHold { self.cancel(silently: true) } else { self.finish() }
+            if self.swallowNextRelease { self.swallowNextRelease = false; return }
+            if self.handsFree { return }
+            if held < Self.minimumHold {
+                self.lastTapAt = Date()
+                self.cancel(silently: true)
+            } else {
+                self.finish()
+            }
         }
         hotkeys.onHoldInterrupted = { [weak self] in
             guard let self, self.state == .listening else { return }
+            self.swallowNextRelease = false
             self.cancel(silently: true)
         }
         hotkeys.onToggle = { [weak self] in self?.toggle() }
@@ -221,7 +252,8 @@ final class DictationController: ObservableObject {
                     guard self.state == .listening else { return }
                     self.ticker?.invalidate()
                     self.stopLiveFeed(cancel: true)
-                    self.flash(.failed("Mic error: \(error.localizedDescription)"))
+                    self.flash(.failed(AVCaptureDevice.default(for: .audio) == nil
+                                       ? "No microphone found" : "Mic error: \(error.localizedDescription)"))
                     return
                 }
                 Perf.log.info("press → mic running: \(Date().timeIntervalSince(pressed) * 1000, format: .fixed(precision: 0))ms")
@@ -252,6 +284,7 @@ final class DictationController: ObservableObject {
 
     func cancel(silently: Bool) {
         guard state == .listening else { return }
+        handsFree = false
         ticker?.invalidate()
         _ = mic.stop()
         stopLiveFeed(cancel: true)
@@ -265,6 +298,7 @@ final class DictationController: ObservableObject {
 
     func finish() {
         guard state == .listening else { return }
+        handsFree = false
         ticker?.invalidate()
         tape.stop()
         state = .transcribing
@@ -292,23 +326,31 @@ final class DictationController: ObservableObject {
             }
             Perf.log.info("key release → mic stopped + live VAD caught up: \(Date().timeIntervalSince(released) * 1000, format: .fixed(precision: 0))ms")
             do {
-                let r = try await Dictation.run(samples: samples, useAI: DictationSettings.aiCleanup,
-                                                removeFillers: DictationSettings.removeFillers, live: true,
+                // 0.7.3 Style (Natural / Polished / Exact) + Dictionary replacements: DictationStyle.swift.
+                let style = DictationStyle.current
+                let r = try await Dictation.run(samples: samples, useAI: style.useAI,
+                                                removeFillers: style.removeFillers, live: true,
                                                 session: mySession)
                 guard mySession == session else { return }      // a newer recording started: drop this one
-                guard !r.text.isEmpty else {
+                let finalText = style.finish(cleaned: r.text, raw: r.transcript.text)
+                guard !finalText.isEmpty else {
                     flash(.done("Didn't catch that"))
                     return
                 }
-                let text = r.text + (DictationSettings.trailingSpace ? " " : "")
+                let text = finalText + (DictationSettings.trailingSpace ? " " : "")
                 let paste = await TextInserter.insert(text, target: target, restoreClipboard: DictationSettings.restoreClipboard)
                 let outcome = paste.outcome
-                store?.addDictation(DictationEntry(date: Date(), text: r.text, raw: r.transcript.text, method: r.method,
+                store?.addDictation(DictationEntry(date: Date(), text: finalText, raw: r.transcript.text,
+                                                   method: style == .exact ? .none : r.method,
                                                    audioSeconds: r.transcript.audioSeconds,
-                                                   latencySeconds: Date().timeIntervalSince(released)))
+                                                   latencySeconds: Date().timeIntervalSince(released),
+                                                   appBundleID: target?.bundleID, appName: target?.appName,
+                                                   style: style.rawValue))
                 Perf.log.info("key release → text inserted: \(Date().timeIntervalSince(released) * 1000, format: .fixed(precision: 0))ms")
                 switch outcome {
-                case .typedDirectly, .pasted: flash(.done("Done"))
+                case .typedDirectly, .pasted:
+                    let app = target?.appName ?? ""
+                    flash(.done(app.isEmpty ? "Pasted" : "Pasted into \(app)"))
                 case .noTextBox: flash(.done("Copied — no text box selected"))
                 case .needsAccessibility: flash(.needsAccess)
                 case .copiedOnly: flash(.done("Copied — press ⌘V"))
@@ -350,7 +392,8 @@ final class DictationController: ObservableObject {
         switch s {
         case .needsAccess: seconds = 7          // long enough to click Fix
         case .done(let m) where m.hasPrefix("Copied"): seconds = 2.5
-        case .failed: seconds = 2.5
+        case .done(let m) where m.hasPrefix("Pasted"): seconds = 1.4
+        case .failed: seconds = 4
         default: seconds = 1.0
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)

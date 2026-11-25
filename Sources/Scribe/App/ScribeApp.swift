@@ -51,6 +51,7 @@ final class AppModel: ObservableObject {
         guard !started else { return }
         started = true
         AppearanceChoice.apply()
+        DockPolicy.apply()               // Settings › General › Show in Dock
         dictation.attach(store: store, recorder: recorder)
         // Meeting capsule: the bars follow the recorder's mic level.
         recorder.$level.sink { [weak self] l in
@@ -191,8 +192,8 @@ struct MenuBarIcon: View {
     }
 }
 
-/// The speaker palette (lavender, mint, peach, sky, rose, olive), so each person keeps the same
-/// color everywhere. Avatars put dark text on top (Night.onSpeaker).
+/// The speaker palette (indigo, coral, green, yellow, blue, cyan), so each person keeps the same
+/// color everywhere. Avatars put a white letter on top (Night.onSpeaker).
 enum Palette {
     static let colors: [Color] = Night.speakers
     static func color(_ i: Int) -> Color { colors[abs(i) % colors.count] }
@@ -233,7 +234,7 @@ struct WindowChrome: NSViewRepresentable {
         w.styleMask.insert(.fullSizeContentView)
         w.isMovableByWindowBackground = true
         w.titlebarSeparatorStyle = .none
-        w.backgroundColor = NSColor.night(0xF6F5FA, 0x0E0E11)
+        w.backgroundColor = NSColor.night(0xFFFFFF, 0x111112)
         placeTrafficLights(w)
     }
 

@@ -39,10 +39,10 @@ struct NightSwitch: View {
     var body: some View {
         ZStack(alignment: isOn ? .trailing : .leading) {
             Capsule().fill(isOn ? AnyShapeStyle(Night.gradientH) : AnyShapeStyle(Night.line2))
-            Circle().fill(isOn ? Color.white : Night.text2)
+            Circle().fill(Color.white)
                 .frame(width: Night.switchSize.height - 4, height: Night.switchSize.height - 4)
                 .padding(2)
-                .shadow(color: .black.opacity(isOn ? 0.18 : 0), radius: 1, y: 0.5)
+                .shadow(color: .black.opacity(0.18), radius: 1, y: 0.5)
         }
         .frame(width: Night.switchSize.width, height: Night.switchSize.height)
         .contentShape(Capsule())
@@ -69,16 +69,15 @@ struct NightSegmented<Value: Hashable>: View {
                 Button { withAnimation(Night.spring) { selection = o.value } } label: {
                     Text(o.title)
                         .font(.nightButton)
-                        .foregroundStyle(on ? Night.text : Night.text3)
+                        .fontWeight(on ? .semibold : .regular)
+                        .foregroundStyle(on ? Night.text : Night.text2)
                         .lineLimit(1)
-                        .padding(.horizontal, Night.s12 - 2)
-                        .frame(height: Night.controlHeight - 6)
+                        .padding(.horizontal, Night.s12 + 2)
+                        .frame(height: Night.controlHeight - 4)
                         .background {
                             if on {
                                 RoundedRectangle(cornerRadius: Night.rSegment, style: .continuous)
-                                    .fill(Night.raised)
-                                    .overlay(RoundedRectangle(cornerRadius: Night.rSegment, style: .continuous)
-                                        .strokeBorder(Night.line2, lineWidth: 1))
+                                    .fill(Night.selected)
                                     .matchedGeometryEffect(id: "seg", in: ns)
                             }
                         }
@@ -88,9 +87,9 @@ struct NightSegmented<Value: Hashable>: View {
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
         }
-        .padding(3)
-        .background(RoundedRectangle(cornerRadius: Night.rSegmentOuter, style: .continuous).fill(Night.well))
-        .overlay(RoundedRectangle(cornerRadius: Night.rSegmentOuter, style: .continuous).strokeBorder(Night.line, lineWidth: 1))
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: Night.rSegmentOuter, style: .continuous).fill(Night.surface))
+        .overlay(RoundedRectangle(cornerRadius: Night.rSegmentOuter, style: .continuous).strokeBorder(Night.line2, lineWidth: 1))
         .fixedSize()
     }
 }

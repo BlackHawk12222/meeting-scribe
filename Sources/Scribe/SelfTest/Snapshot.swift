@@ -93,23 +93,30 @@ enum Snapshot {
         let nightSize = NSSize(width: 1200, height: 800)
         let liveTape = LevelTape(); liveTape.fillPreview(seconds: 30)
         let nightShots: [(String, AnyView, Bool)] = [
-            ("N01_home_dark", AnyView(env(ContentView(section: .home))), true),
-            ("N02_meeting_live_dark", AnyView(env(ContentView(section: .meetings,
-                                                               livePreview: LivePreview(elapsed: 768, tape: liveTape)))), true),
-            ("N02b_meeting_notes_dark", AnyView(env(ContentView(initialSelection: .meeting(meetingID)))), true),
-            ("N03_people_dark", AnyView(env(ContentView(initialSelection: .people))), true),
-            ("N04_settings_dark", AnyView(env(ContentView(section: .settings, settingsPane: .dictation))), true),
-            ("N04b_settings_overlay_dark", AnyView(env(ContentView(section: .settings, settingsPane: .overlay))), true),
-            ("N04c_settings_models_dark", AnyView(env(ContentView(section: .settings, settingsPane: .models))), true),
-            ("N04d_settings_about_dark", AnyView(env(ContentView(section: .settings, settingsPane: .about))), true),
-            ("N05_dictations_dark", AnyView(env(ContentView(initialSelection: .dictation))), true),
-            ("N06_home_light", AnyView(env(ContentView(section: .home))), false),
-            ("N06b_meeting_notes_light", AnyView(env(ContentView(initialSelection: .meeting(meetingID)))), false),
-            ("N06c_people_light", AnyView(env(ContentView(initialSelection: .people))), false),
-            ("N06d_settings_light", AnyView(env(ContentView(section: .settings, settingsPane: .dictation))), false),
+            ("P01_home_light", AnyView(env(ContentView(section: .home))), false),
+            ("P01b_home_dark", AnyView(env(ContentView(section: .home))), true),
+            ("P02_dictation_light", AnyView(env(ContentView(initialSelection: .dictation))), false),
+            ("P02b_dictation_dark", AnyView(env(ContentView(initialSelection: .dictation))), true),
+            ("P03_meeting_light", AnyView(env(ContentView(initialSelection: .meeting(meetingID)))), false),
+            ("P03b_meeting_dark", AnyView(env(ContentView(initialSelection: .meeting(meetingID)))), true),
+            ("P03c_meeting_live_light", AnyView(env(ContentView(section: .meetings,
+                                                               livePreview: LivePreview(elapsed: 768, tape: liveTape)))), false),
+            ("P04_people_light", AnyView(env(ContentView(initialSelection: .people))), false),
+            ("P04b_people_dark", AnyView(env(ContentView(initialSelection: .people))), true),
+            ("P05_settings_general_light", AnyView(env(ContentView(section: .settings, settingsPane: .general))), false),
+            ("P05b_settings_general_dark", AnyView(env(ContentView(section: .settings, settingsPane: .general))), true),
+            ("P05c_settings_models_light", AnyView(env(ContentView(section: .settings, settingsPane: .models))), false),
+            ("P05d_settings_dictation_light", AnyView(env(ContentView(section: .settings, settingsPane: .dictation))), false),
         ]
         for (name, view, dark) in nightShots {
             made += await serverCapture(view, size: nightSize, name: name, dir: dir, dark: dark, chrome: true)
+        }
+        // 0.7.3 Poster capsule: the four states, horizontal and vertical (left/right edge), on a
+        // light and a dark backdrop.
+        for dark in [false, true] {
+            made += await serverCapture(capsuleSheet(dark: dark), size: NSSize(width: 1000, height: 560),
+                                        name: dark ? "P06b_capsule_states_dark" : "P06_capsule_states_light",
+                                        dir: dir, titled: false, dark: dark)
         }
         // 0.7.2 targeted CI: only the Night/Daylight screens (+ the smallest window size).
         if CommandLine.arguments.contains("--quick") {
@@ -287,6 +294,30 @@ enum Snapshot {
         }
         print("SNAPSHOT_DONE: \(made.count) files in \(dir.path)")
         try? FileManager.default.removeItem(at: tmp)
+    }
+
+    /// Listening / Thinking / Done / Problem, horizontal on top, vertical below, zoomed 2x.
+    private static func capsuleSheet(dark: Bool) -> some View {
+        let tape = LevelTape(); tape.fillPreview(seconds: 4.2)
+        let modes: [OverlayMode] = [.listening, .transcribing, .message("Pasted into Notes", failure: false),
+                                    .message("No microphone found", failure: true)]
+        return ZStack {
+            (dark ? Color(hex: 0x1C1C20) : Color(hex: 0xE9EAEE))
+            VStack(spacing: 70) {
+                HStack(spacing: 24) {
+                    ForEach(Array(modes.enumerated()), id: \.offset) { _, m in
+                        OverlayCapsule(mode: m, tape: tape, elapsed: 4, previewSpin: 1)
+                    }
+                }
+                .scaleEffect(1.4)
+                HStack(spacing: 90) {
+                    ForEach(Array(modes.enumerated()), id: \.offset) { _, m in
+                        OverlayCapsule(mode: m, tape: tape, elapsed: 4, previewSpin: 1).environment(\.overlayVertical, true)
+                    }
+                }
+                .scaleEffect(1.6)
+            }
+        }
     }
 
     private static func overlayStage<C: View>(_ capsule: C, zoom: CGFloat) -> some View {
@@ -474,7 +505,7 @@ enum Snapshot {
         return (try? png.write(to: url)) != nil
     }
 
-    // MARK: - Sample data (made up)
+    // MARK: - Sample data (made up, screenshots only: never shown to users)
 
     private static func fillSampleData(_ store: Store) -> UUID {
         let cal = Calendar.current
@@ -568,28 +599,39 @@ enum Snapshot {
                        SpeakerCluster(key: "S2", talkSeconds: 500, centroid: [], spanEmbeddings: [], personID: people[1].id)]
         store.meetings = [m, m2, m3, m4, m5]
 
-        store.dictations = [
-            DictationEntry(date: cal.date(byAdding: .minute, value: -4, to: now)!,
-                           text: "Hey, can you send me the updated CAD file for the intake before practice tomorrow?",
-                           raw: "Hey, um, can you send me the updated CAD file for the intake before practice tomorrow?",
-                           method: .rules, audioSeconds: 5.8, latencySeconds: 0.6),
-            DictationEntry(date: cal.date(byAdding: .minute, value: -38, to: now)!,
-                           text: "The homepage hero should use the frosted glass card and one short headline.",
-                           raw: "The homepage hero should use the the frosted glass card and uh one short headline.",
-                           method: .rules, audioSeconds: 6.4, latencySeconds: 0.7),
-            DictationEntry(date: cal.date(byAdding: .hour, value: -3, to: now)!,
-                           text: "Remind me to finish the physics worksheet tonight.",
-                           raw: "Remind me to finish the physics worksheet tonight.",
-                           method: .none, audioSeconds: 2.9, latencySeconds: 0.4),
-            DictationEntry(date: cal.date(byAdding: .hour, value: -5, to: now)!,
-                           text: "Pick up poster board and tape on the way home.",
-                           raw: "Pick up poster board and tape on the way home.",
-                           method: .rules, audioSeconds: 3.1, latencySeconds: 0.4),
-            DictationEntry(date: cal.date(byAdding: .hour, value: -7, to: now)!,
-                           text: "Move the study session to six.",
-                           raw: "Move the study session to six.",
-                           method: .none, audioSeconds: 2.0, latencySeconds: 0.3),
-        ]
+        // Sample dictations with the app they went into (made up), plus older ones for the heatmap.
+        let apps: [(String, String)] = [("com.apple.Notes", "Notes"), ("com.apple.MobileSMS", "Messages"),
+                                        ("com.apple.dt.Xcode", "Xcode"), ("com.apple.Safari", "Safari"), ("com.apple.mail", "Mail")]
+        let texts = ["Can you make the sidebar a little skinnier and bring the text size back up so it's easier to read?",
+                     "Remember to bring the charger and the spare battery on Thursday.",
+                     "Move the record button into the header and make it a pill.",
+                     "Hello, this is a quick test to see if the punctuation comes out right.",
+                     "Thanks for the update, I'll have the homepage draft ready by Friday."]
+        var entries: [DictationEntry] = []
+        for i in 0..<5 {
+            let app = apps[i]
+            entries.append(DictationEntry(date: cal.date(byAdding: .minute, value: -(4 + i * 23), to: now)!,
+                                          text: texts[i], raw: texts[i], method: .rules,
+                                          audioSeconds: Double(texts[i].split(separator: " ").count) / 2.3, latencySeconds: 0.5,
+                                          appBundleID: app.0, appName: app.1, style: "natural"))
+        }
+        var rng = SeededRandom(seed: 5)
+        for day in 1..<150 {
+            guard rng.next() < 0.55 else { continue }
+            let n = 1 + Int(rng.next() * 3)
+            for k in 0..<n {
+                let r1 = rng.next(), r2 = rng.next()
+                let app = apps[min(4, Int(r1 * r2 * 6))]
+                let t = texts[k % texts.count]
+                entries.append(DictationEntry(date: cal.date(byAdding: .day, value: -day, to: now)!,
+                                              text: t, raw: t, method: .rules,
+                                              audioSeconds: Double(t.split(separator: " ").count) / 2.3, latencySeconds: 0.5,
+                                              appBundleID: app.0, appName: app.1, style: "natural"))
+            }
+        }
+        store.dictations = entries
+        store.rebuildDictationLedger()
+        store.dictations = Array(entries.prefix(200))
         return mID
     }
 }

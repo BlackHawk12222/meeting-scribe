@@ -58,79 +58,109 @@ extension NSColor {
 ///  • Light = "Daylight" (new in 0.7.2, its own design, not dark with the backgrounds swapped):
 ///    cool paper-white surfaces, soft shadows instead of glow, softer lavender, no dots in the sky.
 enum Night {
-    // MARK: Color (light, dark)
-    static let canvas = Color.night(0xF6F5FA, 0x0E0E11)
-    static let rail = Color.night(0xEFEEF5, 0x09090B)
-    static let surface = Color.night(0xFFFFFF, 0x16161A)
-    static let raised = Color.night(0xFFFFFF, 0x1D1D23)
-    static let well = Color.night(0xF1F0F6, 0x111114)
-    static let hover = Color.night(0x1E1A3C, 0xFFFFFF, lightAlpha: 0.045, darkAlpha: 0.04)
-    static let line = Color.night(0x1E1A3C, 0xFFFFFF, lightAlpha: 0.08, darkAlpha: 0.065)
-    static let line2 = Color.night(0x1E1A3C, 0xFFFFFF, lightAlpha: 0.13, darkAlpha: 0.10)
-    static let highlight = Color.night(0xFFFFFF, 0xFFFFFF, lightAlpha: 0.0, darkAlpha: 0.04)
-    static let text = Color.night(0x1C1B29, 0xECEBF5)
-    static let text2 = Color.night(0x535166, 0xA9A8BC)
-    static let text3 = Color.night(0x6B6980, 0x85849A)
-    static let accentTop = Color.night(0x726EDC, 0xBABCFF)
-    static let accentBottom = Color.night(0x6560D4, 0x8680F6)
-    static let accent = Color.night(0x5F5AD0, 0xA3A0FB)
-    static let accentSoft = Color.night(0x6560D4, 0xA3A0FB, lightAlpha: 0.09, darkAlpha: 0.14)
-    static let onAccent = Color.night(0xFFFFFF, 0x0D0C1A)
-    static let star = Color.night(0xA8A3EC, 0xC9CAFF)
-    /// Recording state only (dot, timer). Never decorative. Coral in both themes.
-    static let live = Color.night(0xD3424F, 0xF2878E)
-    static let liveSoft = Color.night(0xD3424F, 0xF2878E, lightAlpha: 0.10, darkAlpha: 0.14)
-    /// Warnings (a failed step, a missing permission). Kept soft, like the rest.
-    static let warn = Color.night(0xA15C12, 0xF4BE93)
-    static let ok = Color.night(0x267A60, 0x8FD9C2)
+    // MARK: Color (light, dark): 0.7.3 "Poster" (docs/DESIGN.md)
+    // Flat white / near-black, hairline borders, no gradients, no glow. Color lives in the big
+    // poster tiles (indigo, coral, green, black) and nowhere else.
+    static let canvas = Color.night(0xFFFFFF, 0x111112)
+    static let rail = Color.night(0xF7F7F8, 0x0B0B0C)
+    static let surface = Color.night(0xFFFFFF, 0x111112)
+    static let raised = Color.night(0xFFFFFF, 0x1A1A1C)
+    static let well = Color.night(0xF7F7F8, 0x161618)
+    static let hover = Color.night(0xF5F5F7, 0x19191B)
+    /// Hairline: borders and dividers.
+    static let line = Color.night(0xE8E8EB, 0x232326)
+    /// Control borders (buttons, fields, chips).
+    static let line2 = Color.night(0xDADADF, 0x2E2E32)
+    static let highlight = Color.night(0xFFFFFF, 0xFFFFFF, lightAlpha: 0, darkAlpha: 0)
+    static let text = Color.night(0x111113, 0xEDEDF0)
+    static let text2 = Color.night(0x6B6B73, 0x9A9AA3)
+    static let text3 = Color.night(0x8E8E96, 0x76767E)
+    static let accentTop = Color.night(0x5B57D9, 0x8E8BF5)
+    static let accentBottom = Color.night(0x5B57D9, 0x8E8BF5)
+    static let accent = Color.night(0x5B57D9, 0x8E8BF5)
+    static let accentSoft = Color.night(0x5B57D9, 0x8E8BF5, lightAlpha: 0.10, darkAlpha: 0.16)
+    static let onAccent = Color.night(0xFFFFFF, 0x111113)
+    static let star = Color.night(0x9A9AA2, 0x6E6E76)
+    /// Selected row / rail item fill (the hairline color, like the mockups).
+    static let selected = Color.night(0xEDEDF0, 0x232326)
+    /// Primary button (Record pill, Name speaker): black in light mode, near-white in dark.
+    static let primary = Color.night(0x111113, 0xEDEDF0)
+    static let onPrimary = Color.night(0xFFFFFF, 0x111113)
+    /// Recording state only (dot, timer). Never decorative.
+    static let live = Color.night(0xE5484D, 0xE5484D)
+    static let liveSoft = Color.night(0xE5484D, 0xE5484D, lightAlpha: 0.10, darkAlpha: 0.16)
+    /// Warnings (a failed step, a missing permission).
+    static let warn = Color.night(0xB4560E, 0xF4BE93)
+    static let ok = Color.night(0x1FA463, 0x3CC584)
 
-    // MARK: Shadow (light only: dark mode uses the 1 px top highlight instead)
-    static let shadow = Color.night(0x1E1A3C, 0x000000, lightAlpha: 0.07, darkAlpha: 0)
-    static let shadowRadius: CGFloat = 6
-    static let shadowY: CGFloat = 1
+    // MARK: Poster tiles (same in both themes; the black tile gets a hairline in dark mode)
+    static let posterIndigo = Color(hex: 0x5B57D9)
+    static let posterCoral = Color(hex: 0xF2685B)
+    static let posterGreen = Color(hex: 0x1FA463)
+    static let posterBlack = Color(hex: 0x141416)
+    static let posterBlackEdge = Color.night(0x141416, 0x2E2E32)
 
-    /// The accent gradient, top → bottom (wave, primary button, record button). In light mode the
-    /// two ends are close, so it reads as one soft lavender.
-    static let gradient = LinearGradient(colors: [accentTop, accentBottom], startPoint: .top, endPoint: .bottom)
-    /// The accent gradient, left → right (toggles, progress, tab underline).
-    static let gradientH = LinearGradient(colors: [accentBottom, accentTop], startPoint: .leading, endPoint: .trailing)
-    static let gradientTab = LinearGradient(colors: [accentTop, accentBottom], startPoint: .leading, endPoint: .trailing)
+    /// "Where you talk": one color per app, by rank (Notes-yellow, green, blue, cyan, indigo, coral).
+    static let appColors: [Color] = [Color(hex: 0xF5B83D), Color(hex: 0x34C77B), Color(hex: 0x3D8BFD),
+                                     Color(hex: 0x36B5D9), Color(hex: 0x5B57D9), Color(hex: 0xF2685B)]
+    /// Apps past the sixth, and dictations from before 0.7.3 (no app recorded).
+    static let appOther = Color.night(0xB4B4BC, 0x5A5A62)
+    /// The 26-week heatmap: empty → most (light), dark mode gets brighter as it fills.
+    static let heat: [Color] = [Color.night(0xEEEEF3, 0x1E1E22), Color.night(0xD6D4FB, 0x2E2B5C),
+                                Color.night(0xABA7F5, 0x433E9A), Color.night(0x7C77EB, 0x625CD6),
+                                Color.night(0x5B57D9, 0x8E8BF5)]
 
-    /// Speaker avatar fills (dark text on top), assigned in order.
-    static let speakers: [Color] = [Color(hex: 0xBABCFF), Color(hex: 0x8FD9C2), Color(hex: 0xF4BE93),
-                                    Color(hex: 0x9CCBFF), Color(hex: 0xE9A9D0), Color(hex: 0xD7D98E)]
-    static let onSpeaker = Color(hex: 0x0D0C1A)
+    // MARK: Shadow (none in Poster: hairlines do the work)
+    static let shadow = Color.night(0x000000, 0x000000, lightAlpha: 0, darkAlpha: 0)
+    static let shadowRadius: CGFloat = 0
+    static let shadowY: CGFloat = 0
 
-    /// The dictation capsule: always dark (the icon tile), in both themes.
-    static let overlayTop = Color(hex: 0x1E1E22)
-    static let overlayBottom = Color(hex: 0x09090B)
-    static let overlayStar = Color(hex: 0xC9CAFF)
-    static let overlayAccentTop = Color(hex: 0xBABCFF)
-    static let overlayAccentBottom = Color(hex: 0x8680F6)
-    static let overlayLive = Color(hex: 0xF2878E)
+    /// Kept for older call sites: a flat accent (Poster has no gradients).
+    static let gradient = LinearGradient(colors: [accent, accent], startPoint: .top, endPoint: .bottom)
+    static let gradientH = LinearGradient(colors: [accent, accent], startPoint: .leading, endPoint: .trailing)
+    static let gradientTab = LinearGradient(colors: [text, text], startPoint: .leading, endPoint: .trailing)
+
+    /// Speaker avatar fills (white letter on top), assigned in order.
+    static let speakers: [Color] = [Color(hex: 0x5B57D9), Color(hex: 0xF2685B), Color(hex: 0x1FA463),
+                                    Color(hex: 0xF5B83D), Color(hex: 0x3D8BFD), Color(hex: 0x36B5D9)]
+    static let onSpeaker = Color.white
+    /// An unnamed speaker ("Speaker 4").
+    static let unnamed = Color.night(0x8E8E96, 0x5A5A62)
+
+    /// The dictation capsule: always black (#141416), in both themes.
+    static let overlayTop = Color(hex: 0x141416)
+    static let overlayBottom = Color(hex: 0x141416)
+    static let overlayStar = Color(hex: 0xEDEDF0)
+    static let overlayAccentTop = Color(hex: 0x1FA463)
+    static let overlayAccentBottom = Color(hex: 0x1FA463)
+    static let overlayLive = Color(hex: 0xE5484D)
 
     // MARK: Space (a 4-pt scale: 4 / 8 / 12 / 16 / 20 / 24 / 32)
     static let s4: CGFloat = 4, s8: CGFloat = 8, s12: CGFloat = 12, s16: CGFloat = 16
     static let s20: CGFloat = 20, s24: CGFloat = 24, s32: CGFloat = 32
 
     // MARK: Radius
-    static let rWindow: CGFloat = 12, rCard: CGFloat = 12, rSheet: CGFloat = 14, rControl: CGFloat = 7
-    static let rPill: CGFloat = 9, rRow: CGFloat = 8, rSegment: CGFloat = 6, rSegmentOuter: CGFloat = 8, rKey: CGFloat = 6
+    static let rWindow: CGFloat = 10, rCard: CGFloat = 8, rSheet: CGFloat = 10, rControl: CGFloat = 6
+    static let rPill: CGFloat = 8, rRow: CGFloat = 6, rSegment: CGFloat = 5, rSegmentOuter: CGFloat = 7, rKey: CGFloat = 5
+    /// Poster tiles.
+    static let rTile: CGFloat = 10
 
     // MARK: Size (compact, Mac-native)
     static let controlHeight: CGFloat = 28        // buttons, search field, segmented control
     static let controlHeightSmall: CGFloat = 24   // keycaps, chips
     static let iconButton: CGFloat = 26
-    static let switchSize = CGSize(width: 30, height: 18)
-    static let rowHeight: CGFloat = 30            // sidebar items, settings pane rows, menu rows
+    static let switchSize = CGSize(width: 34, height: 20)
+    static let rowHeight: CGFloat = 32            // sidebar items, settings pane rows, menu rows
     static let iconSmall: CGFloat = 10, iconRegular: CGFloat = 12, iconLarge: CGFloat = 14
     static let avatar: CGFloat = 22, avatarSmall: CGFloat = 18
 
     // MARK: Layout
-    static let railWidth: CGFloat = 52, headerHeight: CGFloat = 52
-    static let meetingsListWidth: CGFloat = 230, settingsListWidth: CGFloat = 124
-    static let gutterLeading: CGFloat = 24, gutterTrailing: CGFloat = 18, cardGap: CGFloat = 12
-    static let cardPadding: CGFloat = 14
+    static let railWidth: CGFloat = 46, headerHeight: CGFloat = 52
+    static let meetingsListWidth: CGFloat = 300, settingsListWidth: CGFloat = 196
+    static let gutterLeading: CGFloat = 28, gutterTrailing: CGFloat = 28, cardGap: CGFloat = 12
+    static let cardPadding: CGFloat = 16
+    /// Poster tile height on Home (the other pages use a shorter one).
+    static let tileHeight: CGFloat = 186, tileHeightCompact: CGFloat = 132
     static let rowPaddingH: CGFloat = 12, rowPaddingV: CGFloat = 8
 
     // MARK: Motion (nothing bounces)
@@ -200,22 +230,27 @@ enum ScribeFonts {
 
 extension Font {
     /// Manrope at `size` pt and `weight` (200–800). Falls back to the system font.
+    /// 0.7.3 "Poster": the system font (SF Pro, Inter-like) at `size` pt and `weight` (200–800).
+    /// Manrope stays bundled for older builds' screenshots but is no longer used.
     static func scribe(_ size: CGFloat, _ weight: CGFloat = 500) -> Font {
-        if let f = ScribeFonts.nsFont(size: size, weight: weight) { return Font(f as CTFont) }
-        return .system(size: size, weight: ScribeFonts.systemWeight(weight))
+        .system(size: size, weight: ScribeFonts.systemWeight(weight))
     }
-    // The type scale (docs/DESIGN.md › Type). Compact in 0.7.2: body 13, titles 13 semibold.
-    static var nightDisplay: Font { scribe(17, 650) }     // page title
-    static var nightTitle: Font { scribe(14, 650) }       // sheet / dialog title
-    static var nightHeadline: Font { scribe(13, 600) }    // row and card titles
-    static var nightBody: Font { scribe(13, 460) }        // normal text
-    static var nightReading: Font { scribe(13.5, 460) }   // notes and transcript (long reading)
-    static var nightSecondary: Font { scribe(12, 460) }   // descriptions under a title
-    static var nightSmallStrong: Font { scribe(12, 600) } // small emphasis, status lines
-    static var nightMeta: Font { scribe(11, 550) }        // dates, counts, captions
-    static var nightLabel: Font { scribe(10.5, 700) }     // UPPERCASE section labels
-    static var nightKeycap: Font { scribe(11.5, 700) }
-    static var nightButton: Font { scribe(12.5, 600) }
+    // The type scale (docs/DESIGN.md › Type). Poster: body 14, reading 15, nothing tiny.
+    static var nightDisplay: Font { scribe(15, 600) }     // page title in the top bar
+    static var nightTitle: Font { scribe(17, 600) }       // sheet / dialog title
+    static var nightHeadline: Font { scribe(14, 560) }    // row and card titles
+    static var nightBody: Font { scribe(14, 420) }        // normal text
+    static var nightReading: Font { scribe(15, 420) }     // notes, transcript, dictations
+    static var nightSecondary: Font { scribe(13, 420) }   // descriptions under a title
+    static var nightSmallStrong: Font { scribe(13, 560) } // small emphasis, status lines
+    static var nightMeta: Font { scribe(12.5, 420) }      // dates, counts, captions
+    static var nightLabel: Font { scribe(12.5, 600) }     // section labels (sentence case)
+    static var nightKeycap: Font { scribe(13, 600) }
+    static var nightButton: Font { scribe(13, 500) }
+    /// Big poster numbers.
+    static func posterNumber(_ size: CGFloat = 72) -> Font { .system(size: size, weight: .bold) }
+    /// A page heading inside the content (Settings pane title, meeting title).
+    static var pageTitle: Font { scribe(24, 650) }
     /// SF Symbol sizes: small 10, regular 12, large 14 (semibold/medium).
     static func nightIcon(_ size: CGFloat = Night.iconRegular, _ weight: Font.Weight = .medium) -> Font {
         .system(size: size, weight: weight)
@@ -225,7 +260,7 @@ extension Font {
 // MARK: - Appearance (Settings › General)
 
 enum AppearanceChoice: String, CaseIterable, Identifiable {
-    case system, dark, light
+    case system, light, dark
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -280,16 +315,11 @@ struct NightCardBackground: View {
     var fill: Color = Night.surface
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        // Poster: flat fill + one hairline. No shadow, no inner highlight.
         ZStack {
             shape.fill(fill)
-            // Inner top edge: a 1 px highlight that fades out below the corner.
-            shape.inset(by: 0.5)
-                .stroke(LinearGradient(colors: [Night.highlight, .clear], startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.08)),
-                        lineWidth: 1)
             shape.strokeBorder(Night.line, lineWidth: 1)
         }
-        // Light mode: a soft shadow gives the lift (dark mode's shadow color is clear).
-        .shadow(color: Night.shadow, radius: Night.shadowRadius, y: Night.shadowY)
     }
 }
 
@@ -361,17 +391,15 @@ private struct NightButtonBody: View {
             .background {
                 switch kind {
                 case .primary:
-                    shape.fill(Night.gradient)
-                        .overlay(shape.inset(by: 0.5).stroke(LinearGradient(colors: [Color.white.opacity(0.35), .clear],
-                                                                             startPoint: .top, endPoint: UnitPoint(x: 0.5, y: 0.12)),
-                                                             lineWidth: 1))
+                    shape.fill(Night.primary)
                 case .secondary, .danger:
                     shape.fill(Night.raised).overlay(shape.strokeBorder(Night.line2, lineWidth: 1))
                 case .ghost:
                     shape.fill(hover ? Night.hover : Color.clear)
                 }
             }
-            .brightness(configuration.isPressed ? -0.06 : (hover && kind != .ghost ? 0.03 : 0))
+            .opacity(configuration.isPressed ? 0.8 : (hover && kind == .primary ? 0.9 : 1))
+            .background { if hover && kind == .secondary { shape.fill(Night.hover) } }
             .opacity(enabled ? 1 : 0.45)
             .contentShape(shape)
             .onHover { hover = $0 }
@@ -380,7 +408,7 @@ private struct NightButtonBody: View {
 
     private var foreground: Color {
         switch kind {
-        case .primary: return Night.onAccent
+        case .primary: return Night.onPrimary
         case .secondary: return Night.text
         case .ghost: return Night.text2
         case .danger: return Night.live
@@ -533,11 +561,9 @@ struct SectionLabel: View {
     var title: String
     var color: Color = Night.text3
     var body: some View {
-        HStack(spacing: Night.s4 + 2) {
-            Sparkle().fill(Night.star).frame(width: 7, height: 7)
-            Text(title.uppercased()).font(.nightLabel).tracking(0.7).foregroundStyle(color).lineLimit(1)
-        }
-        .accessibilityElement(children: .combine)
+        // Poster: sentence case, 12.5 semibold, secondary text. No sparkle.
+        Text(title).font(.nightLabel).foregroundStyle(color == Night.text3 ? Night.text2 : color).lineLimit(1)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -558,11 +584,12 @@ struct CozyEmptyState<Actions: View>: View {
     @ViewBuilder var actions: Actions
     var body: some View {
         VStack(spacing: Night.s12) {
-            VStack(spacing: Night.s12) {
-                SparkleView(size: 32, glow: true)
-                CapsuleBars(levels: Array(repeating: 0, count: 7), barWidth: 4, spacing: 4, maxLength: 4, style: .dim)
-            }
-            .padding(.bottom, Night.s4)
+            Image(systemName: symbol)
+                .font(.system(size: 22, weight: .regular))
+                .foregroundStyle(Night.text3)
+                .frame(width: 44, height: 44)
+                .overlay(RoundedRectangle(cornerRadius: Night.rCard, style: .continuous).strokeBorder(Night.line, lineWidth: 1))
+                .padding(.bottom, Night.s4)
             VStack(spacing: Night.s4) {
                 Text(title).font(.nightHeadline).foregroundStyle(Night.text)
                 // No fixedSize here: it would make the window's minimum height huge.
@@ -600,18 +627,16 @@ struct NightSidebarItem: View {
             HStack(spacing: Night.s8 - 2) {
                 if let symbol {
                     Image(systemName: symbol).font(.nightIcon(Night.iconRegular))
-                        .foregroundStyle(selected ? Night.accent : Night.text3).frame(width: 16)
-                } else {
-                    Sparkle().fill(Night.star).frame(width: 6, height: 6).opacity(selected ? 1 : 0)
+                        .foregroundStyle(selected ? Night.text : Night.text2).frame(width: 18)
                 }
-                Text(title).font(selected ? Font.nightHeadline : Font.nightBody)
+                Text(title).font(.nightBody)
                     .foregroundStyle(selected ? Night.text : Night.text2).lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, Night.s8)
-            .frame(height: Night.rowHeight)
+            .padding(.horizontal, Night.s12)
+            .frame(height: Night.rowHeight + 2)
             .background(RoundedRectangle(cornerRadius: Night.rRow, style: .continuous)
-                .fill(selected ? Night.accentSoft : (hover ? Night.hover : Color.clear)))
+                .fill(selected ? Night.selected : (hover ? Night.hover : Color.clear)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -627,7 +652,7 @@ struct NightRowBackground: View {
     var hover: Bool
     var body: some View {
         RoundedRectangle(cornerRadius: Night.rRow, style: .continuous)
-            .fill(selected ? Night.accentSoft : (hover ? Night.hover : Color.clear))
+            .fill(selected ? Night.selected : (hover ? Night.hover : Color.clear))
     }
 }
 

@@ -1,24 +1,63 @@
 // MeetingDetailView.swift
-// One meeting: the speakers found in it (name them here!), the notes, and the transcript.
-// 0.7 "Night Sky": a 72 pt header (title, meta, actions), speaker cards with talk-share capsules,
-// tabs with the capsule underline, notes and transcript on flat cards. No toolbar, no glass.
+// One meeting (0.7.3 "Poster"): title + meta, three tiles (duration, speakers, action items), a
+// "speaker needs a name" notice (Listen / Name speaker), then the summary and action items
+// (checkboxes saved to disk, owner chips) beside "Who talked" (share of talk time from the
+// speaker diarization). Copy notes puts the summary + action items on the clipboard. The
+// transcript is one switch away. Naming a speaker here teaches the voice library.
 
 import SwiftUI
 import AVFoundation
 import AppKit
 import UniformTypeIdentifiers
 
+/// Plays a bit of a meeting's audio (speaker samples, "play from here"). One at a time, app-wide.
+@MainActor
+final class SamplePlayer: ObservableObject {
+    static let shared = SamplePlayer()
+    @Published private(set) var playing = false
+    private var player: AVAudioPlayer?
+    private var stopWork: DispatchWorkItem?
+
+    func play(url: URL, from t: Double, seconds: Double? = nil) {
+        stop()
+        guard let p = try? AVAudioPlayer(contentsOf: url) else { return }
+        p.currentTime = max(0, t - 0.3)
+        p.play()
+        player = p
+        playing = true
+        if let seconds {
+            let w = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.stop() } }
+            stopWork = w
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: w)
+        }
+    }
+
+    func stop() {
+        stopWork?.cancel()
+        player?.stop()
+        player = nil
+        playing = false
+    }
+
+    /// The speaker's longest line (up to 8 s).
+    func playSpeaker(_ m: Meeting, key: String, store: Store) {
+        let lines = m.utterances.filter { $0.speakerKey == key }
+        guard let u = lines.max(by: { ($0.end - $0.start) < ($1.end - $1.start) }) else { return }
+        play(url: store.audioURL(for: m), from: u.start, seconds: min(8, max(2, u.end - u.start + 0.6)))
+    }
+}
+
 struct MeetingDetailView: View {
     @EnvironmentObject var store: Store
+    @ObservedObject private var audio = SamplePlayer.shared
     let meetingID: UUID
-    @State private var player: AVAudioPlayer?
-    @State private var namingKey: String?
-    @State private var newName = ""
+    @State private var naming: SpeakerRef?
     @State private var editingTitle = false
     @State private var titleDraft = ""
     @State private var titleHover = false
     @State private var chipKey: String?
-    @State private var exportOpen = false
+    @State private var moreOpen = false
+    @State private var copied = false
     @FocusState private var titleFocused: Bool
     @State private var tab = DetailTab.notes
     enum DetailTab: String, CaseIterable { case notes = "Notes", transcript = "Transcript" }
@@ -27,57 +66,56 @@ struct MeetingDetailView: View {
 
     var body: some View {
         if let m = meeting {
-            VStack(alignment: .leading, spacing: 0) {
-                header(m)
-                    .padding(.leading, Night.gutterLeading)
-                    .padding(.trailing, Night.gutterTrailing)
-                if m.status == .done {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: Night.s16) {
-                            speakersRow(m)
-                            HStack(alignment: .bottom) {
-                                NightTabs(selection: $tab, options: DetailTab.allCases.map { (value: $0, title: $0.rawValue) })
-                                Spacer()
-                                speakerCountPicker(m)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    header(m)
+                    if m.status == .done {
+                        tiles(m).padding(.top, 20)
+                        if let c = unnamed(m).first { notice(m, c, count: unnamed(m).count).padding(.top, 12) }
+                        if tab == .notes {
+                            HStack(alignment: .top, spacing: 36) {
+                                notesColumn(m).frame(maxWidth: .infinity, alignment: .leading)
+                                whoTalked(m).frame(width: 290)
                             }
-                            Group {
-                                if tab == .notes { notesView(m) } else { transcript(m) }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 26)
+                        } else {
+                            transcript(m).padding(.top, 26)
                         }
-                        .padding(.leading, Night.gutterLeading)
-                        .padding(.trailing, Night.gutterTrailing)
-                        .padding(.bottom, 32)
-                        .frame(maxWidth: Brand.readingWidth + 120, alignment: .leading)
+                    } else {
+                        statusView(m).padding(.top, 60)
                     }
-                    .scrollIndicators(.never)
-                } else {
-                    statusView(m)
                 }
+                .padding(.horizontal, 32)
+                .padding(.top, 22)
+                .padding(.bottom, 32)
             }
-            .sheet(isPresented: Binding(get: { namingKey != nil }, set: { if !$0 { namingKey = nil } })) {
-                nameSheet(m)
+            .scrollIndicators(.never)
+            .sheet(item: $naming) { ref in
+                NameSpeakerSheet(meetingID: ref.meetingID, clusterKey: ref.key) { naming = nil }
+                    .environmentObject(store)
             }
+            .onDisappear { audio.stop() }
         }
+    }
+
+    private func unnamed(_ m: Meeting) -> [SpeakerCluster] {
+        m.clusters.filter { $0.personID == nil }.sorted { $0.talkSeconds > $1.talkSeconds }
     }
 
     // MARK: Header
 
     private func header(_ m: Meeting) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
                 if editingTitle {
-                    // Inline rename: Return or clicking away saves, Esc cancels. Saved to disk at once.
                     TextField("Untitled meeting", text: $titleDraft)
                         .textFieldStyle(.plain)
-                        .font(.nightDisplay)
+                        .font(.pageTitle)
                         .foregroundStyle(Night.text)
-                        .tint(Night.accent)
                         .focused($titleFocused)
                         .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Night.well))
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Night.accent.opacity(0.55), lineWidth: 1))
+                        .background(RoundedRectangle(cornerRadius: Night.rControl, style: .continuous).fill(Night.well))
+                        .overlay(RoundedRectangle(cornerRadius: Night.rControl, style: .continuous).strokeBorder(Night.line2, lineWidth: 1))
                         .padding(.leading, -6)
                         .onSubmit { commitTitle(m) }
                         .onExitCommand { editingTitle = false }
@@ -87,11 +125,11 @@ struct MeetingDetailView: View {
                 } else {
                     HStack(spacing: 8) {
                         Text(m.title.isEmpty ? "Untitled meeting" : m.title)
-                            .font(.nightDisplay).tracking(-0.3)
+                            .font(.pageTitle).tracking(-0.4)
                             .foregroundStyle(m.title.isEmpty ? Night.text3 : Night.text)
-                            .lineLimit(1)
+                            .lineLimit(2)
                         Image(systemName: "pencil")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(Night.text3)
                             .opacity(titleHover ? 1 : 0)
                     }
@@ -102,37 +140,61 @@ struct MeetingDetailView: View {
                     .accessibilityAddTraits(.isButton)
                     .accessibilityHint("Rename this meeting")
                 }
-                Text(meta(m)).font(.nightMeta).foregroundStyle(Night.text3).lineLimit(1)
+                Text(meta(m)).font(.nightBody).foregroundStyle(Night.text2).lineLimit(1)
             }
             .layoutPriority(1)
             Spacer(minLength: 12)
-            if player != nil {
-                Button { player?.stop(); player = nil } label: { Label("Stop audio", systemImage: "stop.fill") }
-                    .buttonStyle(.nightGhost)
+            if audio.playing {
+                Button { audio.stop() } label: { Label("Stop audio", systemImage: "stop.fill") }
+                    .buttonStyle(.nightSecondary)
             }
-            Button { Task { await store.process(m.id) } } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(NightIconButtonStyle())
-                .disabled(!store.engineReady || m.status == .processing)
-                .help("Re-process this recording")
-                .accessibilityLabel("Re-process")
-            Button { exportOpen.toggle() } label: { Label("Export", systemImage: "square.and.arrow.up") }
-                .buttonStyle(.nightSecondary)
-                .disabled(m.status != .done)
-                .popover(isPresented: $exportOpen, arrowEdge: .bottom) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(ExportFormat.allCases) { f in
-                            Button { exportOpen = false; export(m, f) } label: {
-                                Text(f.label).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                            }
-                            .buttonStyle(MenuRowStyle())
-                        }
-                    }
-                    .padding(6)
-                    .frame(width: 220)
-                    .background(Night.raised)
+            if m.status == .done {
+                NightSegmented(selection: $tab, options: DetailTab.allCases.map { (value: $0, title: $0.rawValue) })
+                Button { copyNotes(m) } label: {
+                    Label(copied ? "Copied" : "Copy notes", systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
+                .buttonStyle(.nightSecondary)
+            }
+            Button { moreOpen.toggle() } label: { Image(systemName: "ellipsis") }
+                .buttonStyle(NightIconButtonStyle(size: Night.controlHeight))
+                .accessibilityLabel("More")
+                .popover(isPresented: $moreOpen, arrowEdge: .bottom) { moreMenu(m) }
         }
-        .frame(height: Night.headerHeight)
+    }
+
+    private func moreMenu(_ m: Meeting) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(ExportFormat.allCases) { f in
+                Button { moreOpen = false; export(m, f) } label: {
+                    Label("Export \(f.label)", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                }
+                .buttonStyle(MenuRowStyle())
+                .disabled(m.status != .done)
+            }
+            NightDivider().padding(.vertical, 4)
+            Button { moreOpen = false; Task { await store.makeNotes(m.id) } } label: {
+                Label("Redo notes", systemImage: "arrow.triangle.2.circlepath").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(MenuRowStyle())
+            .disabled(m.status != .done || m.utterances.isEmpty)
+            Button { moreOpen = false; Task { await store.process(m.id) } } label: {
+                Label("Re-process the recording", systemImage: "arrow.clockwise").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(MenuRowStyle())
+            .disabled(!store.engineReady || m.status == .processing)
+            if m.status == .done {
+                NightDivider().padding(.vertical, 4)
+                HStack {
+                    Text("People talking").font(.nightSecondary).foregroundStyle(Night.text2)
+                    Spacer()
+                    speakerCountPicker(m)
+                }
+                .padding(.horizontal, 8)
+            }
+        }
+        .padding(6)
+        .frame(width: 290)
+        .background(Night.raised)
     }
 
     private func commitTitle(_ m: Meeting) {
@@ -141,24 +203,25 @@ struct MeetingDetailView: View {
     }
 
     private func meta(_ m: Meeting) -> String {
-        var parts = [m.date.formatted(date: .abbreviated, time: .shortened), Night.clock(m.duration)]
-        if let p = m.processingSeconds, p > 0 {
-            parts.append(String(format: "processed in %.0f s (%.0f× real time)", p, m.duration / p))
+        let cal = Calendar.current
+        let day = cal.isDateInToday(m.date) ? "Today" : cal.isDateInYesterday(m.date) ? "Yesterday"
+            : m.date.formatted(.dateTime.weekday(.wide).month(.abbreviated).day())
+        var parts = [day]
+        if m.status == .done {
+            let n = MeetingFormat.peopleCount(m)
+            parts.append("\(n) \(n == 1 ? "person" : "people")")
         }
-        return parts.joined(separator: "  ·  ")
+        parts.append("Recorded on this Mac")
+        return parts.joined(separator: " · ")
     }
 
     private func speakerCountPicker(_ m: Meeting) -> some View {
         var counts: [(value: Int, title: String)] = [(value: 0, title: "Auto")]
         for n in 2...10 { counts.append((value: n, title: "\(n)")) }
-        return HStack(spacing: 8) {
-            Text("People talking").font(.nightMeta).foregroundStyle(Night.text3)
-            NightPicker(selection: Binding(
-                get: { m.speakerCount ?? 0 },
-                set: { n in Task { await store.resplitSpeakers(m.id, count: n == 0 ? nil : n) } }
-            ), options: counts)
-        }
-        .padding(.bottom, 8)
+        return NightPicker(selection: Binding(
+            get: { m.speakerCount ?? 0 },
+            set: { n in Task { await store.resplitSpeakers(m.id, count: n == 0 ? nil : n) } }
+        ), options: counts)
         .help("If two people got merged into one speaker (or one person got split), tell Scribe how many people were talking.")
     }
 
@@ -167,86 +230,236 @@ struct MeetingDetailView: View {
         VStack(spacing: 14) {
             switch m.status {
             case .processing:
-                SparkleView(size: 40, glow: true)
-                CapsuleSpinner(bars: 7)
-                Text(store.progressText[m.id] ?? "Working…").font(.nightSecondary).foregroundStyle(Night.text2)
+                ProgressView()
+                Text(store.progressText[m.id] ?? "Working…").font(.nightBody).foregroundStyle(Night.text2)
             case .failed:
-                Image(systemName: "exclamationmark.triangle").font(.system(size: 28)).foregroundStyle(Night.warn)
-                Text(m.errorMessage ?? "Something went wrong.").font(.nightSecondary).foregroundStyle(Night.text2)
-                    .multilineTextAlignment(.center).frame(maxWidth: 420)
+                Image(systemName: "exclamationmark.triangle").font(.system(size: 26)).foregroundStyle(Night.warn)
+                Text(m.errorMessage ?? "Something went wrong.").font(.nightBody).foregroundStyle(Night.text2)
+                    .multilineTextAlignment(.center).frame(maxWidth: 440)
                 Button("Try again") { Task { await store.process(m.id) } }.buttonStyle(.nightPrimary)
             default:
-                SparkleView(size: 40, glow: true)
+                Image(systemName: "waveform").font(.system(size: 26)).foregroundStyle(Night.text3)
                 Text(store.engineReady ? "Waiting to process…" : "Will process once the models are ready.")
-                    .font(.nightSecondary).foregroundStyle(Night.text2)
+                    .font(.nightBody).foregroundStyle(Night.text2)
                 if store.engineReady { Button("Process now") { Task { await store.process(m.id) } }.buttonStyle(.nightPrimary) }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
     }
 
-    // MARK: Speakers
+    // MARK: Tiles
 
-    private func speakersRow(_ m: Meeting) -> some View {
-        let total = max(1, m.clusters.reduce(0) { $0 + $1.talkSeconds })
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(Array(m.clusters.enumerated()), id: \.element.id) { i, c in
-                    speakerCard(m, c, index: i, share: c.talkSeconds / total)
-                }
+    private func tiles(_ m: Meeting) -> some View {
+        let speakers = m.clusters.sorted { $0.talkSeconds > $1.talkSeconds }
+        let open = unnamed(m).count
+        let items = m.notes?.actionItems ?? []
+        let done = items.filter(\.done).count
+        let secs = m.duration
+        let end = m.date.addingTimeInterval(secs)
+        let range = "\(m.date.formatted(date: .omitted, time: .shortened)) – \(end.formatted(date: .omitted, time: .shortened))"
+        return HStack(spacing: Night.cardGap) {
+            PosterTile(color: Night.posterIndigo, label: "Duration",
+                       value: secs < 60 ? "\(Int(secs.rounded()))" : "\(Int((secs / 60).rounded()))",
+                       unit: secs < 60 ? "s" : "min", caption: range,
+                       height: 128, valueSize: 48) {
+                RingGauge(fraction: secs / 3600, size: 40, line: 5)
             }
-            .padding(.vertical, 2)
-            .padding(.horizontal, 1)
+            PosterTile(color: Night.posterCoral, label: "Speakers", value: "\(MeetingFormat.peopleCount(m))",
+                       caption: open == 0 ? "everyone has a name" : "\(open) still unnamed",
+                       height: 128, valueSize: 48) {
+                DaySquares(filled: Array(speakers.prefix(7)).map { $0.personID != nil }, size: 11)
+            }
+            PosterTile(color: Night.posterGreen, label: "Action items", value: "\(items.count)",
+                       caption: items.isEmpty ? "nothing to follow up" : (done == 0 ? "none done yet" : "\(done) already done"),
+                       height: 128, valueSize: 48) {
+                DaySquares(filled: Array(items.prefix(7)).map(\.done), size: 11)
+            }
         }
     }
 
-    /// A speaker card: avatar, name, match, talk share as 16 capsule segments. Clicking it opens a
-    /// small popover with the naming choices.
-    private func speakerCard(_ m: Meeting, _ c: SpeakerCluster, index: Int, share: Double) -> some View {
+    // MARK: Unnamed speaker notice
+
+    private func notice(_ m: Meeting, _ c: SpeakerCluster, count: Int) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "person")
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.white)
+                .frame(width: 26, height: 26)
+                .background(RoundedRectangle(cornerRadius: Night.rControl, style: .continuous).fill(Night.posterCoral))
+            (Text(count == 1 ? "1 speaker needs a name. " : "\(count) speakers need a name. ").font(.nightHeadline).foregroundColor(Night.text)
+             + Text("\(store.displayName(m, key: c.key)) talked for about \(MeetingFormat.minutes(c.talkSeconds)).")
+                .font(.nightBody).foregroundColor(Night.text2))
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            Button { audio.playSpeaker(m, key: c.key, store: store) } label: { Label("Listen", systemImage: "play") }
+                .buttonStyle(.nightSecondary)
+            Button("Name speaker") { naming = SpeakerRef(meetingID: m.id, key: c.key) }
+                .buttonStyle(.nightPrimary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(NightCardBackground())
+    }
+
+    // MARK: Notes column
+
+    @ViewBuilder
+    private func notesColumn(_ m: Meeting) -> some View {
+        if store.notesInProgress.contains(m.id) {
+            HStack(spacing: 10) {
+                ProgressView().controlSize(.small)
+                Text("Writing notes on this Mac…").font(.nightBody).foregroundStyle(Night.text2)
+            }
+            .padding(.vertical, 20)
+        } else if let n = m.notes {
+            VStack(alignment: .leading, spacing: 0) {
+                HairlineHeader(title: "Summary")
+                Text(n.summary)
+                    .font(.system(size: 15.5)).foregroundStyle(Night.text)
+                    .lineSpacing(5)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 12)
+                if !n.keyPoints.isEmpty {
+                    HairlineHeader(title: "Key points").padding(.top, 24)
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(n.keyPoints, id: \.self) { p in
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                Text("•").foregroundStyle(Night.text3)
+                                Text(p).font(.nightReading).foregroundStyle(Night.text).lineSpacing(3)
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                    .padding(.top, 12)
+                }
+                HairlineHeader(title: "Action items") {
+                    Text("\(n.actionItems.count)").font(.nightSecondary).foregroundStyle(Night.text3)
+                }
+                .padding(.top, 24)
+                if n.actionItems.isEmpty {
+                    Text("Nothing to follow up on.").font(.nightBody).foregroundStyle(Night.text2).padding(.top, 12)
+                } else {
+                    ForEach(n.actionItems) { a in actionRow(m, a) }
+                }
+                Text(footnote(n)).font(.nightMeta).foregroundStyle(Night.text3).padding(.top, 14)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                HairlineHeader(title: "Summary")
+                Text("No notes yet. Scribe can write a summary, key points and action items from the transcript.")
+                    .font(.nightBody).foregroundStyle(Night.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Make notes") { Task { await store.makeNotes(m.id) } }.buttonStyle(.nightPrimary)
+            }
+        }
+    }
+
+    private func footnote(_ n: MeetingNotes) -> String {
+        var s = n.method == .appleIntelligence ? "Written by Apple Intelligence on this Mac. Check it against the transcript."
+                                               : "Quick notes picked from the transcript (no AI)."
+        if let note = n.note, !note.isEmpty { s = note + " " + s }
+        return s
+    }
+
+    private func actionRow(_ m: Meeting, _ a: ActionItem) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            Button { store.toggleActionItem(meetingID: m.id, itemID: a.id) } label: {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(a.done ? Night.primary : Night.surface)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(a.done ? Color.clear : Night.line2, lineWidth: 1.2)
+                    if a.done {
+                        Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Night.onPrimary)
+                    }
+                }
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(a.done ? "Done: \(a.task)" : "Not done: \(a.task)")
+            Text(a.task)
+                .font(.nightReading)
+                .strikethrough(a.done, color: Night.text3)
+                .foregroundStyle(a.done ? Night.text3 : Night.text)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 12)
+            ownerChip(m, a.owner)
+        }
+        .padding(.vertical, 9)
+        .overlay(alignment: .bottom) { NightDivider() }
+    }
+
+    /// The owner's name with a colored initial when we know them.
+    private func ownerChip(_ m: Meeting, _ owner: String) -> some View {
+        let person = store.people.first { $0.name == owner }
+        return HStack(spacing: 6) {
+            if let p = person { Avatar(name: p.name, color: Palette.color(p.colorIndex), size: 20) }
+            Text(owner).font(.system(size: 13.5, weight: .medium)).foregroundStyle(person == nil ? Night.text2 : Night.text)
+                .lineLimit(1)
+        }
+        .padding(.leading, person == nil ? 10 : 4).padding(.trailing, 10)
+        .frame(height: 28)
+        .background(Capsule().fill(Night.well))
+        .overlay(Capsule().strokeBorder(Night.line, lineWidth: 1))
+    }
+
+    // MARK: Who talked
+
+    private func whoTalked(_ m: Meeting) -> some View {
+        let total = max(1, m.clusters.reduce(0) { $0 + $1.talkSeconds })
+        let rows = m.clusters.sorted { $0.talkSeconds > $1.talkSeconds }
+        return VStack(alignment: .leading, spacing: 0) {
+            HairlineHeader(title: "Who talked")
+            VStack(alignment: .leading, spacing: 14) {
+                ForEach(rows) { c in
+                    speakerRow(m, c, share: c.talkSeconds / total)
+                }
+            }
+            .padding(.top, 14)
+            Text("Share of talk time. Click a name to change who it is.")
+                .font(.nightMeta).foregroundStyle(Night.text3)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 14)
+        }
+    }
+
+    private func speakerRow(_ m: Meeting, _ c: SpeakerCluster, share: Double) -> some View {
         let person = store.person(c.personID)
         let suggestion = store.person(c.suggestedPersonID)
-        let color = person.map { Palette.color($0.colorIndex) } ?? Palette.color(index)
+        let color = person.map { Palette.color($0.colorIndex) } ?? Night.unnamed
         let name = store.displayName(m, key: c.key)
-        return Button { chipKey = c.key } label: {
-            VStack(alignment: .leading, spacing: Night.s8) {
-                HStack(spacing: Night.s8) {
-                    Avatar(name: name, color: person == nil ? Night.text3.opacity(0.55) : color, size: Night.avatar)
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: 5) {
-                            Text(name).font(.nightHeadline).foregroundStyle(Night.text).lineLimit(1)
-                            if c.confirmed {
-                                Image(systemName: "checkmark.seal.fill").font(.system(size: 10)).foregroundStyle(Night.accent)
-                            }
-                        }
-                        Group {
-                            if let s = suggestion, person == nil {
-                                Text("maybe \(s.name)?").foregroundStyle(Night.accent)
-                            } else if let score = c.matchScore, person != nil, !c.confirmed {
-                                Text(String(format: "%.0f%% match", score * 100))
-                            } else {
-                                Text(Night.clock(c.talkSeconds)).monospacedDigit()
-                            }
-                        }
-                        .font(.nightMeta).foregroundStyle(Night.text3).lineLimit(1)
+        return HStack(spacing: 12) {
+            Button { chipKey = c.key } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(name).font(.nightBody).foregroundStyle(Night.text).lineLimit(1)
+                    if let s = suggestion, person == nil {
+                        Text("maybe \(s.name)?").font(.nightMeta).foregroundStyle(Night.accent).lineLimit(1)
                     }
-                    Spacer(minLength: 6)
-                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(Night.text3)
                 }
-                HStack(spacing: 8) {
-                    TalkShare(share: share)
-                    Text("\(Int((share * 100).rounded()))%").font(.nightLabel).monospacedDigit().foregroundStyle(Night.text3)
+                .frame(width: 92, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Name this speaker. Naming teaches Scribe the voice.")
+            .popover(isPresented: Binding(get: { chipKey == c.key }, set: { if !$0 { chipKey = nil } }), arrowEdge: .bottom) {
+                speakerChoices(m, c, person: person, suggestion: suggestion)
+            }
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Night.line)
+                    Capsule().fill(color).frame(width: max(6, geo.size.width * CGFloat(min(1, share))))
                 }
             }
-            .frame(width: 172, alignment: .leading)
-            .padding(Night.s12)
-            .background(NightCardBackground(radius: Night.rCard))
-            .contentShape(Rectangle())
+            .frame(height: 8)
+            Text("\(Int((share * 100).rounded()))%").font(.nightSecondary).monospacedDigit().foregroundStyle(Night.text2)
+                .frame(width: 40, alignment: .trailing)
         }
-        .buttonStyle(.plain)
-        .help("Click to name this speaker. Naming teaches the voice library.")
-        .popover(isPresented: Binding(get: { chipKey == c.key }, set: { if !$0 { chipKey = nil } }), arrowEdge: .bottom) {
-            speakerChoices(m, c, person: person, suggestion: suggestion)
-        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(name), \(Int((share * 100).rounded())) percent of the talking")
     }
 
     private func choiceRow(_ title: String, _ symbol: String, _ action: @escaping () -> Void) -> some View {
@@ -264,7 +477,7 @@ struct MeetingDetailView: View {
             if let p = person, !c.confirmed {
                 choiceRow("Confirm \(p.name)", "checkmark.seal") { store.assign(meetingID: m.id, clusterKey: c.key, to: p.id) }
             }
-            choiceRow("Play a sample", "play") { playSample(m, c.key) }
+            choiceRow("Listen", "play") { audio.playSpeaker(m, key: c.key, store: store) }
             NightDivider().padding(.vertical, 4)
             ForEach(store.people) { p in
                 Button { chipKey = nil; store.assign(meetingID: m.id, clusterKey: c.key, to: p.id) } label: {
@@ -272,13 +485,13 @@ struct MeetingDetailView: View {
                         Avatar(name: p.name, color: Palette.color(p.colorIndex), size: 18)
                         Text(p.name)
                         Spacer()
-                        if p.id == person?.id { Image(systemName: "checkmark").foregroundStyle(Night.accent) }
+                        if p.id == person?.id { Image(systemName: "checkmark").foregroundStyle(Night.text) }
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(MenuRowStyle())
             }
-            choiceRow("New person…", "person.badge.plus") { newName = ""; namingKey = c.key }
+            choiceRow("New person…", "person.badge.plus") { naming = SpeakerRef(meetingID: m.id, key: c.key) }
             if person != nil {
                 NightDivider().padding(.vertical, 4)
                 choiceRow("Not them / unknown", "person.fill.questionmark") { store.clearSpeaker(meetingID: m.id, clusterKey: c.key) }
@@ -289,162 +502,20 @@ struct MeetingDetailView: View {
         .background(Night.raised)
     }
 
-    private func nameSheet(_ m: Meeting) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Who is \(store.displayName(m, key: namingKey ?? ""))?").font(.nightTitle)
-            Text("Tip: use “Play a sample” on the speaker first.").font(.nightMeta).foregroundStyle(Night.text3)
-            NightField(placeholder: "Name", text: $newName, onSubmit: saveName)
-            HStack {
-                Spacer()
-                Button("Cancel") { namingKey = nil }.buttonStyle(.nightGhost)
-                Button("Save", action: saveName).buttonStyle(.nightPrimary).keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(22)
-        .frame(width: 340)
-        .background(Night.raised)
-    }
-
-    private func saveName() {
-        if let key = namingKey { store.createPerson(named: newName, meetingID: meetingID, clusterKey: key) }
-        namingKey = nil
-    }
-
-    // MARK: Notes
-
-    @ViewBuilder
-    private func notesView(_ m: Meeting) -> some View {
-        if store.notesInProgress.contains(m.id) {
-            HStack(spacing: 12) {
-                CapsuleSpinner()
-                Text("Writing notes on this Mac…").font(.nightSecondary).foregroundStyle(Night.text2)
-            }
-            .padding(.vertical, 40)
-            .frame(maxWidth: .infinity)
-            .nightCard()
-        } else if let n = m.notes {
-            VStack(alignment: .leading, spacing: Night.cardGap) {
-                VStack(alignment: .leading, spacing: 10) {
-                    SectionLabel(title: "Summary")
-                    Text(n.summary)
-                        .font(.nightReading)
-                        .foregroundStyle(Night.text)
-                        .lineSpacing(5)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .nightCard(padding: 22)
-                if !n.keyPoints.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        SectionLabel(title: "Key points")
-                        VStack(alignment: .leading, spacing: 9) {
-                            ForEach(n.keyPoints, id: \.self) { p in
-                                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                    Sparkle().fill(Night.star).frame(width: 8, height: 8)
-                                        .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
-                                    Text(p).font(.nightReading).foregroundStyle(Night.text).lineSpacing(3)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .nightCard(padding: 22)
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    SectionLabel(title: "Action items").padding(.horizontal, 22).padding(.top, 20)
-                    if n.actionItems.isEmpty {
-                        Text("Nothing to follow up on.").font(.nightSecondary).foregroundStyle(Night.text2)
-                            .padding(.horizontal, 22).padding(.bottom, 20)
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(Array(n.actionItems.enumerated()), id: \.element.id) { i, a in
-                                if i > 0 { NightDivider().padding(.leading, 50) }
-                                actionRow(m, a)
-                            }
-                        }
-                        .padding(.bottom, 6)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(NightCardBackground())
-                HStack(alignment: .center) {
-                    Text((n.note ?? "") + " " + (n.method == .appleIntelligence ? "Written by Apple Intelligence on this Mac — check it against the transcript." : ""))
-                        .font(.nightMeta).foregroundStyle(Night.text3)
-                    Spacer()
-                    Button { Task { await store.makeNotes(m.id) } } label: {
-                        Label("Redo notes", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .buttonStyle(.nightSecondary)
-                    .help("Redo after naming speakers, so action items get the right names.")
-                }
-            }
-        } else {
-            CozyEmptyState(symbol: "note.text", title: "No notes yet",
-                           message: "Scribe can write a summary, key points and action items from the transcript.") {
-                Button("Make notes") { Task { await store.makeNotes(m.id) } }.buttonStyle(.nightPrimary)
-            }
-            .frame(minHeight: 260)
-            .background(NightCardBackground())
-        }
-    }
-
-    private func actionRow(_ m: Meeting, _ a: ActionItem) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            Button { store.toggleActionItem(meetingID: m.id, itemID: a.id) } label: {
-                ZStack {
-                    Circle().strokeBorder(a.done ? Color.clear : Night.line2, lineWidth: 1.5)
-                    if a.done {
-                        Circle().fill(Night.gradient)
-                        Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(Night.onAccent)
-                    }
-                }
-                .frame(width: 18, height: 18)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(a.done ? "Done" : "Not done")
-            Text(a.task)
-                .font(.nightReading)
-                .strikethrough(a.done, color: Night.text3)
-                .foregroundStyle(a.done ? Night.text3 : Night.text)
-                .textSelection(.enabled)
-            Spacer(minLength: 12)
-            ownerPill(m, a.owner)
-        }
-        .padding(.horizontal, 22)
-        .padding(.vertical, 10)
-    }
-
-    /// The owner's name with their avatar when we know them.
-    private func ownerPill(_ m: Meeting, _ owner: String) -> some View {
-        let person = store.people.first { $0.name == owner }
-        return HStack(spacing: 6) {
-            if let p = person { Avatar(name: p.name, color: Palette.color(p.colorIndex), size: 18) }
-            Text(owner).font(.nightSmallStrong).foregroundStyle(person == nil ? Night.text3 : Night.text)
-        }
-        .padding(.leading, person == nil ? 10 : 3).padding(.trailing, 10)
-        .frame(height: 26)
-        .background(Capsule().fill(Night.raised))
-        .overlay(Capsule().strokeBorder(Night.line, lineWidth: 1))
-    }
-
     // MARK: Transcript
 
     private func transcript(_ m: Meeting) -> some View {
-        LazyVStack(alignment: .leading, spacing: 16) {
+        LazyVStack(alignment: .leading, spacing: 18) {
             ForEach(m.utterances) { u in
-                let idx = m.clusters.firstIndex { $0.key == u.speakerKey } ?? 0
                 let c = m.clusters.first { $0.key == u.speakerKey }
-                let color = store.person(c?.personID).map { Palette.color($0.colorIndex) } ?? Palette.color(idx)
+                let color = store.person(c?.personID).map { Palette.color($0.colorIndex) } ?? Night.unnamed
                 let name = store.displayName(m, key: u.speakerKey)
                 HStack(alignment: .top, spacing: 12) {
-                    Avatar(name: name, color: color, size: 22)
+                    Avatar(name: name, color: color, size: 24)
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 8) {
                             Text(name).font(.nightHeadline).foregroundStyle(Night.text)
-                            Button(Exporter.clock(u.start)) { play(m, from: u.start) }
+                            Button(Exporter.clock(u.start)) { audio.play(url: store.audioURL(for: m), from: u.start) }
                                 .buttonStyle(.plain)
                                 .font(.nightMeta).monospacedDigit()
                                 .foregroundStyle(Night.text3)
@@ -456,11 +527,25 @@ struct MeetingDetailView: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .nightCard(padding: 22)
+        .frame(maxWidth: Brand.readingWidth, alignment: .leading)
     }
 
-    // MARK: Export
+    // MARK: Copy / export
+
+    private func copyNotes(_ m: Meeting) {
+        var out = "\(m.title)\n\(m.date.formatted(date: .long, time: .shortened)) · \(MeetingFormat.minutes(m.duration))\n"
+        if let n = m.notes {
+            out += "\nSummary\n\(n.summary)\n"
+            if !n.keyPoints.isEmpty { out += "\nKey points\n" + n.keyPoints.map { "- \($0)" }.joined(separator: "\n") + "\n" }
+            if !n.actionItems.isEmpty {
+                out += "\nAction items\n" + n.actionItems.map { "- [\($0.done ? "x" : " ")] \($0.task) (\($0.owner))" }.joined(separator: "\n") + "\n"
+            }
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(out, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
+    }
 
     private func export(_ m: Meeting, _ f: ExportFormat) {
         let text = Exporter.render(m, format: f) { store.displayName(m, key: $0) }
@@ -470,25 +555,76 @@ struct MeetingDetailView: View {
             try? text.write(to: url, atomically: true, encoding: .utf8)
         }
     }
+}
 
-    // MARK: Audio playback
+/// Which speaker the name sheet is for.
+struct SpeakerRef: Identifiable, Hashable {
+    var meetingID: UUID
+    var key: String
+    var id: String { meetingID.uuidString + "/" + key }
+}
 
-    private func play(_ m: Meeting, from t: Double) {
-        player?.stop()
-        guard let p = try? AVAudioPlayer(contentsOf: store.audioURL(for: m)) else { return }
-        p.currentTime = max(0, t - 0.3)
-        p.play()
-        player = p
+/// "Who is Speaker 4?": Listen, pick someone Scribe knows, or type a new name.
+struct NameSpeakerSheet: View {
+    @EnvironmentObject var store: Store
+    @ObservedObject private var audio = SamplePlayer.shared
+    var meetingID: UUID
+    var clusterKey: String
+    var done: () -> Void
+    @State private var name = ""
+
+    private var meeting: Meeting? { store.meetings.first { $0.id == meetingID } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let m = meeting {
+                let c = m.clusters.first { $0.key == clusterKey }
+                Text("Who is \(store.displayName(m, key: clusterKey))?").font(.nightTitle)
+                Text("They talked for about \(MeetingFormat.minutes(c?.talkSeconds ?? 0)) in \(m.title.isEmpty ? "this meeting" : m.title). Name them once and Scribe knows them next time.")
+                    .font(.nightSecondary).foregroundStyle(Night.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { audio.playing ? audio.stop() : audio.playSpeaker(m, key: clusterKey, store: store) } label: {
+                    Label(audio.playing ? "Stop" : "Listen", systemImage: audio.playing ? "stop.fill" : "play")
+                }
+                .buttonStyle(.nightSecondary)
+                if !store.people.isEmpty {
+                    WrapLayout(spacing: 6, lineSpacing: 6) {
+                        ForEach(store.people) { p in
+                            PosterChip(action: { store.assign(meetingID: meetingID, clusterKey: clusterKey, to: p.id); finish() }) {
+                                Avatar(name: p.name, color: Palette.color(p.colorIndex), size: 16)
+                                Text(p.name)
+                            }
+                        }
+                    }
+                }
+                NightField(placeholder: "New name", text: $name, onSubmit: save)
+                HStack {
+                    Spacer()
+                    Button("Cancel") { finish() }.buttonStyle(.nightGhost)
+                    Button("Save", action: save).buttonStyle(.nightPrimary).keyboardShortcut(.defaultAction)
+                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+        .padding(22)
+        .frame(width: 380)
+        .background(Night.raised)
     }
 
-    private func playSample(_ m: Meeting, _ key: String) {
-        // The speaker's longest line.
-        let lines = m.utterances.filter { $0.speakerKey == key }
-        if let u = lines.max(by: { ($0.end - $0.start) < ($1.end - $1.start) }) { play(m, from: u.start) }
+    private func save() {
+        let t = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return }
+        store.createPerson(named: t, meetingID: meetingID, clusterKey: clusterKey)
+        finish()
+    }
+
+    private func finish() {
+        audio.stop()
+        done()
     }
 }
 
-/// Talk share as a row of 16 small capsule segments (filled ones in the gradient).
+/// Talk share as a row of small segments (kept for older call sites).
 struct TalkShare: View {
     var share: Double
     var segments = 16
@@ -496,7 +632,7 @@ struct TalkShare: View {
         let filled = Int((min(1, max(0, share)) * Double(segments)).rounded())
         HStack(spacing: 2) {
             ForEach(0..<segments, id: \.self) { i in
-                Capsule().fill(i < filled ? AnyShapeStyle(Night.gradient) : AnyShapeStyle(Night.line2))
+                Capsule().fill(i < filled ? Night.accent : Night.line2)
                     .frame(width: 4, height: 9)
             }
         }

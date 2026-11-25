@@ -21,6 +21,9 @@ final class Store: ObservableObject {
     /// 0...1 while models download (nil = not downloading). Shown in onboarding + the banner.
     @Published var modelProgress: Double?
     @Published var dictations: [DictationEntry] = []
+    /// 0.7.3: words per day and per app, kept for every day (the history above keeps 200 entries).
+    /// Feeds Home and Dictation stats (Storage/DictationStats.swift).
+    @Published var dictationLedger = DictationLedger()
 
     let folder: URL
     let audioFolder: URL
@@ -69,6 +72,7 @@ final class Store: ObservableObject {
         if let d = try? Data(contentsOf: dictationsURL), let x = try? dec.decode([DictationEntry].self, from: d) {
             dictations = x
         }
+        loadDictationLedger()
     }
 
     func save() {
@@ -353,6 +357,7 @@ final class Store: ObservableObject {
         dictations.insert(entry, at: 0)
         if dictations.count > 200 { dictations.removeLast(dictations.count - 200) }
         save()
+        recordInLedger(entry)
         if folderIsDefault { GitHubSync.shared.add(dictation: entry) }
     }
 

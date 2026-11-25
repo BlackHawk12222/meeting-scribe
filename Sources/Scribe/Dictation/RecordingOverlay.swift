@@ -203,10 +203,10 @@ enum OverlayMetrics {
     /// still needs a horizontal line) both fit, anchored to that edge.
     static let verticalPanelSize = NSSize(width: 400, height: 240)
     /// The capsule's usual width (used to keep it on screen when dragged).
-    static let capsuleWidth: CGFloat = 210
-    /// The standing capsule: its width, and its usual height (listening/meeting).
-    static let verticalThickness: CGFloat = 52
-    static let verticalLength: CGFloat = 190
+    static let capsuleWidth: CGFloat = 170
+    /// The standing capsule: its width (0.7.3: 34 pt, radius 17), and its usual height (listening).
+    static let verticalThickness: CGFloat = 34
+    static let verticalLength: CGFloat = 150
     static let margin: CGFloat = 12
     /// A capsule whose side is this close to the left/right edge stands up (unless it is also
     /// near the top or bottom: corners stay horizontal).
@@ -485,21 +485,22 @@ struct OverlayCapsule: View {
     var tape: LevelTape
     /// Seconds to show in the timer (nil = the tape's clock).
     var elapsed: TimeInterval? = nil
-    /// Snapshot: freeze the frame (the old spinner angle; any value freezes it).
+    /// Snapshot: freeze the frame (any value freezes the animation).
     var previewSpin: Double? = nil
     /// Set by the panel when the capsule sits against a left/right screen edge.
     @Environment(\.overlayVertical) private var verticalEdge
 
-    static let height: CGFloat = 52
-    static let bars = 14
+    /// 0.7.3 "Poster" capsule: 34 pt thick, radius 17, black #141416, a 1 px white@12% inner edge.
+    /// Horizontal: 34 tall. Vertical (dragged to a left/right edge): 34 wide, bars run up and down.
+    static let height: CGFloat = 34
+    static let bars = 15
 
     var body: some View {
         let v = vertical
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: mode == .hidden || isMessage || previewSpin != nil)) { tl in
             content(tl.date, vertical: v)
-                .padding(.horizontal, v ? 0 : 18)
-                .padding(.vertical, v ? 16 : 0)
-                .frame(minWidth: v || isMessage ? nil : OverlayMetrics.capsuleWidth, maxWidth: v ? nil : 340)
+                .padding(.horizontal, v ? 0 : 14)
+                .padding(.vertical, v ? 12 : 0)
                 .fixedSize(horizontal: !v, vertical: v)
                 .frame(width: v ? OverlayMetrics.verticalThickness : nil, height: v ? nil : Self.height)
                 .modifier(NightCapsuleSurface())
@@ -509,33 +510,27 @@ struct OverlayCapsule: View {
         .scaleEffect(mode == .hidden ? 0.9 : 1)
         .animation(.easeOut(duration: 0.2), value: mode == .hidden)
         .environment(\.colorScheme, .dark)
-        .accessibilityElement()
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityText)
+        .help(helpText)
     }
 
     private var isMessage: Bool {
         switch mode { case .message, .needsAccess: return true; default: return false }
     }
 
-    /// Standing layout: against a side edge, except for text that needs a line of its own
-    /// (long messages, the Accessibility prompt), which reads horizontally from that edge.
-    private var vertical: Bool {
-        guard verticalEdge else { return false }
-        switch mode {
-        case .needsAccess: return false
-        case .message(let text, _): return text.count <= 6
-        default: return true
-        }
-    }
+    /// Standing layout whenever the capsule sits against a side edge: every state has a vertical form.
+    private var vertical: Bool { verticalEdge && mode != .hidden }
 
     private func stack(_ vertical: Bool, h: CGFloat, v: CGFloat) -> AnyLayout {
         vertical ? AnyLayout(VStackLayout(spacing: v)) : AnyLayout(HStackLayout(spacing: h))
     }
 
-    private var textColor: Color { Color.white.opacity(0.92) }
+    private var textColor: Color { Color(hex: 0xEDEDF0) }
+    private var mutedColor: Color { Color(hex: 0x9A9AA2) }
 
-    /// The live wave: the last N mic levels shaped by a soft envelope, so it travels left to
-    /// right and settles to dots at idle.
+    /// The live wave: the last N mic levels shaped by a soft envelope, so it travels and settles
+    /// to dots at idle.
     private func wave(_ n: Int, _ date: Date) -> [Double] {
         let raw = tape.recent(n)
         return raw.enumerated().map { i, l in
@@ -545,91 +540,137 @@ struct OverlayCapsule: View {
         }
     }
 
+    private func liveDot(_ date: Date) -> some View {
+        Circle().fill(Night.overlayLive).frame(width: 7, height: 7)
+            .opacity(previewSpin != nil ? 1 : 0.8 + 0.2 * sin(tape.now(date) * 3))
+    }
+
     @ViewBuilder private func content(_ date: Date, vertical: Bool) -> some View {
         switch mode {
         case .listening:
-            let layout = stack(vertical, h: 12, v: 12)
+            let layout = stack(vertical, h: 9, v: 8)
             layout {
-                SparkleView(size: 13, glow: true, color: Night.overlayStar)
-                CapsuleBars(levels: wave(vertical ? 12 : Self.bars, date), axis: vertical ? .vertical : .horizontal,
-                            barWidth: 3.5, spacing: vertical ? 3 : 2.5, maxLength: vertical ? 24 : 26, style: .white, edgeFade: 0.35)
+                liveDot(date)
+                CapsuleBars(levels: wave(vertical ? 11 : Self.bars, date), axis: vertical ? .vertical : .horizontal,
+                            barWidth: 2, spacing: vertical ? 2.5 : 2, maxLength: 16, style: .white, edgeFade: 0.3)
                     .animation(.easeOut(duration: 0.12), value: tape.recent(4))
-                if !vertical {
-                    Text("Listening").font(.scribe(13, 700)).foregroundStyle(textColor).fixedSize()
-                }
                 timer(date, vertical: vertical)
             }
         case .recording:
-            let layout = stack(vertical, h: 10, v: 12)
+            let layout = stack(vertical, h: 9, v: 8)
             layout {
-                Circle().fill(Night.overlayLive).frame(width: 8, height: 8)
-                    .opacity(0.88 + 0.12 * sin(tape.now(date) * 3))
-                CapsuleBars(levels: wave(vertical ? 10 : 8, date), axis: vertical ? .vertical : .horizontal,
-                            barWidth: 3, spacing: 2, maxLength: vertical ? 22 : 20, style: .white)
+                liveDot(date)
+                CapsuleBars(levels: wave(vertical ? 9 : 9, date), axis: vertical ? .vertical : .horizontal,
+                            barWidth: 2, spacing: 2, maxLength: 16, style: .white)
                 if vertical {
                     timer(date, vertical: true)
                 } else {
                     HStack(spacing: 5) {
-                        Text("Meeting").font(.scribe(13, 700)).foregroundStyle(textColor)
-                        Text("·").font(.scribe(13, 700)).foregroundStyle(Color.white.opacity(0.5))
+                        Text("Meeting").font(.system(size: 13, weight: .medium)).foregroundStyle(textColor)
+                        Text("·").font(.system(size: 13, weight: .medium)).foregroundStyle(mutedColor)
                         timer(date, vertical: false)
                     }
                     .fixedSize()
                 }
             }
         case .transcribing:
-            let layout = stack(vertical, h: 10, v: 12)
+            let layout = stack(vertical, h: 9, v: 8)
             layout {
-                if vertical { SparkleView(size: 13, glow: true, color: Night.overlayStar) }
-                CapsuleBars(levels: Array(repeating: 0.12, count: vertical ? 6 : 6), axis: vertical ? .vertical : .horizontal,
-                            barWidth: 4, spacing: 3, maxLength: 12, style: .white)
-                    .opacity(0.45)
+                thinkingDots(date, vertical: vertical)
                 if !vertical {
-                    Text("Writing…").font(.scribe(13, 700)).foregroundStyle(textColor).fixedSize()
+                    Text("Thinking").font(.system(size: 13, weight: .medium)).foregroundStyle(textColor).fixedSize()
                 }
             }
         case .message(let text, let failure):
-            let layout = stack(vertical, h: 8, v: 6)
-            layout {
-                ZStack {
-                    Circle().fill(failure ? AnyShapeStyle(Color(hex: 0xF4BE93)) :
-                                    AnyShapeStyle(LinearGradient(colors: [Night.overlayAccentTop, Night.overlayAccentBottom],
-                                                                 startPoint: .top, endPoint: .bottom)))
-                    Image(systemName: failure ? "exclamationmark" : "checkmark")
-                        .font(.system(size: 8.5, weight: .heavy)).foregroundStyle(Color(hex: 0x0D0C1A))
+            let action = failure ? ProblemFix.forMessage(text) : nil
+            if vertical {
+                VStack(spacing: 7) {
+                    statusIcon(failure: failure)
+                    if let action {
+                        Button(action.shortTitle) { action.run() }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(mutedColor)
+                    } else {
+                        Text(failure ? "Error" : (text.hasPrefix("Copied") ? "Copied" : "Done"))
+                            .font(.system(size: 10, weight: .medium)).foregroundStyle(textColor)
+                            .lineLimit(1).minimumScaleFactor(0.7)
+                    }
                 }
-                .frame(width: 16, height: 16)
-                Text(text)
-                    .font(.scribe(vertical ? 10.5 : 13, 700))
-                    .foregroundStyle(textColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(vertical ? 0.8 : 1)
-                    .truncationMode(.tail)
+            } else {
+                HStack(spacing: 9) {
+                    statusIcon(failure: failure)
+                    Text(text)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(textColor)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if let action {
+                        Button(action.title) { action.run() }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(mutedColor)
+                            .fixedSize()
+                    }
+                }
             }
         case .needsAccess:
-            HStack(spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12, weight: .semibold)).foregroundStyle(Color(hex: 0xF4BE93))
-                Text("Copied · needs Accessibility to type")
-                    .font(.scribe(13, 700)).foregroundStyle(textColor)
-                    .lineLimit(1).fixedSize()
-                Button("Fix") { AccessibilityHelp.fix() }
-                    .buttonStyle(.plain)
-                    .font(.scribe(12.5, 800))
-                    .foregroundStyle(Color(hex: 0x0D0C1A))
-                    .padding(.horizontal, 9).padding(.vertical, 3)
-                    .background(Capsule().fill(LinearGradient(colors: [Night.overlayAccentTop, Night.overlayAccentBottom],
-                                                              startPoint: .top, endPoint: .bottom)))
+            let fix = ProblemFix.accessibility
+            if vertical {
+                VStack(spacing: 7) {
+                    statusIcon(failure: true)
+                    Button(fix.shortTitle) { fix.run() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(mutedColor)
+                }
+            } else {
+                HStack(spacing: 9) {
+                    statusIcon(failure: true)
+                    Text("Copied · needs Accessibility to type")
+                        .font(.system(size: 13, weight: .medium)).foregroundStyle(textColor)
+                        .lineLimit(1).fixedSize()
+                    Button(fix.title) { fix.run() }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(mutedColor)
+                        .fixedSize()
+                }
             }
         case .hidden:
             EmptyView()
         }
     }
 
+    /// Green check (done) or red cross (problem), 18 pt.
+    private func statusIcon(failure: Bool) -> some View {
+        ZStack {
+            Circle().fill(failure ? Night.overlayLive : Night.overlayAccentTop)
+            Image(systemName: failure ? "xmark" : "checkmark")
+                .font(.system(size: 8.5, weight: .heavy)).foregroundStyle(Color.white)
+        }
+        .frame(width: 18, height: 18)
+        .accessibilityHidden(true)
+    }
+
+    /// Three dots that pulse in turn ("•••"), stacked when vertical.
+    private func thinkingDots(_ date: Date, vertical: Bool) -> some View {
+        let t = previewSpin != nil ? 0.0 : date.timeIntervalSinceReferenceDate
+        let layout = vertical ? AnyLayout(VStackLayout(spacing: 4)) : AnyLayout(HStackLayout(spacing: 4))
+        return layout {
+            ForEach(0..<3, id: \.self) { i in
+                let phase = (t * 2.4 - Double(i) * 0.45).truncatingRemainder(dividingBy: 2.4)
+                let on = previewSpin != nil ? (i == 0 ? 1.0 : (i == 1 ? 0.7 : 0.4))
+                                            : 0.35 + 0.65 * max(0, sin(max(0, phase) * .pi / 1.2))
+                Circle().fill(textColor).frame(width: 5, height: 5).opacity(on)
+            }
+        }
+    }
+
     private func timer(_ date: Date, vertical: Bool) -> some View {
         Text(clock(elapsed ?? tape.now(date)))
-            .font(.scribe(vertical ? 11 : 12.5, 600)).monospacedDigit()
-            .foregroundStyle(Color.white.opacity(0.62))
+            .font(.system(size: vertical ? 10 : 13, weight: .medium)).monospacedDigit()
+            .foregroundStyle(mutedColor)
             .lineLimit(1)
             .minimumScaleFactor(0.7)
             .fixedSize(horizontal: !vertical, vertical: false)
@@ -645,23 +686,59 @@ struct OverlayCapsule: View {
         switch mode {
         case .listening: return "Scribe is listening"
         case .recording: return "Scribe is recording a meeting"
-        case .transcribing: return "Scribe is writing"
+        case .transcribing: return "Scribe is thinking"
         case .message(let t, _): return t
-        case .needsAccess: return "Text copied. Scribe needs Accessibility permission to type. Fix"
+        case .needsAccess: return "Text copied. Scribe needs Accessibility permission to type."
         case .hidden: return ""
+        }
+    }
+
+    /// The full message as a tooltip (the vertical capsule shows only a word).
+    private var helpText: String {
+        switch mode {
+        case .message(let t, _): return t
+        case .needsAccess: return "Copied · needs Accessibility to type"
+        default: return ""
         }
     }
 }
 
-/// The capsule's surface: the icon tile gradient (#1E1E22 → #09090B), a 1 px white@9% inner
-/// border and one soft shadow. The same in light and dark mode, on every macOS version.
+/// The quick fix on a Problem capsule ("Open Settings").
+struct ProblemFix {
+    var title: String
+    var shortTitle: String
+    var url: URL?
+    var custom: (@MainActor () -> Void)?
+
+    @MainActor func run() {
+        if let custom { custom(); return }
+        if let url { NSWorkspace.shared.open(url) }
+    }
+
+    static let micPrivacy = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+    static let soundInput = URL(string: "x-apple.systempreferences:com.apple.preference.sound?input")
+
+    static var accessibility: ProblemFix {
+        ProblemFix(title: "Fix", shortTitle: "Fix", url: nil, custom: { AccessibilityHelp.fix() })
+    }
+
+    /// A fix for the messages that have one (microphone problems); nil for the rest.
+    static func forMessage(_ text: String) -> ProblemFix? {
+        let t = text.lowercased()
+        if t.contains("no microphone") { return ProblemFix(title: "Open Settings", shortTitle: "Fix", url: soundInput) }
+        if t.contains("microphone") || t.hasPrefix("mic ") { return ProblemFix(title: "Open Settings", shortTitle: "Fix", url: micPrivacy) }
+        return nil
+    }
+}
+
+/// The capsule's surface: flat black #141416, a 1 px white@12% inner edge and one soft shadow.
+/// The same in light and dark mode.
 private struct NightCapsuleSurface: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(Capsule().fill(LinearGradient(colors: [Night.overlayTop, Night.overlayBottom],
-                                                      startPoint: .top, endPoint: .bottom)))
-            .overlay(Capsule().strokeBorder(Color.white.opacity(0.09), lineWidth: 1))
-            .shadow(color: .black.opacity(0.45), radius: 9, y: 5)
+            .background(Capsule().fill(Night.overlayTop))
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.12), lineWidth: 1))
+            .shadow(color: .black.opacity(0.28), radius: 10, y: 5)
     }
 }
 
