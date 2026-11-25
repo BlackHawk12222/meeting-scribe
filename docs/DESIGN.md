@@ -41,7 +41,7 @@ Hex values, light first, then dark. "@ 0.08" means 8 % see-through.
 | `text2` | descriptions | `#535166` | `#A9A8BC` |
 | `text3` | dates, counts, captions | `#6B6980` | `#85849A` |
 | `accent` | links, selected icons, checkmarks | `#5F5AD0` | `#A3A0FB` |
-| `accentTop` → `accentBottom` | the lavender gradient | `#7C78E2` → `#6863D6` | `#BABCFF` → `#8680F6` |
+| `accentTop` → `accentBottom` | the lavender gradient | `#726EDC` → `#6560D4` | `#BABCFF` → `#8680F6` |
 | `accentSoft` | selected row / pill fill | `#6560D4` @ 0.09 | `#A3A0FB` @ 0.14 |
 | `onAccent` | text on the accent | `#FFFFFF` | `#0D0C1A` |
 | `star` | sparkles | `#A8A3EC` | `#C9CAFF` |
