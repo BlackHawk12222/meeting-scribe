@@ -53,7 +53,7 @@ struct DictationHistoryView: View {
     private func card(_ d: DictationEntry) -> some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
-                Text(d.text).font(.scribe(14, 500)).foregroundStyle(Night.text).lineSpacing(4).textSelection(.enabled)
+                Text(d.text).font(.nightReading).foregroundStyle(Night.text).lineSpacing(4).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(meta(d)).font(.nightMeta).foregroundStyle(Night.text3)
             }

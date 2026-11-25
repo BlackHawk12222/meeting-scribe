@@ -1,0 +1,76 @@
+{
+  "fill-specializations": [
+    {
+      "value": {
+        "linear-gradient": [
+          "extended-srgb:1.00000,0.99216,0.97647,1.00000",
+          "extended-srgb:0.92549,0.89412,0.84706,1.00000"
+        ]
+      }
+    },
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "extended-srgb:0.11765,0.11765,0.13333,1.00000",
+          "extended-srgb:0.02353,0.02353,0.03137,1.00000"
+        ]
+      }
+    }
+  ],
+  "groups": [
+    {
+      "name": "Night Sky",
+      "layers": [
+        {
+          "name": "stars",
+          "image-name-specializations": [
+            {
+              "value": "stars-light.png"
+            },
+            {
+              "appearance": "dark",
+              "value": "stars-dark.png"
+            },
+            {
+              "appearance": "tinted",
+              "value": "stars-tinted.png"
+            }
+          ],
+          "glass": false
+        },
+        {
+          "name": "wave",
+          "image-name-specializations": [
+            {
+              "value": "wave-light.png"
+            },
+            {
+              "appearance": "dark",
+              "value": "wave-dark.png"
+            },
+            {
+              "appearance": "tinted",
+              "value": "wave-tinted.png"
+            }
+          ],
+          "glass": false
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.25
+      },
+      "specular": false,
+      "translucency": {
+        "enabled": false,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}

@@ -117,7 +117,7 @@ struct VoiceEnrollmentView: View {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text("Name").font(.nightMeta).foregroundStyle(Night.text3)
-                NightField(placeholder: "Their name", text: $name, height: 40, font: .scribe(15, 600)) {
+                NightField(placeholder: "Their name", text: $name, height: 40, font: .nightTitle) {
                     if canStart { started = true }
                 }
             }
@@ -162,13 +162,13 @@ struct VoiceEnrollmentView: View {
                 Text("\(index + 1) of \(prompts.count)")
                     .font(.nightMeta).monospacedDigit().foregroundStyle(Night.text3)
                 Spacer()
-                Text(name).font(.scribe(13, 700)).foregroundStyle(Night.text2).lineLimit(1)
+                Text(name).font(.nightHeadline).foregroundStyle(Night.text2).lineLimit(1)
             }
             Label(p.style.hint, systemImage: p.style.symbol)
-                .font(.scribe(13.5, 700))
+                .font(.nightHeadline)
                 .foregroundStyle(Night.accent)
             Text(p.text)
-                .font(.scribe(22, 600))
+                .font(.nightDisplay)
                 .foregroundStyle(Night.text)
                 .lineSpacing(5)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -238,7 +238,7 @@ struct VoiceEnrollmentView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .animation(.easeOut(duration: 0.1), value: levels)
             Text(recording ? String(format: "0:%02.0f", seconds) : "")
-                .font(.scribe(13, 700)).monospacedDigit().foregroundStyle(Night.live)
+                .font(.nightHeadline).monospacedDigit().foregroundStyle(Night.live)
                 .frame(width: 40, alignment: .trailing)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)

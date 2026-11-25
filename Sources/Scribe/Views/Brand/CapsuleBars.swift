@@ -132,9 +132,9 @@ struct WaveTile: View {
     var seed: UInt64
     var size: CGFloat = 40
     var body: some View {
-        CapsuleBars(levels: CapsuleBars.wave(5, seed: seed, floor: 0.3), barWidth: 3, spacing: 2, maxLength: size * 0.42)
+        CapsuleBars(levels: CapsuleBars.wave(5, seed: seed, floor: 0.3), barWidth: size >= 36 ? 3 : 2.5, spacing: 2, maxLength: size * 0.42)
             .frame(width: size, height: size)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Night.well))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Night.line, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: Night.rRow, style: .continuous).fill(Night.well))
+            .overlay(RoundedRectangle(cornerRadius: Night.rRow, style: .continuous).strokeBorder(Night.line, lineWidth: 1))
     }
 }

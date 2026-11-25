@@ -1,7 +1,11 @@
-# Builds Scribe.app on a GitHub-hosted Apple Silicon Mac, runs a headless
-# self-test, and uploads the .zip/.dmg. Add "[release]" to a commit message to
-# also publish a GitHub Release.
-# Public repo: Actions minutes are free. The push build runs the QUICK self-test.
+# Builds Scribe.app on a GitHub-hosted Apple Silicon Mac, checks it, and uploads the .zip/.dmg.
+# Add "[release]" to a commit message to also publish a GitHub Release.
+# Tests (0.7.2): no useless tests. A push runs NO long self-test by default:
+#   • the app-icon check (assetutil, seconds) always runs;
+#   • the "targeted" self-test (only what the release changed, a few minutes) runs when the push
+#     touches the engine, dictation, storage or self-test code;
+#   • "[selftest:quick]" / "[selftest:full]" / "[selftest:none]" in the commit message overrides it.
+#   The dictation engine benchmark (voicebench) never runs on a push.
 # Updates are served from this repo's releases (no separate mirror repo).
 name: build-mac-app
 on:
@@ -11,8 +15,11 @@ on:
   workflow_dispatch:
     inputs:
       selftest:
-        description: "Self-test suite: quick, full, noisy, or none"
-        default: "quick"
+        description: "Self-test suite: targeted (what changed), quick, full, noisy, or none"
+        default: "none"
+      snapshots:
+        description: "Also render the UI screenshots (light + dark) as an artifact"
+        default: "false"
       release:
         description: "Publish a release"
         default: "false"
@@ -62,6 +69,28 @@ jobs:
           [ -n "$V" ] || V="0.5.${{ github.run_number }}"
           echo "SCRIBE_VERSION=$V" >> "$GITHUB_ENV"
           echo "Version: $V"
+      - name: Pick the self-test suite (no useless tests)
+        env:
+          MSG: ${{ github.event.head_commit.message }}
+          BEFORE: ${{ github.event.before }}
+          INPUT: ${{ github.event.inputs.selftest }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SUITE="${INPUT:-none}"
+          else
+            SUITE=none
+            FORCED=$(printf '%s' "$MSG" | grep -oE '\[selftest:[a-z]+\]' | head -1 | sed 's/\[selftest:\(.*\)\]/\1/' || true)
+            if [ -n "$FORCED" ]; then SUITE="$FORCED"
+            else
+              git fetch --no-tags --depth=50 origin "$BEFORE" 2>/dev/null || true
+              CHANGED=$(git diff --name-only "$BEFORE" HEAD 2>/dev/null || git diff --name-only HEAD~1 HEAD 2>/dev/null || true)
+              echo "Changed files:"; echo "$CHANGED"
+              if echo "$CHANGED" | grep -qE '^Sources/Scribe/(Engine|Dictation|Storage|SelfTest)/'; then SUITE=targeted; fi
+            fi
+          fi
+          [ "$SUITE" = "voicebench" ] && SUITE=none
+          echo "SCRIBE_SUITE=$SUITE" >> "$GITHUB_ENV"
+          echo "Self-test suite: $SUITE"
       - name: Build, sign (ad-hoc), package
         env:
           SCRIBE_BUILD: ${{ github.run_number }}
@@ -70,6 +99,30 @@ jobs:
           SIGNING_CERT_P12: ${{ (github.ref == 'refs/heads/main' || github.event.inputs.release == 'true') && secrets.SIGNING_CERT_P12 || '' }}
           SIGNING_CERT_PASSWORD: ${{ (github.ref == 'refs/heads/main' || github.event.inputs.release == 'true') && secrets.SIGNING_CERT_PASSWORD || '' }}
         run: ./scripts/build.sh
+      - name: App icon check (Light / Dark / Tinted looks in Assets.car)
+        run: |
+          APP=build/DD/Build/Products/Release/Scribe.app
+          xcrun assetutil --info "$APP/Contents/Resources/Assets.car" > assetinfo.json
+          python3 - <<'PY'
+          import json, sys
+          info = json.load(open("assetinfo.json"))
+          rows = [r for r in info if isinstance(r, dict) and "AppIcon" in str(r.get("Name", ""))]
+          looks = {}
+          for r in rows:
+              key = (r.get("AssetType"), r.get("Appearance", "any"), r.get("Idiom"))
+              looks[key] = looks.get(key, 0) + 1
+          for k, v in sorted(looks.items(), key=str):
+              print("AppIcon rendition:", k, "x", v)
+          apps = {str(r.get("Appearance", "")) for r in rows}
+          print("Appearances:", sorted(apps))
+          has_dark = any("Dark" in a for a in apps)
+          has_tint = any("Tint" in a or "Mono" in a for a in apps)
+          print("ICON_CHECK dark=%s tinted=%s renditions=%d" % (has_dark, has_tint, len(rows)))
+          if not rows or not has_dark:
+              print("::error::Assets.car has no dark AppIcon look"); sys.exit(1)
+          PY
+          ls -la "$APP/Contents/Resources" | grep -i -E "icns|car" || true
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIconFile" "$APP/Contents/Info.plist" || true
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
@@ -87,7 +140,7 @@ jobs:
             dist/Scribe.zip.sha256
           retention-days: 30
       - name: Cache models (the app is not sandboxed, so FluidAudio uses ~/Library/Application Support)
-        if: github.event_name == 'push' || github.event.inputs.selftest != 'none'
+        if: env.SCRIBE_SUITE != 'none'
         uses: actions/cache@v4
         with:
           path: ~/Library/Application Support/FluidAudio
@@ -95,7 +148,7 @@ jobs:
           restore-keys: |
             models-fluidaudio-0.18.3-unsandboxed-
       - name: Self-test (dictation clip + AMI meeting, real models, this runner's CPU/GPU)
-        if: github.event_name == 'push' || github.event.inputs.selftest != 'none'
+        if: env.SCRIBE_SUITE != 'none'
         timeout-minutes: 85
         run: |
           set -o pipefail
@@ -103,7 +156,7 @@ jobs:
           BT=$(xcrun --find swift-backtrace 2>/dev/null || find "$(xcode-select -p)" -name swift-backtrace -type f 2>/dev/null | head -1 || true)
           export SWIFT_BACKTRACE="enable=yes,interactive=no,symbolicate=full${BT:+,swift-backtrace=$BT}"
           echo "SWIFT_BACKTRACE=$SWIFT_BACKTRACE"
-          SUITE="${{ github.event.inputs.selftest }}"; [ -z "$SUITE" ] && SUITE=quick
+          SUITE="$SCRIBE_SUITE"
           EXTRA=""; [ "${{ github.event.inputs.compare_models }}" = "true" ] && EXTRA="--compare-models"
           ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --selftest --suite "$SUITE" --seconds 300 --meeting-wav "$PWD/Tests/ES2004a_first300s.wav" --libri-dir "$PWD/Tests/librispeech" --noise-wav "$PWD/Tests/noise/crowd_noise_16k.wav" $EXTRA ${{ github.event.inputs.noisy_args }} --measure-download | tee selftest.out
           grep '^SELFTEST_JSON:' selftest.out | sed 's/^SELFTEST_JSON://' > selftest.json
@@ -116,6 +169,20 @@ jobs:
           ls -la ~/Library/Logs/DiagnosticReports/ /Library/Logs/DiagnosticReports/ 2>/dev/null || true
           for f in ~/Library/Logs/DiagnosticReports/Scribe* /Library/Logs/DiagnosticReports/Scribe*; do
             [ -f "$f" ] || continue; echo "=== $f"; head -c 60000 "$f"; cp "$f" . ; done
+      - name: UI screenshots (light + dark, quick set)
+        if: github.event.inputs.snapshots == 'true'
+        timeout-minutes: 10
+        run: |
+          mkdir -p shots
+          ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --snapshot --quick --out "$PWD/shots" 2>&1 | tee shots/snapshot.log || true
+      - name: Upload screenshots
+        if: github.event.inputs.snapshots == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots/
+          if-no-files-found: ignore
+          retention-days: 10
       - name: Upload self-test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -125,10 +192,11 @@ jobs:
             selftest.json
             selftest.out
             selftest-machine.txt
+            assetinfo.json
             Scribe*.ips
           if-no-files-found: ignore
       - name: Voice benchmark (dictation engines; GitHub runner = virtual M1, no Neural Engine)
-        if: always() && github.event.inputs.voicebench == 'true'
+        if: always() && github.event_name == 'workflow_dispatch' && github.event.inputs.voicebench == 'true'
         timeout-minutes: 75
         run: |
           set -o pipefail

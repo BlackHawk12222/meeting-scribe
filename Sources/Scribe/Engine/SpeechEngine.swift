@@ -187,6 +187,10 @@ actor SpeechEngine {
         if asr == nil || loadedModel != model {
             changed = true
             status("Loading \(model.title)…", nil)
+            // 0.7.2: the voice detector loads at the same time as Parakeet (both from disk).
+            let needVad = vad == nil
+            async let vadLoad: VadManager? = needVad ? (try? await VadManager(config: VadConfig(defaultThreshold: 0.75))) : nil
+            let tm = Date()
             let models = try await AsrModels.downloadAndLoad(version: model.version, progressHandler: { p in
                 switch p.phase {
                 case .listing: status("Finding speech model files…", p.fractionCompleted)
@@ -194,6 +198,7 @@ actor SpeechEngine {
                 case .compiling: status("Optimizing speech model for this Mac…", nil)
                 }
             })
+            Perf.log.info("Parakeet Core ML load: \(Date().timeIntervalSince(tm) * 1000, format: .fixed(precision: 0))ms")
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
             let second = AsrManager(config: .default)
@@ -201,6 +206,7 @@ actor SpeechEngine {
             asr = manager
             dictationAsr = second
             loadedModel = model
+            if vad == nil, let v = await vadLoad { vad = v }
         }
         if vad == nil {
             status("Loading voice detector…", nil)
@@ -213,6 +219,36 @@ actor SpeechEngine {
             status("Warming up…", nil)
             await prewarm()
         }
+        resumeDictationWaiters()
+    }
+
+    // MARK: Waiting for the models (a dictation that started while they were loading)
+
+    private var dictationWaiters: [CheckedContinuation<Void, Never>] = []
+
+    private func resumeDictationWaiters() {
+        guard dictationAsr != nil else { return }
+        let w = dictationWaiters
+        dictationWaiters = []
+        for c in w { c.resume() }
+    }
+
+    /// Waits until the dictation model is loaded (true) or `timeout` seconds pass (false).
+    func waitUntilDictationReady(timeout: Double) async -> Bool {
+        if dictationAsr != nil { return true }
+        let timer = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            await self?.timeoutDictationWaiters()
+        }
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in dictationWaiters.append(c) }
+        timer.cancel()
+        return dictationAsr != nil
+    }
+
+    private func timeoutDictationWaiters() {
+        let w = dictationWaiters
+        dictationWaiters = []
+        for c in w { c.resume() }
     }
 
     /// Step 2 — what meetings add: the speaker (diarization) models. Loaded in the background
@@ -535,6 +571,7 @@ actor SpeechEngine {
             thresholds: .init(cbw: 0, minSimilarity: 0.7))
         vocabularyBoostTerms = terms
         Perf.log.info("vocabulary helper ready: \(helperTerms.count) terms")
+        await prewarmVocabulary()
     }
 
     func unloadVocabularyBoost() { vocabularyBoost = nil; vocabularyBoostTerms = [] }
@@ -553,14 +590,48 @@ actor SpeechEngine {
         let t0 = Date()
         if let vad { _ = try? await vad.process([Float](repeating: 0, count: VadManager.chunkSize * 2)) }
         if let dictationAsr {
+            // Real speech (the bundled 16 s test clip's first 3 s) if we have it, so the decoder
+            // path is warmed too, not only the encoder on silence.
             var st = TdtDecoderState.make(decoderLayers: await dictationAsr.decoderLayerCount)
-            _ = try? await dictationAsr.transcribe([Float](repeating: 0, count: 16_000), decoderState: &st)
+            _ = try? await dictationAsr.transcribe(Self.warmupAudio(), decoderState: &st)
         }
-        if let asr {
-            var st = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
-            _ = try? await asr.transcribe([Float](repeating: 0, count: 16_000), decoderState: &st)
+        Perf.log.info("prewarm (dictation): \(Date().timeIntervalSince(t0) * 1000, format: .fixed(precision: 0))ms")
+    }
+
+    /// The meeting copy of Parakeet, warmed in the background once dictation is ready (0.7.2:
+    /// this used to happen before dictation was allowed to start).
+    func prewarmMeetings() async {
+        guard let asr, !meetingsWarmed else { return }
+        meetingsWarmed = true
+        let t0 = Date()
+        var st = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
+        _ = try? await asr.transcribe([Float](repeating: 0, count: 16_000), decoderState: &st)
+        Perf.log.info("prewarm (meetings): \(Date().timeIntervalSince(t0) * 1000, format: .fixed(precision: 0))ms")
+    }
+    private var meetingsWarmed = false
+
+    /// 3 s of real speech for warming up (falls back to 1 s of silence).
+    static func warmupAudio() -> [Float] {
+        if let url = Bundle.main.url(forResource: "dictation_sample", withExtension: "wav"),
+           let clip = try? loadSamples(url) {
+            let onset = clip.firstIndex { abs($0) > 0.02 }.map { max(0, $0 - 1600) } ?? 0
+            let a = Array(clip[onset..<min(clip.count, onset + 48_000)])
+            if a.count >= 16_000 { return a }
         }
-        Perf.log.info("prewarm: \(Date().timeIntervalSince(t0) * 1000, format: .fixed(precision: 0))ms")
+        return [Float](repeating: 0, count: 16_000)
+    }
+
+    /// Run the vocabulary helper once on the warm-up clip so its Core ML setup happens in the
+    /// background, not inside your first dictation.
+    func prewarmVocabulary() async {
+        guard let boost = vocabularyBoost, let dictationAsr else { return }
+        let t0 = Date()
+        let audio = Self.warmupAudio()
+        var st = TdtDecoderState.make(decoderLayers: await dictationAsr.decoderLayerCount)
+        if let r = try? await dictationAsr.transcribe(audio, decoderState: &st), let timings = r.tokenTimings, !timings.isEmpty {
+            _ = await boost.rescore(text: r.text, tokenTimings: timings, audioSamples: audio)
+        }
+        Perf.log.info("prewarm (vocabulary helper): \(Date().timeIntervalSince(t0) * 1000, format: .fixed(precision: 0))ms")
     }
 
     private func diarizer(_ setting: DiarizerSetting) async throws -> OfflineDiarizerManager {

@@ -32,15 +32,19 @@ struct Starfield: View {
     }
 
     var body: some View {
-        let color = scheme == .dark ? Color(hex: 0xC9CAFF) : Color(hex: 0x8C86EC)
-        let list = stars
-        let k = intensity * (scheme == .dark ? 1 : 0.8)
+        // Dark: the Night Sky (sparkles + dots, a soft glow on the 3 biggest).
+        // Light (0.7.2 "Daylight"): only 5 small sparkles, very faint, no dots, no glow — a hint
+        // of the brand on paper, not a night sky pasted on white.
+        let dark = scheme == .dark
+        let color = dark ? Color(hex: 0xC9CAFF) : Color(hex: 0xA8A3EC)
+        let list = dark ? stars : Array(stars.prefix(5)).map { var s = $0; s.r = min(s.r, 4); s.o = 0.10 + s.o * 0.3; return s }
+        let k = intensity
         Canvas(rendersAsynchronously: false) { ctx, size in
             for s in list {
                 let cx = s.x * size.width, cy = s.y * size.height
                 if s.sparkle {
                     let rect = CGRect(x: cx - s.r * 1.3, y: cy - s.r * 1.3, width: s.r * 2.6, height: s.r * 2.6)
-                    if s.r >= 5 {
+                    if dark, s.r >= 5 {
                         var g = ctx
                         g.addFilter(.blur(radius: s.r * 0.9))
                         g.fill(Sparkle().path(in: rect.insetBy(dx: -s.r * 0.8, dy: -s.r * 0.8)),

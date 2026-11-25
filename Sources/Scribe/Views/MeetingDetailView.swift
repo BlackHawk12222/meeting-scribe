@@ -15,6 +15,8 @@ struct MeetingDetailView: View {
     @State private var namingKey: String?
     @State private var newName = ""
     @State private var editingTitle = false
+    @State private var titleDraft = ""
+    @State private var titleHover = false
     @State private var chipKey: String?
     @State private var exportOpen = false
     @FocusState private var titleFocused: Bool
@@ -27,11 +29,11 @@ struct MeetingDetailView: View {
         if let m = meeting {
             VStack(alignment: .leading, spacing: 0) {
                 header(m)
-                    .padding(.leading, 28)
+                    .padding(.leading, Night.gutterLeading)
                     .padding(.trailing, Night.gutterTrailing)
                 if m.status == .done {
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 18) {
+                        VStack(alignment: .leading, spacing: Night.s16) {
                             speakersRow(m)
                             HStack(alignment: .bottom) {
                                 NightTabs(selection: $tab, options: DetailTab.allCases.map { (value: $0, title: $0.rawValue) })
@@ -43,7 +45,7 @@ struct MeetingDetailView: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .padding(.leading, 28)
+                        .padding(.leading, Night.gutterLeading)
                         .padding(.trailing, Night.gutterTrailing)
                         .padding(.bottom, 32)
                         .frame(maxWidth: Brand.readingWidth + 120, alignment: .leading)
@@ -65,27 +67,40 @@ struct MeetingDetailView: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 if editingTitle {
-                    TextField("Untitled meeting", text: Binding(
-                        get: { m.title },
-                        set: { new in if let i = store.index(of: m.id) { store.meetings[i].title = new } }
-                    ))
-                    .textFieldStyle(.plain)
-                    .font(.nightDisplay)
-                    .tint(Night.accent)
-                    .focused($titleFocused)
-                    .onSubmit { store.save(); editingTitle = false }
-                    .onChange(of: titleFocused) { _, f in if !f { store.save(); editingTitle = false } }
-                    .onAppear { titleFocused = true }
+                    // Inline rename: Return or clicking away saves, Esc cancels. Saved to disk at once.
+                    TextField("Untitled meeting", text: $titleDraft)
+                        .textFieldStyle(.plain)
+                        .font(.nightDisplay)
+                        .foregroundStyle(Night.text)
+                        .tint(Night.accent)
+                        .focused($titleFocused)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Night.well))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Night.accent.opacity(0.55), lineWidth: 1))
+                        .padding(.leading, -6)
+                        .onSubmit { commitTitle(m) }
+                        .onExitCommand { editingTitle = false }
+                        .onChange(of: titleFocused) { _, f in if !f, editingTitle { commitTitle(m) } }
+                        .onAppear { titleDraft = m.title; DispatchQueue.main.async { titleFocused = true } }
+                        .accessibilityLabel("Meeting title")
                 } else {
-                    Text(m.title.isEmpty ? "Untitled meeting" : m.title)
-                        .font(.nightDisplay).tracking(-0.3)
-                        .foregroundStyle(m.title.isEmpty ? Night.text3 : Night.text)
-                        .lineLimit(1)
-                        .contentShape(Rectangle())
-                        .onTapGesture { editingTitle = true }
-                        .help("Click to rename")
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityHint("Rename this meeting")
+                    HStack(spacing: 8) {
+                        Text(m.title.isEmpty ? "Untitled meeting" : m.title)
+                            .font(.nightDisplay).tracking(-0.3)
+                            .foregroundStyle(m.title.isEmpty ? Night.text3 : Night.text)
+                            .lineLimit(1)
+                        Image(systemName: "pencil")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Night.text3)
+                            .opacity(titleHover ? 1 : 0)
+                    }
+                    .contentShape(Rectangle())
+                    .onHover { titleHover = $0 }
+                    .onTapGesture { titleDraft = m.title; editingTitle = true }
+                    .help("Click to rename")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Rename this meeting")
                 }
                 Text(meta(m)).font(.nightMeta).foregroundStyle(Night.text3).lineLimit(1)
             }
@@ -96,7 +111,7 @@ struct MeetingDetailView: View {
                     .buttonStyle(.nightGhost)
             }
             Button { Task { await store.process(m.id) } } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(NightIconButtonStyle(size: 36))
+                .buttonStyle(NightIconButtonStyle())
                 .disabled(!store.engineReady || m.status == .processing)
                 .help("Re-process this recording")
                 .accessibilityLabel("Re-process")
@@ -118,6 +133,11 @@ struct MeetingDetailView: View {
                 }
         }
         .frame(height: Night.headerHeight)
+    }
+
+    private func commitTitle(_ m: Meeting) {
+        store.renameMeeting(m.id, to: titleDraft)
+        editingTitle = false
     }
 
     private func meta(_ m: Meeting) -> String {
@@ -188,12 +208,12 @@ struct MeetingDetailView: View {
         let color = person.map { Palette.color($0.colorIndex) } ?? Palette.color(index)
         let name = store.displayName(m, key: c.key)
         return Button { chipKey = c.key } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    Avatar(name: name, color: person == nil ? Night.text3.opacity(0.55) : color, size: 28)
+            VStack(alignment: .leading, spacing: Night.s8) {
+                HStack(spacing: Night.s8) {
+                    Avatar(name: name, color: person == nil ? Night.text3.opacity(0.55) : color, size: Night.avatar)
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 5) {
-                            Text(name).font(.scribe(13.5, 700)).foregroundStyle(Night.text).lineLimit(1)
+                            Text(name).font(.nightHeadline).foregroundStyle(Night.text).lineLimit(1)
                             if c.confirmed {
                                 Image(systemName: "checkmark.seal.fill").font(.system(size: 10)).foregroundStyle(Night.accent)
                             }
@@ -207,19 +227,19 @@ struct MeetingDetailView: View {
                                 Text(Night.clock(c.talkSeconds)).monospacedDigit()
                             }
                         }
-                        .font(.scribe(11.5, 600)).foregroundStyle(Night.text3).lineLimit(1)
+                        .font(.nightMeta).foregroundStyle(Night.text3).lineLimit(1)
                     }
                     Spacer(minLength: 6)
                     Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(Night.text3)
                 }
                 HStack(spacing: 8) {
                     TalkShare(share: share)
-                    Text("\(Int((share * 100).rounded()))%").font(.scribe(11.5, 700)).monospacedDigit().foregroundStyle(Night.text3)
+                    Text("\(Int((share * 100).rounded()))%").font(.nightLabel).monospacedDigit().foregroundStyle(Night.text3)
                 }
             }
-            .frame(width: 196, alignment: .leading)
-            .padding(14)
-            .background(NightCardBackground(radius: 16))
+            .frame(width: 172, alignment: .leading)
+            .padding(Night.s12)
+            .background(NightCardBackground(radius: Night.rCard))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -307,7 +327,7 @@ struct MeetingDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel(title: "Summary")
                     Text(n.summary)
-                        .font(.scribe(14, 500))
+                        .font(.nightReading)
                         .foregroundStyle(Night.text)
                         .lineSpacing(5)
                         .textSelection(.enabled)
@@ -323,7 +343,7 @@ struct MeetingDetailView: View {
                                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                                     Sparkle().fill(Night.star).frame(width: 8, height: 8)
                                         .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 1 }
-                                    Text(p).font(.scribe(14, 500)).foregroundStyle(Night.text).lineSpacing(3)
+                                    Text(p).font(.nightReading).foregroundStyle(Night.text).lineSpacing(3)
                                         .textSelection(.enabled)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
@@ -386,7 +406,7 @@ struct MeetingDetailView: View {
             .buttonStyle(.plain)
             .accessibilityLabel(a.done ? "Done" : "Not done")
             Text(a.task)
-                .font(.scribe(14, 500))
+                .font(.nightReading)
                 .strikethrough(a.done, color: Night.text3)
                 .foregroundStyle(a.done ? Night.text3 : Night.text)
                 .textSelection(.enabled)
@@ -402,7 +422,7 @@ struct MeetingDetailView: View {
         let person = store.people.first { $0.name == owner }
         return HStack(spacing: 6) {
             if let p = person { Avatar(name: p.name, color: Palette.color(p.colorIndex), size: 18) }
-            Text(owner).font(.scribe(12, 700)).foregroundStyle(person == nil ? Night.text3 : Night.text)
+            Text(owner).font(.nightSmallStrong).foregroundStyle(person == nil ? Night.text3 : Night.text)
         }
         .padding(.leading, person == nil ? 10 : 3).padding(.trailing, 10)
         .frame(height: 26)
@@ -423,14 +443,14 @@ struct MeetingDetailView: View {
                     Avatar(name: name, color: color, size: 22)
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 8) {
-                            Text(name).font(.scribe(13, 700)).foregroundStyle(Night.text)
+                            Text(name).font(.nightHeadline).foregroundStyle(Night.text)
                             Button(Exporter.clock(u.start)) { play(m, from: u.start) }
                                 .buttonStyle(.plain)
-                                .font(.scribe(11.5, 600)).monospacedDigit()
+                                .font(.nightMeta).monospacedDigit()
                                 .foregroundStyle(Night.text3)
                                 .help("Play from here")
                         }
-                        Text(u.text).font(.scribe(14, 500)).foregroundStyle(Night.text).lineSpacing(4).textSelection(.enabled)
+                        Text(u.text).font(.nightReading).foregroundStyle(Night.text).lineSpacing(4).textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }

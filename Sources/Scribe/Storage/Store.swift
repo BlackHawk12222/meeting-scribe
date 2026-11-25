@@ -13,6 +13,9 @@ final class Store: ObservableObject {
     @Published var people: [Person] = []
     @Published var engineStatus: String = "Starting…"
     @Published var engineReady = false
+    /// 0.7.2: the dictation model files are on disk (loading may still be going on). Dictation
+    /// already listens in this state and transcribes as soon as loading finishes.
+    @Published var dictationFilesReady = false
     @Published var engineError: String?
     @Published var progressText: [UUID: String] = [:]
     /// 0...1 while models download (nil = not downloading). Shown in onboarding + the banner.
@@ -106,20 +109,27 @@ final class Store: ObservableObject {
             try await models.ensure(needed)
             watcher.cancel()
             modelProgress = nil
-            // Dictation models are in; start the meeting models right away (in parallel with
-            // loading the speech model), so everything is ready without waiting for a meeting.
-            Task(priority: .utility) { _ = await self.prepareMeetingModels() }
+            dictationFilesReady = true
+            // 0.7.2: dictation FIRST, alone. Meeting models, the vocabulary helper and Whisper wait
+            // until dictation is loaded + warmed, so they don't fight it for the Neural Engine/CPU
+            // right after launch (or an update).
+            let tl = Date()
             try await SpeechEngine.shared.prepareDictation(model: speech) { msg, fraction in
                 Task { @MainActor in
                     self.engineStatus = msg
                     self.modelProgress = fraction
                 }
             }
+            Perf.log.info("launch → dictation ready: \(Date().timeIntervalSince(tl) * 1000, format: .fixed(precision: 0))ms after the files check")
             engineReady = true
             engineError = nil
             modelProgress = nil
             engineStatus = "Ready"
-            Task(priority: .utility) { await self.prepareVocabularyBoost() }
+            Task(priority: .utility) {
+                await self.prepareVocabularyBoost()
+                _ = await self.prepareMeetingModels()
+                await SpeechEngine.shared.prewarmMeetings()
+            }
             Task.detached(priority: .utility) { Vocabulary.preload() }
             Task(priority: .utility) { await self.prepareWhisperIfChosen() }
         } catch {
@@ -396,6 +406,8 @@ final class Store: ObservableObject {
             meetings[i].clusters[k].suggestedPersonID = (m?.isConfident == false) ? m?.personID : nil
             meetings[i].clusters[k].matchScore = m?.score
         }
+        // 0.7.2: a split-off piece of someone who already has a speaker here is folded in.
+        autoMergeSplitSpeakers(meetingIndex: i)
     }
 
     // MARK: - Naming speakers (this is where the library learns)
@@ -411,11 +423,20 @@ final class Store: ObservableObject {
            let o = people.firstIndex(where: { $0.id == old }) {
             VoiceMatcher.unlearn(person: &people[o], meetingID: meetingID, clusterKey: clusterKey)
         }
-        // Note: one person CAN own two clusters (the diarizer sometimes splits a voice in two).
         meetings[i].clusters[k].personID = personID
         meetings[i].clusters[k].suggestedPersonID = nil
         meetings[i].clusters[k].confirmed = true
-        VoiceMatcher.learn(person: &people[p], from: meetings[i].clusters[k], meetingID: meetingID)
+        // 0.7.2: one person = ONE speaker per meeting. If they already had a speaker here (the
+        // diarizer split their voice), the two become one: lines, talk time and voice samples.
+        let owned = meetings[i].clusters.filter { $0.personID == personID }.map(\.key)
+        for key in owned { VoiceMatcher.unlearn(person: &people[p], meetingID: meetingID, clusterKey: key) }
+        let keep = mergeSpeakers(ofPerson: personID, meetingIndex: i) ?? clusterKey
+        if let kk = meetings[i].clusters.firstIndex(where: { $0.key == keep }) {
+            meetings[i].clusters[kk].confirmed = true
+            meetings[i].clusters[kk].suggestedPersonID = nil
+            // The person's voiceprint learns from ALL of it (the re-assigned piece included).
+            VoiceMatcher.learn(person: &people[p], from: meetings[i].clusters[kk], meetingID: meetingID)
+        }
 
         applyLibrary(to: meetingID)   // the new samples may help name the others
         save()
@@ -460,8 +481,15 @@ final class Store: ObservableObject {
     func person(_ id: UUID?) -> Person? { people.first { $0.id == id } }
 
     func rename(personID: UUID, to name: String) {
-        guard let p = people.firstIndex(where: { $0.id == personID }) else { return }
-        people[p].name = name
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let p = people.firstIndex(where: { $0.id == personID }) else { return }
+        // 0.7.2: renaming someone to the name of a person who already exists merges the two.
+        if let other = people.first(where: { $0.id != personID && $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            mergePeople(personID, into: other.id)
+            save()
+            return
+        }
+        people[p].name = trimmed
         save()
     }
 

@@ -1,6 +1,6 @@
 // SelfTest.swift
 // Headless test used on the GitHub Actions Mac runner:
-//   Scribe.app/Contents/MacOS/Scribe --selftest [--suite quick|full] [--seconds 300]
+//   Scribe.app/Contents/MacOS/Scribe --selftest [--suite quick|full|noisy|targeted] [--seconds 300]
 //
 // QUICK suite (every CI build):
 //   • Dictation: the bundled 16 s clip (2 LibriSpeech sentences with silence around them)
@@ -361,6 +361,15 @@ enum SelfTest {
             report["models_recheck_seconds"] = Date().timeIntervalSince(tm2)
             report["models_states"] = await MainActor.run {
                 Dictionary(uniqueKeysWithValues: ms.components.map { ($0.id, ms.states[$0.id]?.label ?? "?") })
+            }
+            // 0.7.2: only the checks for what this release changed (SelfTest072.swift). Runs alone.
+            if suite == "targeted" {
+                log("targeted suite (0.7.2)")
+                let t = await SelfTest072.run()
+                report["targeted"] = t
+                let data = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
+                print("SELFTEST_JSON:" + String(data: data, encoding: .utf8)!)
+                return (t["pass"] as? Bool) == true ? 0 : 1
             }
             // Noisy-room suite (0.6): VAD + diarization on AMI mixed with crowd noise. Runs alone.
             if suite == "noisy" {

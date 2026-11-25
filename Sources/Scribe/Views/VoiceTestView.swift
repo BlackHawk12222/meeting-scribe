@@ -244,7 +244,7 @@ struct VoiceTestView: View {
                     GridRow {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(r.engine.shortTitle)
-                            if r.engine == DictationEngine.current { Text("in use").font(.scribe(11, 600)).foregroundStyle(Night.ok) }
+                            if r.engine == DictationEngine.current { Text("in use").font(.nightMeta).foregroundStyle(Night.ok) }
                         }
                         Text(pct(r.score.wer)).monospacedDigit()
                         Text(pct(r.score.formattedErrorRate)).monospacedDigit()
@@ -263,7 +263,7 @@ struct VoiceTestView: View {
                 .font(.nightMeta).foregroundStyle(Night.text3).fixedSize(horizontal: false, vertical: true)
             if let best = model.rows.first, let w = best.worst {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Hardest sentence for \(best.engine.shortTitle):").font(.scribe(12, 700))
+                    Text("Hardest sentence for \(best.engine.shortTitle):").font(.nightSmallStrong)
                     Text("You read: \(w.said)").font(.nightMeta)
                     Text("It wrote: \(w.heard)").font(.nightMeta).foregroundStyle(Night.text3)
                 }

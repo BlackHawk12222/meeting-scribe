@@ -111,6 +111,15 @@ enum Snapshot {
         for (name, view, dark) in nightShots {
             made += await serverCapture(view, size: nightSize, name: name, dir: dir, dark: dark, chrome: true)
         }
+        // 0.7.2 targeted CI: only the Night/Daylight screens (+ the smallest window size).
+        if CommandLine.arguments.contains("--quick") {
+            made += await serverCapture(env(ContentView(section: .home)), size: NSSize(width: 900, height: 600),
+                                        name: "N09_home_light_small", dir: dir, dark: false, chrome: true)
+            made += await serverCapture(env(ContentView(section: .home)), size: NSSize(width: 900, height: 600),
+                                        name: "N09b_home_dark_small", dir: dir, dark: true, chrome: true)
+            print("snapshot quick set done: \(made.count) files")
+            return
+        }
         made += await capture(env(ContentView(section: .home)), size: nightSize, name: "N01c_home_dark_cache", dir: dir, dark: true, chrome: true)
         made += await serverCapture(env(VoiceEnrollmentView(preview: .init(step: .recording, name: "Priya", index: 3))),
                                     size: NSSize(width: VoiceEnrollmentView.size.width, height: VoiceEnrollmentView.size.height),

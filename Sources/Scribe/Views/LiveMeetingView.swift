@@ -61,7 +61,7 @@ struct LiveMeetingView: View {
             NightDivider(vertical: true).frame(height: 56)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Input").font(.nightMeta).foregroundStyle(Night.text3)
-                Text("Mac microphone").font(.scribe(13.5, 700)).foregroundStyle(Night.text)
+                Text("Mac microphone").font(.nightHeadline).foregroundStyle(Night.text)
                 Text(recorder.noiseCleanupActive ? "Noise cleanup on · no upload" : "On-device · no upload")
                     .font(.nightMeta).foregroundStyle(Night.text3)
             }
@@ -108,9 +108,9 @@ struct LiveMeetingView: View {
                         HStack(spacing: 10) {
                             Avatar(name: p.name, color: Palette.color(p.colorIndex), size: 26)
                             VStack(alignment: .leading, spacing: 1) {
-                                Text(p.name).font(.scribe(13.5, 700)).foregroundStyle(Night.text).lineLimit(1)
+                                Text(p.name).font(.nightHeadline).foregroundStyle(Night.text).lineLimit(1)
                                 Text("\(p.meetingCount) meeting\(p.meetingCount == 1 ? "" : "s")")
-                                    .font(.scribe(11.5, 600)).foregroundStyle(Night.text3)
+                                    .font(.nightMeta).foregroundStyle(Night.text3)
                             }
                             Spacer(minLength: 0)
                             CapsuleBars(levels: CapsuleBars.wave(6, seed: CapsuleBars.seed(p.name), floor: 0.25),

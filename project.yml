@@ -26,6 +26,11 @@ targets:
       # tile, drawn by scripts/make_icon.py, needs Pillow + numpy) + AccentColor.
       - path: Resources/Assets.xcassets
         buildPhase: resources
+      # 0.7.2: the macOS 26 icon with Light / Dark / Tinted+Clear looks (Icon Composer document,
+      # drawn by scripts/make_icon_composer.py). Needs Xcode 26 + XcodeGen 2.45.1+. actool builds
+      # every look into Assets.car; older macOS keeps the appiconset above.
+      - path: Resources/AppIcon.icon
+        buildPhase: resources
       # Manrope (variable, 200-800) + its SIL Open Font License, copied as a "Fonts" folder into
       # Contents/Resources (ATSApplicationFontsPath below; ScribeFonts.register() is the fallback).
       - path: Resources/Fonts

@@ -21,7 +21,7 @@ struct AboutView: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(spacing: 8) {
                 AppIconView(size: 96)
-                Text("Scribe").font(.scribe(22, 700)).foregroundStyle(Night.text)
+                Text("Scribe").font(.nightDisplay).foregroundStyle(Night.text)
                 Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?")")
                     .font(.nightMeta).foregroundStyle(Night.text3).monospacedDigit()
                 Text("Dictation and meeting notes that run entirely on your Mac.\nFree, no account, nothing uploaded.")
@@ -35,8 +35,8 @@ struct AboutView: View {
             SectionLabel(title: "Credits & licenses").padding(.top, 4)
             ForEach(Credits.all, id: \.name) { c in
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(c.name).font(.scribe(13.5, 700)).foregroundStyle(Night.text)
-                    Text(c.what).font(.scribe(12, 500)).foregroundStyle(Night.text2)
+                    Text(c.name).font(.nightHeadline).foregroundStyle(Night.text)
+                    Text(c.what).font(.nightSecondary).foregroundStyle(Night.text2)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(c.license).font(.system(size: 11, design: .monospaced)).foregroundStyle(Night.text3)
                         .textSelection(.enabled)

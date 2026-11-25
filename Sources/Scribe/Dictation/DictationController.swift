@@ -103,6 +103,7 @@ final class DictationController: ObservableObject {
     private weak var store: Store?
     private weak var recorder: Recorder?
     private var startedAt: Date?
+    private var pressedAt: Date?
     private var ticker: Timer?
     private var hideWork: DispatchWorkItem?
     /// Where the text goes: the app + text box in front when you started talking.
@@ -143,6 +144,14 @@ final class DictationController: ObservableObject {
         // Every slice of mic audio also goes to the live voice detector (see SpeechEngine).
         let box = liveFeedBox
         mic.onSamples = { @Sendable chunk in box.get()?.yield(chunk) }
+        mic.onFirstAudio = { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, let p = self.pressedAt else { return }
+                Perf.log.info("press → first audio: \(Date().timeIntervalSince(p) * 1000, format: .fixed(precision: 0))ms")
+            }
+        }
+        // Build the mic engine now (the mic stays off), so the first press doesn't pay for it.
+        if Permissions.microphoneGranted { mic.prepare() }
         hotkeys.onHoldStart = { [weak self] in self?.begin() }
         hotkeys.onHoldEnd = { [weak self] held in
             guard let self else { return }
@@ -172,10 +181,15 @@ final class DictationController: ObservableObject {
 
     // MARK: - Steps
 
+    /// Press → listening, as fast as possible (0.7.2):
+    ///  • the capsule shows at once; the mic engine (built at launch) starts on its own queue;
+    ///  • if the speech models are still loading (just after launch or an update), we listen anyway
+    ///    and keep the audio; on release the text comes as soon as the models are ready.
+    /// Perf logs: "press → capsule", "press → mic running", "press → first audio".
     func begin() {
         guard !state.isBusy else { return }
-        guard store?.engineReady == true else {
-            flash(.failed("Models are still loading…"))
+        guard store?.engineReady == true || store?.dictationFilesReady == true else {
+            flash(.failed("Downloading the speech model…"))
             return
         }
         guard recorder?.isRecording != true else {
@@ -189,6 +203,8 @@ final class DictationController: ObservableObject {
             }
             return
         }
+        let pressed = Date()
+        pressedAt = pressed
         // Start the live voice detector before the mic so no audio is missed.
         let (stream, continuation) = AsyncStream<[Float]>.makeStream()
         liveFeed = continuation
@@ -198,12 +214,18 @@ final class DictationController: ObservableObject {
             await SpeechEngine.shared.liveVadStart(session: mySession, earlyParts: !DictationEngine.current.isWhisper)
             for await chunk in stream { await SpeechEngine.shared.liveVadFeed(chunk) }
         }
-        do {
-            try mic.start()
-        } catch {
-            stopLiveFeed(cancel: true)
-            flash(.failed("Mic error: \(error.localizedDescription)"))
-            return
+        mic.start { [weak self] error in
+            MainActor.assumeIsolated {
+                guard let self, self.session == mySession else { return }
+                if let error {
+                    guard self.state == .listening else { return }
+                    self.ticker?.invalidate()
+                    self.stopLiveFeed(cancel: true)
+                    self.flash(.failed("Mic error: \(error.localizedDescription)"))
+                    return
+                }
+                Perf.log.info("press → mic running: \(Date().timeIntervalSince(pressed) * 1000, format: .fixed(precision: 0))ms")
+            }
         }
         hideWork?.cancel()
         // Remember where you are NOW (app + text box), so the words go there even if focus moves.
@@ -217,6 +239,7 @@ final class DictationController: ObservableObject {
         tape.reset()
         state = .listening
         showOverlay()
+        Perf.log.info("press → capsule: \(Date().timeIntervalSince(pressed) * 1000, format: .fixed(precision: 0))ms (models ready: \(self.store?.engineReady == true, privacy: .public))")
         if DictationSettings.sounds { NSSound(named: "Tink")?.play() }
         ticker = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -260,6 +283,13 @@ final class DictationController: ObservableObject {
                 return
             }
             await consumer?.value          // the live VAD has seen every slice (takes ~ms)
+            // Models still loading (right after launch/update)? The audio is safe; wait for them.
+            if await !SpeechEngine.shared.isDictationReady {
+                let tw = Date()
+                let ok = await SpeechEngine.shared.waitUntilDictationReady(timeout: 90)
+                Perf.log.info("release: waited \(Date().timeIntervalSince(tw) * 1000, format: .fixed(precision: 0))ms for the models (ready: \(ok, privacy: .public))")
+                guard ok else { flash(.failed("Speech model didn't load")); return }
+            }
             Perf.log.info("key release → mic stopped + live VAD caught up: \(Date().timeIntervalSince(released) * 1000, format: .fixed(precision: 0))ms")
             do {
                 let r = try await Dictation.run(samples: samples, useAI: DictationSettings.aiCleanup,

@@ -53,12 +53,12 @@ struct SettingsPage: View {
             }
             .padding(.leading, inWindow ? Night.gutterLeading : 96)
             .padding(.trailing, Night.gutterTrailing)
-            HStack(alignment: .top, spacing: 20) {
-                paneList.frame(width: 140)
+            HStack(alignment: .top, spacing: Night.s16) {
+                paneList.frame(width: Night.settingsListWidth)
                 ScrollView {
                     paneContent
-                        .frame(maxWidth: 640, alignment: .leading)
-                        .padding(.bottom, 32)
+                        .frame(maxWidth: 600, alignment: .leading)
+                        .padding(.bottom, Night.s24)
                 }
                 .scrollIndicators(.never)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -76,22 +76,10 @@ struct SettingsPage: View {
     }
 
     private var paneList: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 1) {
             ForEach(SettingsPane.allCases) { p in
                 let on = p == pane
-                Button { withAnimation(Night.spring) { pane = p } } label: {
-                    HStack(spacing: 8) {
-                        Sparkle().fill(Night.star).frame(width: 8, height: 8).opacity(on ? 1 : 0)
-                        Text(p.title).font(.scribe(13.5, on ? 700 : 600)).foregroundStyle(on ? Night.text : Night.text2)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(height: 34)
-                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(on ? Night.accentSoft : Color.clear))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(on ? .isSelected : [])
+                NightSidebarItem(title: p.title, selected: on) { withAnimation(Night.spring) { pane = p } }
             }
         }
     }
@@ -125,7 +113,7 @@ struct SettingsCard<Content: View>: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(NightCardBackground())
             if let footer {
-                Text(footer).font(.scribe(12, 500)).foregroundStyle(Night.text3).lineSpacing(2)
+                Text(footer).font(.nightSecondary).foregroundStyle(Night.text3).lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 4)
             }
@@ -142,18 +130,18 @@ struct SettingRow<Control: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.scribe(13.5, 700)).foregroundStyle(Night.text)
+                Text(title).font(.nightHeadline).foregroundStyle(Night.text)
                     .fixedSize(horizontal: false, vertical: true)
                 if let detail {
-                    Text(detail).font(.scribe(12, 500)).foregroundStyle(Night.text3)
+                    Text(detail).font(.nightSecondary).foregroundStyle(Night.text3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 10)
             control
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
+        .padding(.horizontal, Night.rowPaddingH)
+        .padding(.vertical, Night.rowPaddingV + 2)
     }
 }
 
@@ -181,9 +169,9 @@ struct ToggleRow: View {
 struct CardNote: View {
     var text: String
     var body: some View {
-        Text(text).font(.scribe(12, 500)).foregroundStyle(Night.text3).lineSpacing(2)
+        Text(text).font(.nightSecondary).foregroundStyle(Night.text3).lineSpacing(2)
             .fixedSize(horizontal: false, vertical: true)
-            .padding(.horizontal, 18).padding(.vertical, 12)
+            .padding(.horizontal, Night.rowPaddingH).padding(.vertical, Night.rowPaddingV)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -268,9 +256,9 @@ struct OverlaySettingsTab: View {
                          footer: "The small capsule appears on the screen you're working on, clear of the menu bar and Dock. Drag it to move it; Scribe remembers the spot for each display. Against the left or right edge it stands upright.") {
                 HStack(alignment: .top, spacing: 18) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Overlay position").font(.scribe(13.5, 700)).foregroundStyle(Night.text)
+                        Text("Overlay position").font(.nightHeadline).foregroundStyle(Night.text)
                         Text(OverlayPosition(rawValue: overlayPosition)?.title ?? "Bottom center")
-                            .font(.scribe(12, 500)).foregroundStyle(Night.text3)
+                            .font(.nightSecondary).foregroundStyle(Night.text3)
                         if hasDragged {
                             Button("Reset dragged spot") { OverlayPosition.clearDragged(); hasDragged = false }
                                 .buttonStyle(NightButtonStyle(kind: .secondary, height: 30))
@@ -282,7 +270,7 @@ struct OverlaySettingsTab: View {
                         overlayPosition = p.rawValue
                     }
                 }
-                .padding(18)
+                .padding(Night.cardPadding)
                 NightDivider()
                 ToggleRow(title: "Show the capsule while a meeting records", isOn: $showMeetingScroll)
             }
@@ -412,12 +400,12 @@ struct VocabularySettingsTab: View {
                         .buttonStyle(.nightPrimary)
                         .disabled(newWord.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                .padding(18)
+                .padding(Night.cardPadding)
                 NightDivider()
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 8, alignment: .leading)], alignment: .leading, spacing: 8) {
                     ForEach(words, id: \.self) { w in
                         HStack(spacing: 6) {
-                            Text(w).font(.scribe(12.5, 700)).foregroundStyle(Night.text).lineLimit(1)
+                            Text(w).font(.nightSmallStrong).foregroundStyle(Night.text).lineLimit(1)
                             Spacer(minLength: 0)
                             Button { words.removeAll { $0 == w }; save() } label: {
                                 Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Night.text3)
@@ -431,13 +419,13 @@ struct VocabularySettingsTab: View {
                         .overlay(Capsule().strokeBorder(Night.line, lineWidth: 1))
                     }
                 }
-                .padding(18)
+                .padding(Night.cardPadding)
                 NightDivider()
                 HStack {
                     Spacer()
                     Button("Restore defaults") { words = Vocabulary.defaults; save() }.buttonStyle(.nightGhost)
                 }
-                .padding(.horizontal, 12).padding(.vertical, 8)
+                .padding(.horizontal, Night.rowPaddingH).padding(.vertical, Night.rowPaddingV)
             }
             SettingsCard(footer: "Uses a small extra model (about 100 MB, downloaded once) to check your words against how they sounded, so misheard names can be fixed even when the spelling is far off. Off by default: it can sometimes swap an ordinary word for one of yours.") {
                 ToggleRow(title: "Also match against the audio",
@@ -489,14 +477,14 @@ struct ModelSettingsTab: View {
                             }
                             .frame(width: 18, height: 18)
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(m.title).font(.scribe(13.5, 700)).foregroundStyle(Night.text)
+                                Text(m.title).font(.nightHeadline).foregroundStyle(Night.text)
                                 Text(m.detail + (m.componentIDs.allSatisfy { models.isInstalled($0) } ? "" : " Downloads \(ModelStore.mb(m.downloadBytes)) when picked."))
-                                    .font(.scribe(12, 500)).foregroundStyle(Night.text3)
+                                    .font(.nightSecondary).foregroundStyle(Night.text3)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                             Spacer(minLength: 0)
                         }
-                        .padding(.horizontal, 18).padding(.vertical, 14)
+                        .padding(.horizontal, Night.rowPaddingH).padding(.vertical, Night.rowPaddingV + 2)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -514,18 +502,18 @@ struct ModelSettingsTab: View {
                 HStack(spacing: 12) {
                     if store.engineReady {
                         Image(systemName: "checkmark.circle.fill").foregroundStyle(Night.ok)
-                        Text("Loaded and working offline").font(.scribe(12.5, 600)).foregroundStyle(Night.text2)
+                        Text("Loaded and working offline").font(.nightSmallStrong).foregroundStyle(Night.text2)
                     } else if let e = store.engineError {
-                        Text(e).font(.scribe(12.5, 600)).foregroundStyle(Night.warn)
+                        Text(e).font(.nightSmallStrong).foregroundStyle(Night.warn)
                     } else {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(store.engineStatus).font(.scribe(12.5, 600)).foregroundStyle(Night.text2).monospacedDigit()
+                            Text(store.engineStatus).font(.nightSmallStrong).foregroundStyle(Night.text2).monospacedDigit()
                             CapsuleProgress(fraction: store.modelProgress, count: 40)
                         }
                     }
                     Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 18).padding(.vertical, 14)
+                .padding(.horizontal, Night.rowPaddingH).padding(.vertical, Night.rowPaddingV + 2)
             }
             SettingsCard(title: "Downloaded models",
                          footer: "Models live outside the app (in Application Support), so updating or reinstalling Scribe never downloads them again. Only missing or changed files are fetched. Verify re-checks every byte.") {
@@ -562,9 +550,9 @@ struct ModelComponentsList: View {
                 HStack(spacing: 12) {
                     Image(systemName: icon(state)).foregroundStyle(color(state)).frame(width: 18)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(c.title).font(.scribe(13.5, 700)).foregroundStyle(Night.text)
+                        Text(c.title).font(.nightHeadline).foregroundStyle(Night.text)
                         Text("\(state.label) · \(ModelStore.mb(c.totalBytes)) · version \(c.version)")
-                            .font(.scribe(12, 500)).foregroundStyle(Night.text3).lineLimit(1)
+                            .font(.nightSecondary).foregroundStyle(Night.text3).lineLimit(1)
                         if case .downloading(let p) = state {
                             CapsuleProgress(fraction: p.fraction, count: 30, dot: 5, spacing: 2.5).padding(.top, 4)
                         }
@@ -581,14 +569,14 @@ struct ModelComponentsList: View {
                             .buttonStyle(NightButtonStyle(kind: .secondary, height: 30))
                     }
                 }
-                .padding(.horizontal, 18).padding(.vertical, 12)
+                .padding(.horizontal, Night.rowPaddingH).padding(.vertical, Night.rowPaddingV)
                 NightDivider()
             }
             HStack {
                 Spacer()
                 Button("Re-check") { models.refresh() }.buttonStyle(.nightGhost)
             }
-            .padding(.horizontal, 12).padding(.vertical, 8)
+            .padding(.horizontal, Night.rowPaddingH).padding(.vertical, Night.rowPaddingV)
         }
     }
 
@@ -660,10 +648,10 @@ struct PermissionsTab: View {
                         .foregroundStyle(Night.text3)
                         .padding(.top, 4)
                 }
-                .font(.scribe(12.5, 500))
+                .font(.nightSecondary)
                 .foregroundStyle(Night.text2)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(18)
+                .padding(Night.cardPadding)
                 NightDivider()
                 HStack(spacing: 10) {
                     Button("Open Accessibility Settings") { AccessibilityHelp.fix() }.buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
@@ -709,13 +697,13 @@ struct PermissionRow: View {
                 .font(.system(size: 18))
                 .foregroundStyle(granted ? Night.ok : Night.text3)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.scribe(13.5, 700)).foregroundStyle(Night.text)
-                Text(detail).font(.scribe(12, 500)).foregroundStyle(Night.text3).fixedSize(horizontal: false, vertical: true)
+                Text(title).font(.nightHeadline).foregroundStyle(Night.text)
+                Text(detail).font(.nightSecondary).foregroundStyle(Night.text3).fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
             if !granted { Button(button, action: action).buttonStyle(NightButtonStyle(kind: .secondary, height: 32)) }
         }
-        .padding(.horizontal, 18).padding(.vertical, 12)
+        .padding(.horizontal, Night.rowPaddingH).padding(.vertical, Night.rowPaddingV)
     }
 }
 
@@ -784,7 +772,7 @@ struct UpdateSection: View {
             phaseView
             if let n = updater.notice {
                 HStack(alignment: .top, spacing: 10) {
-                    Text(n).font(.scribe(12.5, 600)).foregroundStyle(Night.text2).fixedSize(horizontal: false, vertical: true)
+                    Text(n).font(.nightSmallStrong).foregroundStyle(Night.text2).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 8)
                     if n.contains("see ") {
                         Button("Show log") { NSWorkspace.shared.open(Updater.logURL) }
@@ -794,7 +782,7 @@ struct UpdateSection: View {
                         .buttonStyle(NightIconButtonStyle(size: 28))
                         .accessibilityLabel("Dismiss")
                 }
-                .padding(.horizontal, 18).padding(.bottom, 14)
+                .padding(.horizontal, Night.rowPaddingH).padding(.bottom, Night.s12)
             }
         }
     }
@@ -804,43 +792,43 @@ struct UpdateSection: View {
         case .idle: EmptyView()
         case .checking:
             HStack(spacing: 10) { CapsuleSpinner(); Text("Checking…").font(.nightMeta).foregroundStyle(Night.text3) }
-                .padding(.horizontal, 18).padding(.bottom, 14)
+                .padding(.horizontal, Night.rowPaddingH).padding(.bottom, Night.s12)
         case .upToDate(let v):
-            Label("You're up to date (\(v)).", systemImage: "checkmark.circle").font(.scribe(12.5, 600)).foregroundStyle(Night.ok)
-                .padding(.horizontal, 18).padding(.bottom, 14)
+            Label("You're up to date (\(v)).", systemImage: "checkmark.circle").font(.nightSmallStrong).foregroundStyle(Night.ok)
+                .padding(.horizontal, Night.rowPaddingH).padding(.bottom, Night.s12)
         case .available(let r):
             VStack(alignment: .leading, spacing: 6) {
-                Text("Scribe \(r.version) is available — app download \(ModelStore.mb(r.zipBytes)).").font(.scribe(13.5, 700))
+                Text("Scribe \(r.version) is available — app download \(ModelStore.mb(r.zipBytes)).").font(.nightHeadline)
                 Text(r.modelChanges.isEmpty ? "Models: no change (nothing else to download)."
                                             : "Models that changed: " + r.modelChanges.joined(separator: ", "))
                     .font(.nightMeta).foregroundStyle(Night.text3)
                 Button("Download and Restart") { updater.install(r) }.buttonStyle(.nightPrimary)
             }
-            .padding(.horizontal, 18).padding(.bottom, 14)
+            .padding(.horizontal, Night.rowPaddingH).padding(.bottom, Night.s12)
         case .downloading:
             HStack(spacing: 10) { CapsuleSpinner(); Text("Downloading the app…").font(.nightMeta).foregroundStyle(Night.text3) }
-                .padding(.horizontal, 18).padding(.bottom, 14)
+                .padding(.horizontal, Night.rowPaddingH).padding(.bottom, Night.s12)
         case .ready(let r):
             HStack {
-                Label("Scribe \(r.version) is ready.", systemImage: "arrow.down.circle.fill").font(.scribe(12.5, 600))
+                Label("Scribe \(r.version) is ready.", systemImage: "arrow.down.circle.fill").font(.nightSmallStrong)
                 Spacer()
                 Button("Restart Now") { updater.restartNow() }.buttonStyle(.nightPrimary)
             }
-            .padding(.horizontal, 18).padding(.bottom, 14)
+            .padding(.horizontal, Night.rowPaddingH).padding(.bottom, Night.s12)
         case .needsMove(let r):
             HStack {
                 Label("Scribe \(r.version) is downloaded. Move Scribe to Applications to update.", systemImage: "folder")
-                    .font(.scribe(12.5, 600)).fixedSize(horizontal: false, vertical: true)
+                    .font(.nightSmallStrong).fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 Button("Show Scribe") { NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL]) }
                     .buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
             }
-            .padding(.horizontal, 18).padding(.bottom, 14)
+            .padding(.horizontal, Night.rowPaddingH).padding(.bottom, Night.s12)
         case .installing:
             HStack(spacing: 10) { CapsuleSpinner(); Text("Installing…").font(.nightMeta).foregroundStyle(Night.text3) }
-                .padding(.horizontal, 18).padding(.bottom, 14)
+                .padding(.horizontal, Night.rowPaddingH).padding(.bottom, Night.s12)
         case .failed(let e):
-            Text(e).font(.nightMeta).foregroundStyle(Night.warn).padding(.horizontal, 18).padding(.bottom, 14)
+            Text(e).font(.nightMeta).foregroundStyle(Night.warn).padding(.horizontal, Night.rowPaddingH).padding(.bottom, Night.s12)
         }
     }
 }
@@ -891,9 +879,9 @@ struct SyncSettingsTab: View {
                     Link("1. Create the private repo “scribe-notes”", destination: URL(string: "https://github.com/new?name=scribe-notes&visibility=private")!)
                     Link("2. Create a fine-grained token (only that repo, Contents: Read and write)", destination: URL(string: "https://github.com/settings/personal-access-tokens/new")!)
                 }
-                .font(.scribe(12, 500))
+                .font(.nightSecondary)
                 .tint(Night.accent)
-                .padding(18)
+                .padding(Night.cardPadding)
             }
             SettingsCard(title: "What to save") {
                 ToggleRow(title: "Dictations", isOn: $sync.syncDictations)

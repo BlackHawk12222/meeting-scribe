@@ -159,27 +159,28 @@ struct NavRail: View {
     @Binding var section: NavSection
     var live = false
     @Namespace private var ns
+    @State private var hoverItem: NavSection?
 
     var body: some View {
-        VStack(spacing: 6) {
-            AppIconView(size: 32)
-                .padding(.bottom, 16)
+        VStack(spacing: Night.s4) {
+            AppIconView(size: 26)
+                .padding(.bottom, Night.s12)
             ForEach([NavSection.home, .meetings, .dictations, .people], id: \.self) { s in
                 item(s)
             }
             Spacer(minLength: 12)
             item(.settings)
             Text(String(NSFullUserName().prefix(1)).uppercased().isEmpty ? "S" : String(NSFullUserName().prefix(1)).uppercased())
-                .font(.scribe(12, 700))
+                .font(.nightMeta)
                 .foregroundStyle(Night.text2)
-                .frame(width: 28, height: 28)
+                .frame(width: Night.avatar, height: Night.avatar)
                 .background(Circle().fill(Night.raised))
                 .overlay(Circle().strokeBorder(Night.line2, lineWidth: 1))
                 .padding(.top, 8)
                 .accessibilityHidden(true)
         }
-        .padding(.top, 54)
-        .padding(.bottom, 20)
+        .padding(.top, 52)
+        .padding(.bottom, Night.s16)
         .frame(width: Night.railWidth)
         .frame(maxHeight: .infinity)
         .background(Night.rail)
@@ -191,38 +192,41 @@ struct NavRail: View {
         return Button { withAnimation(Night.spring) { section = s } } label: {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: s.symbol)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(on ? Night.accent : Night.text3)
-                    .frame(width: 38, height: 38)
+                    .font(.nightIcon(Night.iconLarge))
+                    .foregroundStyle(on ? Night.accent : (hoverItem == s ? Night.text2 : Night.text3))
+                    .frame(width: 32, height: 32)
                     .background {
                         if on {
-                            RoundedRectangle(cornerRadius: Night.rPill, style: .continuous).fill(Night.accentSoft)
+                            RoundedRectangle(cornerRadius: Night.rRow, style: .continuous).fill(Night.accentSoft)
                                 .matchedGeometryEffect(id: "pill", in: ns)
+                        } else if hoverItem == s {
+                            RoundedRectangle(cornerRadius: Night.rRow, style: .continuous).fill(Night.hover)
                         }
                     }
                 if on {
                     Sparkle().fill(Night.star)
-                        .frame(width: 7, height: 7)
-                        .padding(5)
+                        .frame(width: 5, height: 5)
+                        .padding(4)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
                 if s == .meetings && live {
-                    Circle().fill(Night.live).frame(width: 7, height: 7).padding(6)
+                    Circle().fill(Night.live).frame(width: 6, height: 6).padding(4)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 }
             }
-            .frame(width: 38, height: 38)
+            .frame(width: 32, height: 32)
             .overlay(alignment: .leading) {
                 if on {
                     Capsule().fill(Night.gradient)
-                        .frame(width: 4, height: 20)
-                        .offset(x: -11)
+                        .frame(width: 3, height: 16)
+                        .offset(x: -10)
                         .matchedGeometryEffect(id: "tick", in: ns)
                 }
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .onHover { h in withAnimation(Night.fast) { hoverItem = h ? s : (hoverItem == s ? nil : hoverItem) } }
         .help(s.title)
         .accessibilityLabel(s.title)
         .accessibilityAddTraits(on ? .isSelected : [])
@@ -240,35 +244,50 @@ struct HomeView: View {
     var open: (UUID) -> Void
     var seeAllDictations: () -> Void
     @State private var tab = HomeTab.recent
+    @State private var renaming: UUID?
+    @State private var renameText = ""
     enum HomeTab: Hashable { case recent, week }
 
     var body: some View {
+        homeBody.renameMeetingAlert(id: $renaming, text: $renameText)
+    }
+
+    // 0.7.2 Home dashboard: header · three quiet stat tiles · start + dictate cards · meetings
+    // grouped by day · recent dictations. Every size/color comes from the Night tokens.
+    private var homeBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             PageHeader(title: greeting, subtitle: Date().formatted(.dateTime.weekday(.wide).month(.abbreviated).day())) {
-                NightSearchField(text: $query, prompt: "Search notes & dictations", focusRequest: searchFocus)
+                NightSearchField(text: $query, prompt: "Search notes & dictations", width: 240, focusRequest: searchFocus)
                 Button { model.toggleMeetingRecording() } label: {
                     Label(recorder.isRecording ? "Stop meeting" : "Record meeting",
                           systemImage: recorder.isRecording ? "stop.fill" : "plus")
                 }
                 .buttonStyle(.nightPrimary)
             }
-            if !store.engineReady { ModelBanner().padding(.bottom, 12) }
+            if !store.engineReady { ModelBanner().padding(.bottom, Night.s12) }
             GeometryReader { geo in
-                let wide = geo.size.width > 760
+                let wide = geo.size.width > 720
+                let side = max(240, geo.size.width * 0.36)
                 VStack(spacing: Night.cardGap) {
                     HStack(spacing: Night.cardGap) {
                         startCard.frame(maxWidth: .infinity)
-                        if wide { dictateCard.frame(width: max(260, geo.size.width * 0.39)) }
+                        if wide { dictateCard.frame(width: side) }
                     }
-                    .frame(height: 132)
+                    .frame(height: 84)
+                    HStack(spacing: Night.cardGap) {
+                        StatTile(value: "\(weekMeetings.count)", label: "meetings this week", symbol: "waveform")
+                        StatTile(value: Night.clock(weekMeetings.reduce(0) { $0 + $1.duration }), label: "recorded this week", symbol: "clock")
+                        StatTile(value: "\(wordsToday)", label: "words dictated today", symbol: "text.cursor")
+                        if wide { StatTile(value: "\(store.people.count)", label: store.people.count == 1 ? "voice known" : "voices known", symbol: "person.2") }
+                    }
                     HStack(alignment: .top, spacing: Night.cardGap) {
                         meetingsCard.frame(maxWidth: .infinity, maxHeight: .infinity)
-                        if wide { dictationsCard.frame(width: max(260, geo.size.width * 0.39)).frame(maxHeight: .infinity) }
+                        if wide { dictationsCard.frame(width: side).frame(maxHeight: .infinity) }
                     }
                 }
             }
-            .padding(.top, 4)
-            .padding(.bottom, 28)
+            .padding(.top, Night.s4)
+            .padding(.bottom, Night.s20)
         }
         .padding(.leading, Night.gutterLeading)
         .padding(.trailing, Night.gutterTrailing)
@@ -281,45 +300,47 @@ struct HomeView: View {
         return "Good afternoon"
     }
 
+    private var weekMeetings: [Meeting] {
+        let start = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date.distantPast
+        return store.meetings.filter { $0.date >= start }
+    }
+
     // MARK: Cards
 
     private var startCard: some View {
-        HStack(spacing: 22) {
-            RecordButton(recording: recorder.isRecording) { model.toggleMeetingRecording() }
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 10) {
-                    Text(recorder.isRecording ? "Recording a meeting" : "Start a meeting").font(.nightTitle)
+        HStack(spacing: Night.s16) {
+            RecordButton(recording: recorder.isRecording, size: 40) { model.toggleMeetingRecording() }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: Night.s8) {
+                    Text(recorder.isRecording ? "Recording a meeting" : "Start a meeting").font(.nightHeadline)
                     if recorder.isRecording { LiveChip(text: Night.clock(recorder.elapsed)) }
                 }
                 Text("Scribe listens, tells voices apart, and writes the notes when you stop.")
-                    .font(.nightSecondary).foregroundStyle(Night.text2).lineSpacing(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .font(.nightSecondary).foregroundStyle(Night.text2)
                     .lineLimit(2)
             }
             Spacer(minLength: 0)
-            CapsuleBars(levels: CapsuleBars.wave(9, seed: 3, floor: 0.2), barWidth: 5, spacing: 4, maxLength: 44, style: .dim)
+            CapsuleBars(levels: CapsuleBars.wave(9, seed: 3, floor: 0.2), barWidth: 4, spacing: 3, maxLength: 32,
+                        style: recorder.isRecording ? .gradient : .dim)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, Night.s16)
         .frame(maxHeight: .infinity)
         .background(NightCardBackground())
+        .animation(Night.base, value: recorder.isRecording)
     }
 
     private var dictateCard: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: Night.s8) {
             SectionLabel(title: "Dictate anywhere")
-            HStack(spacing: 6) {
+            HStack(spacing: Night.s4 + 2) {
                 Text("Hold").font(.nightSecondary).foregroundStyle(Night.text2)
-                Keycap(text: DictationSettings.holdKey.keycap, height: 24)
+                Keycap(text: DictationSettings.holdKey.keycap)
                 Text("in any text box, speak, let go.").font(.nightSecondary).foregroundStyle(Night.text2)
                     .lineLimit(1).minimumScaleFactor(0.85)
             }
-            .padding(.top, 12)
-            Text("\(wordsToday) words dictated today").font(.nightMeta).foregroundStyle(Night.text3).padding(.top, 12)
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 22)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.horizontal, Night.s16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background(NightCardBackground())
     }
 
@@ -336,48 +357,74 @@ struct HomeView: View {
         }
         switch tab {
         case .recent: return store.meetings
-        case .week:
-            let start = Calendar.current.dateInterval(of: .weekOfYear, for: Date())?.start ?? Date.distantPast
-            return store.meetings.filter { $0.date >= start }
+        case .week: return weekMeetings
         }
+    }
+
+    /// Meetings grouped under quiet day headers: Today, Yesterday, This week, Earlier.
+    private struct MeetingGroup: Identifiable { var title: String; var items: [Meeting]; var id: String { title } }
+
+    private var groupedMeetings: [MeetingGroup] {
+        let cal = Calendar.current
+        let weekStart = cal.dateInterval(of: .weekOfYear, for: Date())?.start ?? .distantPast
+        var groups: [(String, [Meeting])] = []
+        for m in shownMeetings {
+            let t = cal.isDateInToday(m.date) ? "Today" : cal.isDateInYesterday(m.date) ? "Yesterday"
+                : m.date >= weekStart ? "This week" : "Earlier"
+            if let i = groups.firstIndex(where: { $0.0 == t }) { groups[i].1.append(m) } else { groups.append((t, [m])) }
+        }
+        return groups.map { MeetingGroup(title: $0.0, items: $0.1) }
     }
 
     private var meetingsCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
+            HStack(alignment: .center) {
                 if query.isEmpty {
                     NightTabs(selection: $tab, options: [(value: HomeTab.recent, title: "Meetings"), (value: HomeTab.week, title: "This week")])
                 } else {
-                    SectionLabel(title: "Matching “\(query)”").padding(.top, 2)
+                    SectionLabel(title: "Matching “\(query)”")
                 }
                 Spacer()
                 Text("\(shownMeetings.count) meeting\(shownMeetings.count == 1 ? "" : "s")").font(.nightMeta).foregroundStyle(Night.text3)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 6)
+            .padding(.horizontal, Night.s16)
+            .padding(.bottom, Night.s8)
             if shownMeetings.isEmpty {
                 CozyEmptyState(symbol: "waveform",
                                title: query.isEmpty ? "No meetings yet" : "Nothing matches",
                                message: query.isEmpty ? "Press Record and Scribe writes the transcript, who said what, and the notes. It all stays on this Mac."
-                                                      : "Try another word from the meeting.")
+                                                      : "Try another word from the meeting.") {
+                    if query.isEmpty {
+                        Button { model.toggleMeetingRecording() } label: { Label("Record a meeting", systemImage: "mic") }
+                            .buttonStyle(.nightSecondary)
+                    }
+                }
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(shownMeetings) { m in
-                            Button { open(m.id) } label: { ListRow(meeting: m, selected: false) }
-                                .buttonStyle(.plain)
-                                .contextMenu {
-                                    Button("Delete", role: .destructive) { store.deleteMeeting(m.id) }
-                                }
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(groupedMeetings) { g in
+                            Text(g.title).font(.nightMeta).foregroundStyle(Night.text3)
+                                .padding(.horizontal, Night.s12)
+                                .padding(.top, Night.s8)
+                                .padding(.bottom, Night.s4)
+                            ForEach(g.items) { m in
+                                Button { open(m.id) } label: { ListRow(meeting: m, selected: false) }
+                                    .buttonStyle(.plain)
+                                    .contextMenu {
+                                        Button("Rename…") { renameText = m.title; renaming = m.id }
+                                        Button("Delete", role: .destructive) { store.deleteMeeting(m.id) }
+                                    }
+                            }
                         }
                     }
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, Night.s4)
+                    .animation(Night.base, value: shownMeetings.map(\.id))
                 }
                 .scrollIndicators(.never)
             }
         }
-        .padding(.top, 16)
-        .padding(.bottom, 8)
+        .padding(.top, Night.s12)
+        .padding(.bottom, Night.s4)
         .background(NightCardBackground())
     }
 
@@ -387,41 +434,91 @@ struct HomeView: View {
                 SectionLabel(title: "Recent dictations")
                 Spacer()
                 Button("See all", action: seeAllDictations)
-                    .buttonStyle(.plain)
-                    .font(.scribe(12, 700))
-                    .foregroundStyle(Night.accent)
+                    .buttonStyle(.nightGhost)
             }
-            .padding(.horizontal, 18)
-            .padding(.bottom, 4)
+            .padding(.leading, Night.s16)
+            .padding(.trailing, Night.s8)
+            .padding(.bottom, Night.s4)
             if store.dictations.isEmpty {
-                Text("Hold \(DictationSettings.holdKey.title) in any app and talk. A copy of each dictation waits here.")
-                    .font(.nightSecondary).foregroundStyle(Night.text2)
-                    .padding(18)
-                Spacer(minLength: 0)
+                CozyEmptyState(symbol: "text.cursor", title: "Nothing dictated yet",
+                               message: "Hold \(DictationSettings.holdKey.title) in any app and talk. A copy of each dictation waits here.")
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(store.dictations.prefix(12).enumerated()), id: \.element.id) { i, d in
-                            if i > 0 { NightDivider() }
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(d.text).font(.nightBody).foregroundStyle(Night.text).lineSpacing(3)
-                                    .lineLimit(3)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Text("\(d.text.split(separator: " ").count) words  ·  \(d.date.formatted(date: .omitted, time: .shortened))")
-                                    .font(.nightMeta).foregroundStyle(Night.text3)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 14)
+                            if i > 0 { NightDivider().padding(.horizontal, Night.s12) }
+                            DictationMiniRow(entry: d)
                         }
                     }
+                    .padding(.horizontal, Night.s4)
                 }
                 .scrollIndicators(.never)
             }
         }
-        .padding(.top, 16)
-        .padding(.bottom, 4)
+        .padding(.top, Night.s12)
+        .padding(.bottom, Night.s4)
         .background(NightCardBackground())
+    }
+}
+
+/// A Home stat: a small icon, a number, a quiet caption. Flat card, compact.
+struct StatTile: View {
+    var value: String
+    var label: String
+    var symbol: String
+    var body: some View {
+        HStack(spacing: Night.s12) {
+            Image(systemName: symbol).font(.nightIcon(Night.iconRegular, .semibold))
+                .foregroundStyle(Night.accent)
+                .frame(width: 26, height: 26)
+                .background(Night.accentSoft, in: RoundedRectangle(cornerRadius: Night.rControl, style: .continuous))
+            VStack(alignment: .leading, spacing: 0) {
+                Text(value).font(.nightHeadline).monospacedDigit().foregroundStyle(Night.text)
+                    .contentTransition(.numericText())
+                Text(label).font(.nightMeta).foregroundStyle(Night.text3).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, Night.s12)
+        .padding(.vertical, Night.s8 + 2)
+        .frame(maxWidth: .infinity)
+        .background(NightCardBackground(radius: Night.rCard))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// One recent dictation on Home: the text (3 lines), words · time, and a copy button on hover.
+struct DictationMiniRow: View {
+    let entry: DictationEntry
+    @State private var hover = false
+    @State private var copied = false
+    var body: some View {
+        HStack(alignment: .top, spacing: Night.s8) {
+            VStack(alignment: .leading, spacing: Night.s4) {
+                Text(entry.text).font(.nightBody).foregroundStyle(Night.text).lineSpacing(2)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("\(entry.text.split(separator: " ").count) words  ·  \(entry.date.formatted(date: .omitted, time: .shortened))")
+                    .font(.nightMeta).foregroundStyle(Night.text3)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(entry.text, forType: .string)
+                copied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
+            } label: { Image(systemName: copied ? "checkmark" : "doc.on.doc") }
+                .buttonStyle(NightIconButtonStyle(size: 24))
+                .opacity(hover || copied ? 1 : 0)
+                .help("Copy")
+                .accessibilityLabel("Copy dictation")
+        }
+        .padding(.horizontal, Night.s12)
+        .padding(.vertical, Night.s8 + 2)
+        .background(NightRowBackground(selected: false, hover: hover))
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .animation(Night.fast, value: hover)
     }
 }
 
@@ -446,6 +543,8 @@ struct MeetingsPage: View {
     @Binding var selected: UUID?
     @Binding var query: String
     var searchFocus: Int
+    @State private var renaming: UUID?
+    @State private var renameText = ""
 
     private var hits: [UUID: String] {
         Dictionary(store.search(query).map { ($0.id, $0.snippet) }, uniquingKeysWith: { a, _ in a })
@@ -454,7 +553,7 @@ struct MeetingsPage: View {
     var body: some View {
         HStack(spacing: 0) {
             listColumn
-                .frame(width: 260)
+                .frame(width: Night.meetingsListWidth)
             NightDivider(vertical: true)
             Group {
                 if let id = selected, store.meetings.contains(where: { $0.id == id }) {
@@ -466,6 +565,7 @@ struct MeetingsPage: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear { if selected == nil { selected = store.meetings.first?.id } }
+        .renameMeetingAlert(id: $renaming, text: $renameText)
     }
 
     private var listColumn: some View {
@@ -473,12 +573,12 @@ struct MeetingsPage: View {
         let shown = store.meetings.filter { query.isEmpty || found[$0.id] != nil }
         return VStack(alignment: .leading, spacing: 0) {
             PageHeader(title: "Meetings", subtitle: "\(store.meetings.count)")
-                .padding(.leading, Night.gutterLeading - 8)
-                .padding(.trailing, 16)
-            NightSearchField(text: $query, prompt: "Search meetings", width: 288, focusRequest: searchFocus)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 10)
-            if !store.engineReady { ModelBanner().padding(.horizontal, 16).padding(.bottom, 10) }
+                .padding(.leading, Night.s16)
+                .padding(.trailing, Night.s12)
+            NightSearchField(text: $query, prompt: "Search meetings", width: Night.meetingsListWidth - 2 * Night.s12, focusRequest: searchFocus)
+                .padding(.horizontal, Night.s12)
+                .padding(.bottom, Night.s8)
+            if !store.engineReady { ModelBanner().padding(.horizontal, Night.s12).padding(.bottom, Night.s8) }
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(shown) { m in
@@ -487,6 +587,7 @@ struct MeetingsPage: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
+                            Button("Rename…") { renameText = m.title; renaming = m.id }
                             Button("Delete", role: .destructive) {
                                 if selected == m.id { selected = nil }
                                 store.deleteMeeting(m.id)
@@ -494,8 +595,8 @@ struct MeetingsPage: View {
                         }
                     }
                 }
-                .padding(.horizontal, 6)
-                .padding(.bottom, 16)
+                .padding(.horizontal, Night.s4)
+                .padding(.bottom, Night.s12)
             }
             .scrollIndicators(.never)
         }
@@ -519,6 +620,29 @@ struct MeetingsPage: View {
     }
 }
 
+// MARK: - Rename (meetings list right-click › Rename…)
+
+private struct RenameMeetingAlert: ViewModifier {
+    @EnvironmentObject var store: Store
+    @Binding var id: UUID?
+    @Binding var text: String
+    func body(content: Content) -> some View {
+        content.alert("Rename meeting", isPresented: Binding(get: { id != nil }, set: { if !$0 { id = nil } })) {
+            TextField("Meeting name", text: $text)
+            Button("Rename") { if let id { store.renameMeeting(id, to: text) }; id = nil }
+                .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) { id = nil }
+        }
+    }
+}
+
+extension View {
+    /// Shows the Rename meeting box while `id` is set; saves on Rename.
+    func renameMeetingAlert(id: Binding<UUID?>, text: Binding<String>) -> some View {
+        modifier(RenameMeetingAlert(id: id, text: text))
+    }
+}
+
 // MARK: - List row
 
 /// 40 pt wave tile, title + meta, overlapping speaker avatars, chevron. Selected: accentSoft
@@ -532,9 +656,9 @@ struct ListRow: View {
     @State private var hover = false
 
     var body: some View {
-        HStack(spacing: 14) {
-            WaveTile(seed: CapsuleBars.seed(meeting.id.uuidString))
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(spacing: Night.s12) {
+            WaveTile(seed: CapsuleBars.seed(meeting.id.uuidString), size: 32)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(meeting.title.isEmpty ? "Untitled meeting" : meeting.title)
                     .font(.nightHeadline).foregroundStyle(Night.text).lineLimit(1)
                 HStack(spacing: 5) {
@@ -543,21 +667,22 @@ struct ListRow: View {
                 }
                 .font(.nightMeta).foregroundStyle(Night.text3).lineLimit(1)
                 if let snippet {
-                    Text(snippet).font(.scribe(12, 500)).foregroundStyle(Night.text2).lineLimit(2)
+                    Text(snippet).font(.nightSecondary).foregroundStyle(Night.text2).lineLimit(2)
                 }
             }
             Spacer(minLength: 6)
             if !compact {
-                AvatarStack(people: speakers, size: 20, limit: 4)
+                AvatarStack(people: speakers, size: Night.avatarSmall, limit: 4)
             }
-            Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Night.text3)
+            Image(systemName: "chevron.right").font(.nightIcon(Night.iconSmall, .semibold)).foregroundStyle(Night.text3)
+                .opacity(hover || selected ? 1 : 0.5)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 11)
-        .background(RoundedRectangle(cornerRadius: Night.rPill, style: .continuous)
-            .fill(selected ? Night.accentSoft : (hover ? Night.accentSoft.opacity(0.45) : Color.clear)))
+        .padding(.horizontal, Night.s8 + 2)
+        .padding(.vertical, Night.rowPaddingV)
+        .background(NightRowBackground(selected: selected, hover: hover))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
+        .animation(Night.fast, value: hover)
     }
 
     private var meta: String {
@@ -578,7 +703,8 @@ struct ListRow: View {
     }
 
     private var speakers: [(name: String, color: Color)] {
-        meeting.clusters.enumerated().map { i, c in
+        var seen = Set<UUID>()
+        return meeting.clusters.enumerated().filter { _, c in c.personID.map { seen.insert($0).inserted } ?? true }.map { i, c in
             let p = store.person(c.personID)
             return (p?.name ?? store.displayName(meeting, key: c.key), p.map { Palette.color($0.colorIndex) } ?? Palette.color(i))
         }
@@ -598,7 +724,7 @@ struct ModelBanner: View {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Night.warn)
             }
             VStack(alignment: .leading, spacing: 6) {
-                Text(store.engineError ?? store.engineStatus).font(.scribe(13, 600)).foregroundStyle(Night.text2)
+                Text(store.engineError ?? store.engineStatus).font(.nightHeadline).foregroundStyle(Night.text2)
                     .monospacedDigit().lineLimit(1)
                 if store.engineError == nil {
                     CapsuleProgress(fraction: store.modelProgress, count: 30, dot: 6, spacing: 3)

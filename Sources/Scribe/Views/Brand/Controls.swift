@@ -7,7 +7,7 @@ import AppKit
 
 // MARK: - Toggle
 
-/// 38×22 capsule. Off: line2 fill, text2 knob. On: horizontal accent gradient, white knob.
+/// 30×18 capsule (Night.switchSize). Off: line2 fill, text2 knob. On: horizontal accent gradient, white knob.
 struct NightToggleStyle: ToggleStyle {
     func makeBody(configuration: Configuration) -> some View {
         NightToggleBody(configuration: configuration)
@@ -40,11 +40,11 @@ struct NightSwitch: View {
         ZStack(alignment: isOn ? .trailing : .leading) {
             Capsule().fill(isOn ? AnyShapeStyle(Night.gradientH) : AnyShapeStyle(Night.line2))
             Circle().fill(isOn ? Color.white : Night.text2)
-                .frame(width: 16, height: 16)
-                .padding(3)
+                .frame(width: Night.switchSize.height - 4, height: Night.switchSize.height - 4)
+                .padding(2)
                 .shadow(color: .black.opacity(isOn ? 0.18 : 0), radius: 1, y: 0.5)
         }
-        .frame(width: 38, height: 22)
+        .frame(width: Night.switchSize.width, height: Night.switchSize.height)
         .contentShape(Capsule())
         .animation(Night.spring, value: isOn)
     }
@@ -68,11 +68,11 @@ struct NightSegmented<Value: Hashable>: View {
                 let on = o.value == selection
                 Button { withAnimation(Night.spring) { selection = o.value } } label: {
                     Text(o.title)
-                        .font(.scribe(12.5, 700))
+                        .font(.nightButton)
                         .foregroundStyle(on ? Night.text : Night.text3)
                         .lineLimit(1)
-                        .padding(.horizontal, 13)
-                        .frame(height: 28)
+                        .padding(.horizontal, Night.s12 - 2)
+                        .frame(height: Night.controlHeight - 6)
                         .background {
                             if on {
                                 RoundedRectangle(cornerRadius: Night.rSegment, style: .continuous)
@@ -103,19 +103,19 @@ struct NightTabs<Value: Hashable>: View {
     @Namespace private var ns
 
     var body: some View {
-        HStack(spacing: 22) {
+        HStack(spacing: Night.s20) {
             ForEach(Array(options.enumerated()), id: \.offset) { _, o in
                 let on = o.value == selection
                 Button { withAnimation(Night.spring) { selection = o.value } } label: {
-                    VStack(alignment: .leading, spacing: 7) {
+                    VStack(alignment: .leading, spacing: Night.s4 + 2) {
                         Text(o.title)
-                            .font(.scribe(13.5, 700))
+                            .font(.nightHeadline)
                             .foregroundStyle(on ? Night.text : Night.text3)
                             .fixedSize()
                         ZStack {
-                            Capsule().fill(Color.clear).frame(height: 4)
+                            Capsule().fill(Color.clear).frame(height: 3)
                             if on {
-                                Capsule().fill(Night.gradientTab).frame(height: 4)
+                                Capsule().fill(Night.gradientTab).frame(height: 3)
                                     .matchedGeometryEffect(id: "underline", in: ns)
                             }
                         }
@@ -137,8 +137,8 @@ struct NightField: View {
     var placeholder: String
     @Binding var text: String
     var secure = false
-    var height: CGFloat = 38
-    var font: Font = .scribe(13.5, 600)
+    var height: CGFloat = Night.controlHeight + 2
+    var font: Font = .nightHeadline
     var onSubmit: () -> Void = {}
     @FocusState private var focused: Bool
 
@@ -184,10 +184,10 @@ struct NightSearchField: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Night.text3)
+            Image(systemName: "magnifyingglass").font(.nightIcon(Night.iconRegular, .semibold)).foregroundStyle(Night.text3)
             TextField(prompt, text: $text)
                 .textFieldStyle(.plain)
-                .font(.scribe(13, 500))
+                .font(.nightBody)
                 .foregroundStyle(Night.text)
                 .tint(Night.accent)
                 .focused($focused)
@@ -200,14 +200,14 @@ struct NightSearchField: View {
                 .accessibilityLabel("Clear search")
             } else {
                 Text("⌘K")
-                    .font(.scribe(11, 600))
+                    .font(.nightMeta)
                     .foregroundStyle(Night.text3)
                     .padding(.horizontal, 6).padding(.vertical, 1)
                     .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Night.line2, lineWidth: 1))
             }
         }
-        .padding(.horizontal, 12)
-        .frame(width: width, height: 36)
+        .padding(.horizontal, Night.s8 + 2)
+        .frame(width: width, height: Night.controlHeight)
         .background(RoundedRectangle(cornerRadius: Night.rControl, style: .continuous).fill(Night.well))
         .overlay(RoundedRectangle(cornerRadius: Night.rControl, style: .continuous)
             .strokeBorder(focused ? Night.accent : Night.line, lineWidth: 1))
@@ -220,7 +220,7 @@ struct NightSearchField: View {
 /// Raised, line2 border, a 2 pt bottom ledge.
 struct Keycap: View {
     var text: String
-    var height: CGFloat = 28
+    var height: CGFloat = Night.controlHeightSmall
     var body: some View {
         Text(text)
             .font(.nightKeycap)
@@ -267,7 +267,7 @@ struct NightPicker<Value: Hashable>: View {
                             Image(systemName: "checkmark").font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(Night.accent)
                                 .opacity(o.value == selection ? 1 : 0)
-                            Text(o.title).font(.scribe(13, 600)).foregroundStyle(Night.text)
+                            Text(o.title).font(.nightHeadline).foregroundStyle(Night.text)
                             Spacer(minLength: 0)
                         }
                         .contentShape(Rectangle())
@@ -327,27 +327,38 @@ struct AvatarStack: View {
 /// stop glyph.
 struct RecordButton: View {
     var recording: Bool
-    var size: CGFloat = 64
+    var size: CGFloat = 44
     var action: () -> Void
+    @State private var hover = false
     var body: some View {
         Button(action: action) {
             ZStack {
-                Circle().fill(Night.accentSoft).frame(width: size + 12, height: size + 12)
-                Circle().fill(Night.gradient)
-                    .overlay(Circle().inset(by: 0.5).stroke(LinearGradient(colors: [Color.white.opacity(0.35), .clear],
-                                                                           startPoint: .top, endPoint: .center), lineWidth: 1))
+                Circle().fill(recording ? Night.liveSoft : Night.accentSoft).frame(width: size + 8, height: size + 8)
+                    .scaleEffect(hover ? 1.06 : 1)
+                // Recording = coral (the one "live" color), idle = lavender.
+                Circle().fill(recording ? AnyShapeStyle(Night.live) : AnyShapeStyle(Night.gradient))
                     .frame(width: size, height: size)
                 if recording {
-                    RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Night.onAccent)
+                    RoundedRectangle(cornerRadius: size * 0.08, style: .continuous).fill(Color.white)
                         .frame(width: size * 0.3, height: size * 0.3)
                 } else {
-                    Image(systemName: "mic").font(.system(size: size * 0.36, weight: .semibold)).foregroundStyle(Night.onAccent)
+                    Image(systemName: "mic").font(.system(size: size * 0.38, weight: .semibold)).foregroundStyle(Night.onAccent)
                 }
             }
             .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressDimStyle())
+        .onHover { hover = $0 }
+        .animation(Night.fast, value: hover)
+        .animation(Night.base, value: recording)
         .accessibilityLabel(recording ? "Stop recording" : "Record a meeting")
+    }
+}
+
+/// Plain button that dims a little while pressed.
+struct PressDimStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.brightness(configuration.isPressed ? -0.08 : 0)
     }
 }
 
@@ -356,11 +367,11 @@ struct LiveChip: View {
     var text: String
     var body: some View {
         HStack(spacing: 7) {
-            Circle().fill(Night.live).frame(width: 7, height: 7)
-            Text(text).font(.scribe(12.5, 700)).monospacedDigit().foregroundStyle(Night.live)
+            Circle().fill(Night.live).frame(width: 6, height: 6)
+            Text(text).font(.nightSmallStrong).monospacedDigit().foregroundStyle(Night.live)
         }
-        .padding(.horizontal, 10)
-        .frame(height: 26)
+        .padding(.horizontal, Night.s8)
+        .frame(height: Night.controlHeightSmall - 2)
         .background(Capsule().fill(Night.liveSoft))
     }
 }
@@ -377,13 +388,15 @@ struct MenuRowStyle: ButtonStyle {
         @State private var hover = false
         var body: some View {
             configuration.label
-                .font(.scribe(13, 600))
+                .font(.nightBody)
                 .foregroundStyle(Night.text)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(configuration.isPressed ? Night.accentSoft : (hover ? Night.accentSoft.opacity(0.7) : Color.clear)))
+                .padding(.horizontal, Night.s8)
+                .padding(.vertical, Night.s4)
+                .frame(minHeight: Night.controlHeightSmall)
+                .background(RoundedRectangle(cornerRadius: Night.rSegment, style: .continuous)
+                    .fill(configuration.isPressed ? Night.accentSoft : (hover ? Night.hover : Color.clear)))
                 .onHover { hover = $0 }
+                .animation(Night.fast, value: hover)
         }
     }
 }

@@ -52,33 +52,45 @@ extension NSColor {
     }
 }
 
-/// The Night Sky tokens (DESIGN.md › Color tokens). Light values come from the light icon.
+/// THE design system (0.7.2). Every color, size, space, radius, shadow and animation the app
+/// uses comes from here; docs/DESIGN.md lists the same values in plain words.
+///  • Dark = "Night Sky": matte near-black, lavender accent, a 1 px top highlight on cards.
+///  • Light = "Daylight" (new in 0.7.2, its own design, not dark with the backgrounds swapped):
+///    cool paper-white surfaces, soft shadows instead of glow, softer lavender, no dots in the sky.
 enum Night {
-    static let canvas = Color.night(0xF8F5EF, 0x0E0E11)
-    static let rail = Color.night(0xEFEAE1, 0x09090B)
-    static let surface = Color.night(0xFFFDF9, 0x16161A)
+    // MARK: Color (light, dark)
+    static let canvas = Color.night(0xF6F5FA, 0x0E0E11)
+    static let rail = Color.night(0xEFEEF5, 0x09090B)
+    static let surface = Color.night(0xFFFFFF, 0x16161A)
     static let raised = Color.night(0xFFFFFF, 0x1D1D23)
-    static let well = Color.night(0xF2EEE7, 0x111114)
-    static let line = Color.night(0x463728, 0xFFFFFF, lightAlpha: 0.10, darkAlpha: 0.07)
-    static let line2 = Color.night(0x463728, 0xFFFFFF, lightAlpha: 0.16, darkAlpha: 0.11)
-    static let highlight = Color.night(0xFFFFFF, 0xFFFFFF, lightAlpha: 0.70, darkAlpha: 0.04)
-    static let text = Color.night(0x1D1C2A, 0xECEBF5)
-    static let text2 = Color.night(0x5D5B70, 0xA9A8BC)
-    static let text3 = Color.night(0x706D7E, 0x85849A)
-    static let accentTop = Color.night(0x7074EA, 0xBABCFF)
-    static let accentBottom = Color.night(0x3C3AA4, 0x8680F6)
-    static let accent = Color.night(0x5653D2, 0xA3A0FB)
-    static let accentSoft = Color.night(0x5653D2, 0xA3A0FB, lightAlpha: 0.10, darkAlpha: 0.14)
+    static let well = Color.night(0xF1F0F6, 0x111114)
+    static let hover = Color.night(0x1E1A3C, 0xFFFFFF, lightAlpha: 0.045, darkAlpha: 0.04)
+    static let line = Color.night(0x1E1A3C, 0xFFFFFF, lightAlpha: 0.08, darkAlpha: 0.065)
+    static let line2 = Color.night(0x1E1A3C, 0xFFFFFF, lightAlpha: 0.13, darkAlpha: 0.10)
+    static let highlight = Color.night(0xFFFFFF, 0xFFFFFF, lightAlpha: 0.0, darkAlpha: 0.04)
+    static let text = Color.night(0x1C1B29, 0xECEBF5)
+    static let text2 = Color.night(0x535166, 0xA9A8BC)
+    static let text3 = Color.night(0x6B6980, 0x85849A)
+    static let accentTop = Color.night(0x7C78E2, 0xBABCFF)
+    static let accentBottom = Color.night(0x6863D6, 0x8680F6)
+    static let accent = Color.night(0x5F5AD0, 0xA3A0FB)
+    static let accentSoft = Color.night(0x6560D4, 0xA3A0FB, lightAlpha: 0.09, darkAlpha: 0.14)
     static let onAccent = Color.night(0xFFFFFF, 0x0D0C1A)
-    static let star = Color.night(0x8C86EC, 0xC9CAFF)
-    /// Recording state only (dot, timer). Never decorative.
-    static let live = Color.night(0xD9545E, 0xF2878E)
-    static let liveSoft = Color.night(0xD9545E, 0xF2878E, lightAlpha: 0.12, darkAlpha: 0.14)
+    static let star = Color.night(0xA8A3EC, 0xC9CAFF)
+    /// Recording state only (dot, timer). Never decorative. Coral in both themes.
+    static let live = Color.night(0xD3424F, 0xF2878E)
+    static let liveSoft = Color.night(0xD3424F, 0xF2878E, lightAlpha: 0.10, darkAlpha: 0.14)
     /// Warnings (a failed step, a missing permission). Kept soft, like the rest.
-    static let warn = Color.night(0xB86A1E, 0xF4BE93)
-    static let ok = Color.night(0x2E8B6E, 0x8FD9C2)
+    static let warn = Color.night(0xA15C12, 0xF4BE93)
+    static let ok = Color.night(0x267A60, 0x8FD9C2)
 
-    /// The accent gradient, top → bottom (wave, primary button, record button).
+    // MARK: Shadow (light only: dark mode uses the 1 px top highlight instead)
+    static let shadow = Color.night(0x1E1A3C, 0x000000, lightAlpha: 0.07, darkAlpha: 0)
+    static let shadowRadius: CGFloat = 6
+    static let shadowY: CGFloat = 1
+
+    /// The accent gradient, top → bottom (wave, primary button, record button). In light mode the
+    /// two ends are close, so it reads as one soft lavender.
     static let gradient = LinearGradient(colors: [accentTop, accentBottom], startPoint: .top, endPoint: .bottom)
     /// The accent gradient, left → right (toggles, progress, tab underline).
     static let gradientH = LinearGradient(colors: [accentBottom, accentTop], startPoint: .leading, endPoint: .trailing)
@@ -97,22 +109,40 @@ enum Night {
     static let overlayAccentBottom = Color(hex: 0x8680F6)
     static let overlayLive = Color(hex: 0xF2878E)
 
-    // Radii
-    static let rWindow: CGFloat = 16, rCard: CGFloat = 18, rSheet: CGFloat = 18, rControl: CGFloat = 12
-    static let rPill: CGFloat = 14, rSegment: CGFloat = 9, rSegmentOuter: CGFloat = 12, rKey: CGFloat = 8
-    // Layout
-    static let railWidth: CGFloat = 60, headerHeight: CGFloat = 72
-    static let gutterLeading: CGFloat = 32, gutterTrailing: CGFloat = 28, cardGap: CGFloat = 16
-    static let cardPadding: CGFloat = 20
+    // MARK: Space (a 4-pt scale: 4 / 8 / 12 / 16 / 20 / 24 / 32)
+    static let s4: CGFloat = 4, s8: CGFloat = 8, s12: CGFloat = 12, s16: CGFloat = 16
+    static let s20: CGFloat = 20, s24: CGFloat = 24, s32: CGFloat = 32
+
+    // MARK: Radius
+    static let rWindow: CGFloat = 12, rCard: CGFloat = 12, rSheet: CGFloat = 14, rControl: CGFloat = 7
+    static let rPill: CGFloat = 9, rRow: CGFloat = 8, rSegment: CGFloat = 6, rSegmentOuter: CGFloat = 8, rKey: CGFloat = 6
+
+    // MARK: Size (compact, Mac-native)
+    static let controlHeight: CGFloat = 28        // buttons, search field, segmented control
+    static let controlHeightSmall: CGFloat = 24   // keycaps, chips
+    static let iconButton: CGFloat = 26
+    static let switchSize = CGSize(width: 30, height: 18)
+    static let rowHeight: CGFloat = 30            // sidebar items, settings pane rows, menu rows
+    static let iconSmall: CGFloat = 10, iconRegular: CGFloat = 12, iconLarge: CGFloat = 14
+    static let avatar: CGFloat = 22, avatarSmall: CGFloat = 18
+
+    // MARK: Layout
+    static let railWidth: CGFloat = 52, headerHeight: CGFloat = 52
+    static let meetingsListWidth: CGFloat = 230, settingsListWidth: CGFloat = 124
+    static let gutterLeading: CGFloat = 20, gutterTrailing: CGFloat = 18, cardGap: CGFloat = 12
+    static let cardPadding: CGFloat = 14
+    static let rowPaddingH: CGFloat = 12, rowPaddingV: CGFloat = 8
+
+    // MARK: Motion (nothing bounces)
+    static let fast = Animation.easeOut(duration: 0.12)      // hover, pressed
+    static let base = Animation.easeInOut(duration: 0.2)     // show/hide, selection
+    static let spring = Animation.spring(response: 0.3, dampingFraction: 0.9)
 
     /// A duration as m:ss, or h:mm:ss from an hour (list rows, chips, timers).
     static func clock(_ t: TimeInterval) -> String {
         let s = max(0, Int(t.rounded()))
         return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
     }
-
-    /// Default motion: nothing bounces.
-    static let spring = Animation.spring(response: 0.35, dampingFraction: 0.85)
 }
 
 // MARK: - Type (Manrope, bundled; SIL OFL 1.1)
@@ -174,16 +204,22 @@ extension Font {
         if let f = ScribeFonts.nsFont(size: size, weight: weight) { return Font(f as CTFont) }
         return .system(size: size, weight: ScribeFonts.systemWeight(weight))
     }
-    // The type scale (DESIGN.md › Typography).
-    static var nightDisplay: Font { scribe(22, 700) }
-    static var nightTitle: Font { scribe(17, 700) }
-    static var nightHeadline: Font { scribe(15, 700) }
-    static var nightBody: Font { scribe(13.5, 500) }
-    static var nightSecondary: Font { scribe(13, 500) }
-    static var nightMeta: Font { scribe(12, 600) }
-    static var nightLabel: Font { scribe(11.5, 700) }
-    static var nightKeycap: Font { scribe(12.5, 800) }
-    static var nightButton: Font { scribe(13.5, 700) }
+    // The type scale (docs/DESIGN.md › Type). Compact in 0.7.2: body 13, titles 13 semibold.
+    static var nightDisplay: Font { scribe(17, 650) }     // page title
+    static var nightTitle: Font { scribe(14, 650) }       // sheet / dialog title
+    static var nightHeadline: Font { scribe(13, 600) }    // row and card titles
+    static var nightBody: Font { scribe(13, 460) }        // normal text
+    static var nightReading: Font { scribe(13.5, 460) }   // notes and transcript (long reading)
+    static var nightSecondary: Font { scribe(12, 460) }   // descriptions under a title
+    static var nightSmallStrong: Font { scribe(12, 600) } // small emphasis, status lines
+    static var nightMeta: Font { scribe(11, 550) }        // dates, counts, captions
+    static var nightLabel: Font { scribe(10.5, 700) }     // UPPERCASE section labels
+    static var nightKeycap: Font { scribe(11.5, 700) }
+    static var nightButton: Font { scribe(12.5, 600) }
+    /// SF Symbol sizes: small 10, regular 12, large 14 (semibold/medium).
+    static func nightIcon(_ size: CGFloat = Night.iconRegular, _ weight: Font.Weight = .medium) -> Font {
+        .system(size: size, weight: weight)
+    }
 }
 
 // MARK: - Appearance (Settings › General)
@@ -252,6 +288,8 @@ struct NightCardBackground: View {
                         lineWidth: 1)
             shape.strokeBorder(Night.line, lineWidth: 1)
         }
+        // Light mode: a soft shadow gives the lift (dark mode's shadow color is clear).
+        .shadow(color: Night.shadow, radius: Night.shadowRadius, y: Night.shadowY)
     }
 }
 
@@ -295,7 +333,7 @@ extension View {
 struct NightButtonStyle: ButtonStyle {
     enum Kind { case primary, secondary, ghost, danger }
     var kind: Kind = .secondary
-    var height: CGFloat = 36
+    var height: CGFloat = Night.controlHeight
     var fullWidth = false
 
     func makeBody(configuration: Configuration) -> some View {
@@ -317,7 +355,7 @@ private struct NightButtonBody: View {
             .font(.nightButton)
             .lineLimit(1)
             .foregroundStyle(foreground)
-            .padding(.horizontal, kind == .ghost ? 10 : 15)
+            .padding(.horizontal, kind == .ghost ? Night.s8 : Night.s12)
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .frame(height: height)
             .background {
@@ -330,14 +368,14 @@ private struct NightButtonBody: View {
                 case .secondary, .danger:
                     shape.fill(Night.raised).overlay(shape.strokeBorder(Night.line2, lineWidth: 1))
                 case .ghost:
-                    shape.fill(hover ? Night.accentSoft.opacity(0.6) : Color.clear)
+                    shape.fill(hover ? Night.hover : Color.clear)
                 }
             }
             .brightness(configuration.isPressed ? -0.06 : (hover && kind != .ghost ? 0.03 : 0))
             .opacity(enabled ? 1 : 0.45)
             .contentShape(shape)
             .onHover { hover = $0 }
-            .animation(.easeOut(duration: 0.12), value: hover)
+            .animation(Night.fast, value: hover)
     }
 
     private var foreground: Color {
@@ -358,16 +396,31 @@ extension ButtonStyle where Self == NightButtonStyle {
 
 /// An icon-only button on a raised square (copy, more, close).
 struct NightIconButtonStyle: ButtonStyle {
-    var size: CGFloat = 30
+    var size: CGFloat = Night.iconButton
     func makeBody(configuration: Configuration) -> some View {
+        NightIconButtonBody(configuration: configuration, size: size)
+    }
+}
+
+private struct NightIconButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let size: CGFloat
+    @Environment(\.isEnabled) private var enabled
+    @State private var hover = false
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: Night.rControl, style: .continuous)
         configuration.label
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Night.text2)
+            .font(.nightIcon(Night.iconRegular, .semibold))
+            .foregroundStyle(hover ? Night.text : Night.text2)
             .frame(width: size, height: size)
-            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Night.raised))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Night.line2, lineWidth: 1))
-            .opacity(configuration.isPressed ? 0.75 : 1)
-            .contentShape(Rectangle())
+            .background(shape.fill(Night.raised))
+            .overlay(shape.fill(hover ? Night.hover : .clear))
+            .overlay(shape.strokeBorder(Night.line2, lineWidth: 1))
+            .brightness(configuration.isPressed ? -0.06 : 0)
+            .opacity(enabled ? 1 : 0.45)
+            .contentShape(shape)
+            .onHover { hover = $0 }
+            .animation(Night.fast, value: hover)
     }
 }
 
@@ -388,7 +441,7 @@ struct AppIconView: View {
 /// An SF Symbol on a soft accent square: used for feature and setup cards.
 struct SymbolTile: View {
     var symbol: String
-    var size: CGFloat = 48
+    var size: CGFloat = 36
     var body: some View {
         Image(systemName: symbol)
             .font(.system(size: size * 0.42, weight: .medium))
@@ -453,16 +506,16 @@ struct PageHeader<Trailing: View>: View {
     var subtitle: String?
     @ViewBuilder var trailing: Trailing
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(title).font(.nightDisplay).tracking(-0.3).foregroundStyle(Night.text).lineLimit(1)
+        HStack(alignment: .center, spacing: Night.s12) {
+            HStack(alignment: .firstTextBaseline, spacing: Night.s8) {
+                Text(title).font(.nightDisplay).tracking(-0.2).foregroundStyle(Night.text).lineLimit(1)
                 if let subtitle {
                     Text(subtitle).font(.nightSecondary).foregroundStyle(Night.text3).lineLimit(1)
                         .truncationMode(.tail)
                 }
             }
             .layoutPriority(1)
-            Spacer(minLength: 12)
+            Spacer(minLength: Night.s12)
             trailing
         }
         .frame(height: Night.headerHeight)
@@ -480,9 +533,9 @@ struct SectionLabel: View {
     var title: String
     var color: Color = Night.text3
     var body: some View {
-        HStack(spacing: 7) {
-            Sparkle().fill(Night.star).frame(width: 9, height: 9)
-            Text(title.uppercased()).font(.nightLabel).tracking(0.9).foregroundStyle(color).lineLimit(1)
+        HStack(spacing: Night.s4 + 2) {
+            Sparkle().fill(Night.star).frame(width: 7, height: 7)
+            Text(title.uppercased()).font(.nightLabel).tracking(0.7).foregroundStyle(color).lineLimit(1)
         }
         .accessibilityElement(children: .combine)
     }
@@ -504,32 +557,77 @@ struct CozyEmptyState<Actions: View>: View {
     var message: String
     @ViewBuilder var actions: Actions
     var body: some View {
-        VStack(spacing: 14) {
-            VStack(spacing: 14) {
-                SparkleView(size: 48, glow: true)
-                CapsuleBars(levels: Array(repeating: 0, count: 9), barWidth: 5, spacing: 5, maxLength: 5, style: .dim)
+        VStack(spacing: Night.s12) {
+            VStack(spacing: Night.s12) {
+                SparkleView(size: 32, glow: true)
+                CapsuleBars(levels: Array(repeating: 0, count: 7), barWidth: 4, spacing: 4, maxLength: 4, style: .dim)
             }
-            .padding(.bottom, 4)
-            VStack(spacing: 6) {
+            .padding(.bottom, Night.s4)
+            VStack(spacing: Night.s4) {
                 Text(title).font(.nightHeadline).foregroundStyle(Night.text)
                 // No fixedSize here: it would make the window's minimum height huge.
                 Text(message).font(.nightSecondary).foregroundStyle(Night.text2)
                     .multilineTextAlignment(.center)
-                    .lineSpacing(3)
+                    .lineSpacing(2)
                     .lineLimit(6)
-                    .frame(maxWidth: 400)
+                    .frame(maxWidth: 340)
             }
-            actions.padding(.top, 6)
+            actions.padding(.top, Night.s4)
         }
-        .padding(32)
+        .padding(Night.s24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .contain)
+        .transition(.opacity)
     }
 }
 
 extension CozyEmptyState where Actions == EmptyView {
     init(symbol: String, title: String, message: String) {
         self.init(symbol: symbol, title: title, message: message) { EmptyView() }
+    }
+}
+
+/// A sidebar / list item (Settings panes, any vertical list of places): 30 tall, sparkle on the
+/// selected one, hover tint, accentSoft when selected.
+struct NightSidebarItem: View {
+    var title: String
+    var symbol: String? = nil
+    var selected: Bool
+    var action: () -> Void
+    @State private var hover = false
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: Night.s8 - 2) {
+                if let symbol {
+                    Image(systemName: symbol).font(.nightIcon(Night.iconRegular))
+                        .foregroundStyle(selected ? Night.accent : Night.text3).frame(width: 16)
+                } else {
+                    Sparkle().fill(Night.star).frame(width: 6, height: 6).opacity(selected ? 1 : 0)
+                }
+                Text(title).font(selected ? Font.nightHeadline : Font.nightBody)
+                    .foregroundStyle(selected ? Night.text : Night.text2).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Night.s8)
+            .frame(height: Night.rowHeight)
+            .background(RoundedRectangle(cornerRadius: Night.rRow, style: .continuous)
+                .fill(selected ? Night.accentSoft : (hover ? Night.hover : Color.clear)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .animation(Night.fast, value: hover)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// A list row container (meeting rows, dictation rows): row padding, 8 radius, hover + selected fill.
+struct NightRowBackground: View {
+    var selected: Bool
+    var hover: Bool
+    var body: some View {
+        RoundedRectangle(cornerRadius: Night.rRow, style: .continuous)
+            .fill(selected ? Night.accentSoft : (hover ? Night.hover : Color.clear))
     }
 }
 
