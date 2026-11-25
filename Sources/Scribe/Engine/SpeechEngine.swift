@@ -455,8 +455,14 @@ actor SpeechEngine {
         if let boost = vocabularyBoost, Vocabulary.acousticBoost, let timings = result.tokenTimings, !timings.isEmpty {
             let t2 = Date()
             if let out = await boost.rescore(text: result.text, tokenTimings: timings, audioSamples: speech), out.wasModified {
-                text = out.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                replaced = out.replacements.map { "\($0)" }
+                // Keep only swaps that can't turn an everyday word into a term ("cute" → "CAD").
+                let swaps = out.replacements.filter(\.shouldReplace).map { (from: $0.originalWord, to: $0.replacementWord ?? "") }
+                let guarded = Vocabulary.guardAcoustic(original: text,
+                                                       rescored: out.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                                                       replacements: swaps)
+                text = guarded.text
+                replaced = guarded.accepted.map { "\($0.from) → \($0.to)" }
+                    + guarded.rejected.map { "refused: \($0.from) → \($0.to)" }
             }
             boostSeconds = Date().timeIntervalSince(t2)
         }
@@ -487,17 +493,20 @@ actor SpeechEngine {
     /// spelling, so correctly heard words are rarely replaced.
     func loadVocabularyBoost(terms: [VocabularyTerm]) async throws {
         if vocabularyBoost != nil, terms == vocabularyBoostTerms { return }
-        guard !terms.isEmpty else { vocabularyBoost = nil; vocabularyBoostTerms = []; return }
+        // Short acronyms ("CAD", "VEX", "V5") never go to the helper: on sound alone they matched
+        // everyday words ("cute", "head", "practise" → "CAD"). The text pass still spells them.
+        let helperTerms = Vocabulary.acousticTerms(terms)
+        guard !helperTerms.isEmpty else { vocabularyBoost = nil; vocabularyBoostTerms = []; return }
         if ctcModels == nil { ctcModels = try await CtcModels.downloadAndLoad(variant: .ctc110m) }
         guard let ctcModels else { return }
-        let context = CustomVocabularyContext(terms: terms.map {
+        let context = CustomVocabularyContext(terms: helperTerms.map {
             CustomVocabularyTerm(text: $0.text, weight: nil, aliases: $0.aliases.isEmpty ? nil : $0.aliases)
         })
         vocabularyBoost = try await VocabularyBoostingSession(
             vocabulary: context, ctcModels: ctcModels,
             thresholds: .init(cbw: 0, minSimilarity: 0.7))
         vocabularyBoostTerms = terms
-        Perf.log.info("vocabulary helper ready: \(terms.count) terms")
+        Perf.log.info("vocabulary helper ready: \(helperTerms.count) terms")
     }
 
     func unloadVocabularyBoost() { vocabularyBoost = nil; vocabularyBoostTerms = [] }

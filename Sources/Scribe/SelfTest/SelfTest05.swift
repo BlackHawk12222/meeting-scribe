@@ -136,6 +136,28 @@ extension SelfTest {
         check("vocabulary: spoken forms", v1 == "update the Onshape model in Figma, push to GitHub from Xcode, SwiftUI on the VEX V5", v1)
         let v2 = Vocabulary.apply("the notion that open notion works", terms: Vocabulary.terms(from: Vocabulary.defaults))
         check("vocabulary: everyday 'notion' kept", v2 == "the notion that open Notion works", v2)
+        // Everyday words that sound like terms must never become terms (0.5 hotfix: "cute" → "CAD").
+        let everydayText = "That puppy is so cute. I will practise it. He nods his head. The scene is absolutely cute? It's a cad."
+        let v3 = Vocabulary.apply(TextCleanup.rules(everydayText), terms: Vocabulary.terms(from: Vocabulary.defaults))
+        check("vocabulary: text pass leaves everyday words (only 'cad' → 'CAD')",
+              v3 == "That puppy is so cute. I will practise it. He nods his head. The scene is absolutely cute? It's a CAD.", v3)
+        let dict = Vocabulary.englishWords()
+        check("acoustic guard: word list loaded", dict.count > 100_000, "\(dict.count) words")
+        let refusals: [(String, String)] = [("cute", "CAD"), ("cute?", "CAD"), ("practise", "CAD"), ("head", "CAD"), ("head", "Onshape"),
+                                            ("nods", "Notion"), ("notion", "Notion"), ("scribe", "Scribe"), ("cad", "CAD"), ("vex", "VEX"), ("v five", "V5"),
+                                            ("Vex V5", "Xcode"), ("V5", "Xcode"), ("Figma", "Notion")]
+        let wrongly = refusals.filter { Vocabulary.acousticReplacementAllowed(original: $0.0, replacement: $0.1, dict: dict) }
+        check("acoustic guard: refuses everyday words and short acronyms", wrongly.isEmpty, wrongly.map { "\($0.0)→\($0.1)" }.joined(separator: ", "))
+        let wins: [(String, String)] = [("Swift UI", "SwiftUI"), ("OnShade", "Onshape"), ("Figmah", "Figma"), ("git hub", "GitHub"), ("x code", "Xcode")]
+        let lost = wins.filter { !Vocabulary.acousticReplacementAllowed(original: $0.0, replacement: $0.1, dict: dict) }
+        check("acoustic guard: keeps real fixes", lost.isEmpty, lost.map { "\($0.0)→\($0.1)" }.joined(separator: ", "))
+        let g = Vocabulary.guardAcoustic(original: "Open the OnShade file, it is so cute.",
+                                         rescored: "Open the Onshape file, it is so CAD.",
+                                         replacements: [(from: "OnShade", to: "Onshape"), (from: "cute.", to: "CAD")], dict: dict)
+        check("acoustic guard: mixed swaps keep only the real fix", g.text == "Open the Onshape file, it is so cute.", g.text)
+        let g2 = Vocabulary.guardAcoustic(original: "He nods his head.", rescored: "He nods his CAD.",
+                                          replacements: [(from: "head.", to: "CAD")], dict: dict)
+        check("acoustic guard: all refused → model text unchanged", g2.text == "He nods his head.", g2.text)
         // Speed: rules + vocabulary on a 200-word dictation.
         let long = String(repeating: "um so I I I think we need twenty five percent more of the onshape thing, uh, and then. The robot works. ", count: 9)
         _ = Vocabulary.apply(TextCleanup.rules(long))
@@ -223,6 +245,19 @@ extension SelfTest {
         ("Open Figma and Notion, then push the SwiftUI code from Xcode to GitHub.", ["Figma", "Notion", "SwiftUI", "Xcode", "GitHub"]),
         ("Pull the latest Scribe build from GitHub.", ["Scribe", "GitHub"]),
     ]
+    /// Everyday words that sound close to terms: no term may appear (0.5 hotfix: "cute" → "CAD").
+    static let falseFriendSentences = ["That puppy is so cute.", "I will practise it.", "He nods his head.",
+                                       "The scene is absolutely cute."]
+
+    /// Default terms that appear in `text` (whole word, exact case) but not in `reference`.
+    static func insertedTerms(_ text: String, reference: String) -> [String] {
+        let ref = Set(normWords(reference))
+        return Vocabulary.defaults.filter { term in
+            guard let re = try? NSRegularExpression(pattern: "(?<![\\p{L}\\p{N}])" + NSRegularExpression.escapedPattern(for: term) + "(?![\\p{L}\\p{N}])") else { return false }
+            let found = re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+            return found && !normWords(term).allSatisfy { ref.contains($0) }
+        }
+    }
 
     static func say(_ text: String, to url: URL) -> Bool {
         let p = Process()
@@ -235,34 +270,79 @@ extension SelfTest {
 
     static func vocabularyTest(dir: URL) async throws -> [String: Any] {
         var rows: [[String: Any]] = []
-        var hits = (raw: 0, text: 0, boosted: 0), total = 0
+        var hits = (raw: 0, text: 0, boosted: 0, old: 0), total = 0
+        var inserted = (plain: 0, boosted: 0, old: 0)
         let boostReady = await SpeechEngine.shared.isVocabularyBoostReady
-        for (i, (sentence, terms)) in vocabSentences.enumerated() {
+        let all: [(String, [String])] = vocabSentences + falseFriendSentences.map { ($0, []) }
+        var clips: [[Float]] = []
+        for (i, (sentence, _)) in all.enumerated() {
             let url = dir.appendingPathComponent("vocab\(i).wav")
             guard say(sentence, to: url) else { return ["error": "say failed (no voice on this runner?)"] }
-            let samples = try SpeechEngine.loadSamples(url)
-            UserDefaults.standard.set(false, forKey: Vocabulary.boostKey)
-            let plain = try await Dictation.run(samples: samples, useAI: false, removeFillers: true)
+            clips.append(try SpeechEngine.loadSamples(url))
+        }
+        func run(_ samples: [Float], helper: Bool) async throws -> Dictation.Result {
+            UserDefaults.standard.set(helper, forKey: Vocabulary.boostKey)
+            defer { UserDefaults.standard.removeObject(forKey: Vocabulary.boostKey) }
+            return try await Dictation.run(samples: samples, useAI: false, removeFillers: true)
+        }
+        // Pass 1: helper off, helper on (guarded = this build).
+        var results: [(plain: Dictation.Result, boosted: Dictation.Result?)] = []
+        for samples in clips {
+            let plain = try await run(samples, helper: false)
             var boosted: Dictation.Result?
-            if boostReady {
-                UserDefaults.standard.set(true, forKey: Vocabulary.boostKey)
-                boosted = try await Dictation.run(samples: samples, useAI: false, removeFillers: true)
-            }
-            UserDefaults.standard.removeObject(forKey: Vocabulary.boostKey)
+            if boostReady { boosted = try await run(samples, helper: true) }
+            results.append((plain, boosted))
+        }
+        // Pass 2: the 0.5.21 helper (all terms, no guard), to show what the guard stops.
+        var old: [Dictation.Result?] = Array(repeating: nil, count: clips.count)
+        if boostReady {
+            Vocabulary.acousticGuard = false
+            await SpeechEngine.shared.unloadVocabularyBoost()
+            do {
+                try await SpeechEngine.shared.loadVocabularyBoost(terms: Vocabulary.terms(from: Vocabulary.defaults))
+                for (i, samples) in clips.enumerated() { old[i] = try await run(samples, helper: true) }
+            } catch { log("unguarded helper failed: \(error)") }
+            Vocabulary.acousticGuard = true
+            await SpeechEngine.shared.unloadVocabularyBoost()
+            try await SpeechEngine.shared.loadVocabularyBoost(terms: Vocabulary.terms(from: Vocabulary.defaults))
+        }
+        for (i, (sentence, terms)) in all.enumerated() {
+            let (plain, boosted) = results[i]
             func count(_ s: String) -> Int { terms.filter { s.contains($0) }.count }
             hits.raw += count(plain.transcript.text)
             hits.text += count(plain.text)
             hits.boosted += boosted.map { count($0.text) } ?? 0
+            hits.old += old[i].map { count($0.text) } ?? 0
             total += terms.count
-            rows.append(["sentence": sentence, "raw_model": plain.transcript.text, "with_text_pass": plain.text,
+            let insPlain = insertedTerms(plain.text, reference: sentence)
+            let insBoost = boosted.map { insertedTerms($0.text, reference: sentence) } ?? []
+            let insOld = old[i].map { insertedTerms($0.text, reference: sentence) } ?? []
+            inserted.plain += insPlain.count; inserted.boosted += insBoost.count; inserted.old += insOld.count
+            rows.append(["sentence": sentence, "kind": terms.isEmpty ? "everyday words (no term allowed)" : "terms",
+                         "raw_model": plain.transcript.text, "with_text_pass": plain.text,
                          "with_acoustic_helper": boosted?.text ?? "not loaded",
+                         "with_0.5.21_helper_unguarded": old[i]?.text ?? "not run",
+                         "inserted_terms_helper_off": insPlain, "inserted_terms_helper_on": insBoost,
+                         "inserted_terms_0.5.21_helper": insOld,
                          "helper_ms": ((boosted?.transcript.boostSeconds ?? 0) * 1000).rounded(),
-                         "helper_replacements": boosted?.transcript.boostReplacements ?? []])
+                         "helper_replacements": boosted?.transcript.boostReplacements ?? [],
+                         "0.5.21_helper_replacements": old[i]?.transcript.boostReplacements ?? []])
         }
-        return ["what": "3 sentences spoken by macOS's synthetic voice (`say`) — NOT a real person; terms spelled exactly right",
+        var failed: [String] = []
+        if inserted.plain > 0 { failed.append("term inserted with helper off") }
+        if boostReady, inserted.boosted > 0 { failed.append("term inserted with helper on") }
+        if hits.text != total { failed.append("terms right (text pass) \(hits.text)/\(total)") }
+        if boostReady, hits.boosted != total { failed.append("terms right (helper on) \(hits.boosted)/\(total)") }
+        log("vocabulary: \(failed.isEmpty ? "PASS" : "FAIL \(failed)") inserted off/on/0.5.21 = \(inserted.plain)/\(inserted.boosted)/\(inserted.old)")
+        return ["what": "\(all.count) sentences spoken by macOS's synthetic voice (`say`) — NOT a real person: \(vocabSentences.count) with terms spelled exactly right, \(falseFriendSentences.count) with everyday words that sound like terms",
                 "measured_on": "GitHub Actions macOS runner",
                 "terms_total": total, "terms_right_raw_model": hits.raw, "terms_right_after_text_pass": hits.text,
-                "terms_right_with_acoustic_helper": boostReady ? hits.boosted : -1, "rows": rows]
+                "terms_right_with_acoustic_helper": boostReady ? hits.boosted : -1,
+                "terms_right_with_0.5.21_helper": boostReady ? hits.old : -1,
+                "false_friend_insertions_helper_off": inserted.plain,
+                "false_friend_insertions_helper_on": boostReady ? inserted.boosted : -1,
+                "false_friend_insertions_0.5.21_helper": boostReady ? inserted.old : -1,
+                "pass": failed.isEmpty, "failed": failed, "rows": rows]
     }
 
     // MARK: LibriSpeech WER + latency
@@ -282,6 +362,7 @@ extension SelfTest {
             var editsRaw = 0, editsFinal = 0, words = 0
             var times: [Double] = []
             var worst: [(Double, String, String)] = []
+            var insertions: [[String: Any]] = []
             _ = try await Dictation.run(samples: clips[0].1, useAI: false, removeFillers: true, asrOverride: manager)  // warm-up
             for (f, s) in clips {
                 let t0 = Date()
@@ -291,6 +372,8 @@ extension SelfTest {
                 let (er, n) = editCount(ref: ref, hyp: r.transcript.text)
                 let (ef, _) = editCount(ref: ref, hyp: r.text)
                 editsRaw += er; editsFinal += ef; words += n
+                let ins = insertedTerms(r.text, reference: ref)
+                if !ins.isEmpty { insertions.append(["file": f, "terms": ins, "text": r.text]) }
                 if er > 0 { worst.append((Double(er) / Double(n), f, r.transcript.text)) }
             }
             UserDefaults.standard.removeObject(forKey: Vocabulary.boostKey)
@@ -299,6 +382,7 @@ extension SelfTest {
                 "wer_model_output": Double(editsRaw) / Double(words),
                 "wer_after_cleanup_and_vocabulary": Double(editsFinal) / Double(words),
                 "reference_words": words,
+                "vocabulary_terms_inserted": insertions.count, "vocabulary_insertions": insertions,
                 "release_to_text_mean_ms": (times.reduce(0, +) / Double(times.count) * 1000).rounded(),
                 "release_to_text_median_ms": (sorted[sorted.count / 2] * 1000).rounded(),
                 "total_seconds": times.reduce(0, +),
