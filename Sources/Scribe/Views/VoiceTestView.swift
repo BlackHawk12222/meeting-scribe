@@ -247,12 +247,13 @@ struct VoiceTestView: View {
                         Text(pct(r.score.wer)).monospacedDigit()
                         Text(pct(r.score.formattedErrorRate)).monospacedDigit()
                         Text(String(format: "%.1f s", r.meanSeconds)).monospacedDigit()
-                        Button(chosen == r.engine ? "Using it" : "Use this model") {
+                        Button(chosen == r.engine ? "In use" : "Use this model") {
                             DictationEngine.select(r.engine)
                             chosen = r.engine
                             Task { await store.prepareEngine() }
                         }
                         .disabled(r.engine == DictationEngine.current && chosen == nil || chosen == r.engine)
+                        .fixedSize()
                     }
                 }
             }

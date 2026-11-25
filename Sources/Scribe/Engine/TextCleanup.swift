@@ -71,6 +71,7 @@ enum TextCleanup {
         s = replace(s, reI, with: "I")
         s = replace(s, reIContraction, with: "I")
         s = lowerStrayCapitals(s)
+        s = mergePausePeriods(s)
         s = capitalizeSentences(s)
         return s
     }
@@ -81,7 +82,7 @@ enum TextCleanup {
         s = Numbers.normalize(s)
         s = replace(s, reI, with: "I")
         s = replace(s, reIContraction, with: "I")
-        return capitalizeSentences(lowerStrayCapitals(s))
+        return capitalizeSentences(mergePausePeriods(lowerStrayCapitals(s)))
     }
 
     // MARK: - Pauses: joining pieces and stray capitals
@@ -137,6 +138,54 @@ enum TextCleanup {
         return out
     }
 
+    // MARK: - Pause periods (voice-test: measured on the runner voice benchmark)
+    //
+    // Parakeet writes a "." wherever you pause, even in ONE pass over the whole utterance:
+    // "be there right after lunch. And bring water", "the plan is. We test the robot".
+    // A period is dropped (and the next word lowercased) only when the pause clearly cut a
+    // sentence: the next word can't start a typed sentence ("and", "because", "that"…), or
+    // the words before it can't end one ("…to.", "…the.", "…is.", "…probably.").
+
+    static let pauseJoiners: Set<String> = ["and", "because", "or", "than", "that", "which", "whatever",
+                                            "to", "of", "nor", "was", "were"]
+    static let danglingEnd: Set<String> = [
+        "the", "a", "an", "to", "of", "is", "are", "was", "were", "be", "and", "or", "but", "so", "because",
+        "my", "your", "our", "their", "his", "her", "its", "with", "for", "in", "on", "at", "from", "into",
+        "about", "that", "this", "these", "those", "probably", "should", "would", "could", "will", "can",
+        "need", "want", "just", "really", "maybe", "um", "uh", "like", "than", "if", "when", "we", "you",
+        "they", "i", "he", "she", "it", "very", "some", "any",
+    ]
+    private static let rePausePeriod = re("(?<![\\w.])([A-Za-z'’]{2,}|[Ia])\\. ([A-Z][a-z'’]*)\\b")
+
+    /// True when "…<previous>. <next>…" is a pause, not a real sentence end.
+    static func isPauseCut(previous: String, next: String) -> Bool {
+        pauseJoiners.contains(next.lowercased()) || danglingEnd.contains(previous.lowercased())
+    }
+
+    /// Next word after a dropped pause period: everyday words go lowercase; "I", names, terms keep
+    /// their capital.
+    static func continuing(_ word: String) -> String {
+        guard word != "I", !word.hasPrefix("I'"), !word.hasPrefix("I’"),
+              everyday.contains(word.lowercased()) || pauseJoiners.contains(word.lowercased()),
+              let f = word.first else { return word }
+        return f.lowercased() + word.dropFirst()
+    }
+
+    static func mergePausePeriods(_ s: String) -> String {
+        let ns = s as NSString
+        let matches = rePausePeriod.matches(in: s, range: NSRange(location: 0, length: ns.length))
+        guard !matches.isEmpty else { return s }
+        var out = ""
+        var last = 0
+        for m in matches {
+            let prev = ns.substring(with: m.range(at: 1)), next = ns.substring(with: m.range(at: 2))
+            out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            out += isPauseCut(previous: prev, next: next) ? prev + " " + continuing(next) : ns.substring(with: m.range)
+            last = m.range.location + m.range.length
+        }
+        return out + ns.substring(from: last)
+    }
+
     /// Join pieces that were transcribed separately (split at a pause while you held the key).
     /// A piece only keeps its final "." if the next piece clearly starts a new sentence;
     /// otherwise the "." goes and the next piece's first word is lowercased (unless it's "I",
@@ -163,8 +212,11 @@ enum TextCleanup {
             // A piece ending on "to", "the", "and"… was cut by the pause, whatever comes next.
             let lastWord = out.split(separator: " ").last.map { $0.trimmingCharacters(in: .punctuationCharacters).lowercased() } ?? ""
             let dangling = continuation.contains(lastWord) || ["my", "our", "your", "their", "his", "her", "this", "that", "we", "you", "they"].contains(lastWord)
-            let newSentence = endsQuestion || (endsPeriod && !dangling && !continuation.contains(lowerFirst) && lastSentenceWords >= 3
-                                               && !everyday.contains(lowerFirst))
+            _ = lastSentenceWords; _ = dangling
+            // voice-test: keep the model's sentence break unless the pause clearly cut one (the
+            // older rule merged before almost any everyday word: "…quiz on cells if I have time").
+            let endsSentence = endsQuestion || endsPeriod
+            let newSentence = endsSentence && !(endsPeriod && isPauseCut(previous: lastWord, next: firstWord))
             if newSentence {
                 out += " " + next
                 continue
