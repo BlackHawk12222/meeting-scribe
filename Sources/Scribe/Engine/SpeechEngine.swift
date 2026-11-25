@@ -229,8 +229,11 @@ actor SpeechEngine {
             await prewarm(skipAsr: someoneWaiting)
         }
         resumeDictationWaiters()
+        if changed && !tachysLaunchLogged {        // once per process: the launch, not a later model switch
+        tachysLaunchLogged = true
         TachysEngine.record(launchReadyMs: Date().timeIntervalSince(TachysEngine.processStart) * 1000)
         Perf.log.info("Tachys launch→ready: \(Date().timeIntervalSince(TachysEngine.processStart) * 1000, format: .fixed(precision: 0))ms (process start → dictation models loaded\(warm && changed ? " + warmed" : "", privacy: .public))")
+        }
     }
 
     // MARK: Waiting for the models (a dictation that started while they were loading)
@@ -294,6 +297,7 @@ actor SpeechEngine {
     private var tachys = TachysEngine()
     /// True while dictate() catches the VAD up after release (no new speculation then).
     private var tachysReleasing = false
+    private var tachysLaunchLogged = false
 
     /// How the voice detector cuts speech while you hold the key.
     /// 0.5 ("I pause while thinking", default on): a split needs ≥ 1.3 s of silence (0.4 used
