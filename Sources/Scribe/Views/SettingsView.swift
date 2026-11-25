@@ -12,6 +12,11 @@ import AVFoundation
 
 enum SettingsPane: String, CaseIterable, Identifiable {
     case general, dictation, meetings, vocabulary, models, updates
+    /// 0.7.3.1: Settings › General › Credits & licenses (a sub-page; not in the section list).
+    case credits
+
+    /// The section list (Credits & licenses opens from General).
+    static let sidebar: [SettingsPane] = [.general, .dictation, .meetings, .vocabulary, .models, .updates]
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -21,6 +26,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .vocabulary: return "Vocabulary"
         case .models: return "Models"
         case .updates: return "Updates"
+        case .credits: return "Credits & licenses"
         }
     }
     var symbol: String {
@@ -31,6 +37,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .vocabulary: return "character.book.closed"
         case .models: return "cpu"
         case .updates: return "arrow.down.circle"
+        case .credits: return "doc.text"
         }
     }
     var subtitle: String {
@@ -41,6 +48,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .vocabulary: return "Words Scribe should spell your way."
         case .models: return "What runs on this Mac."
         case .updates: return "New versions, and who made what."
+        case .credits: return "The models, code and fonts Scribe is built on, and their licenses."
         }
     }
 }
@@ -69,8 +77,9 @@ struct SettingsPage: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(SettingsPane.allCases) { p in
-                    NightSidebarItem(title: p.title, symbol: p.symbol, selected: p == pane) { pane = p }
+                ForEach(SettingsPane.sidebar) { p in
+                    NightSidebarItem(title: p.title, symbol: p.symbol,
+                                     selected: p == pane || (pane == .credits && p == .general)) { pane = p }
                 }
                 Spacer(minLength: 0)
                 Text("Scribe \(Updater.currentVersion)").font(.nightMeta).foregroundStyle(Night.text3)
@@ -106,7 +115,7 @@ struct SettingsPage: View {
         switch pane {
         case .general:
             VStack(alignment: .leading, spacing: 26) {
-                GeneralSettingsTab()
+                GeneralSettingsTab(openCredits: { pane = .credits })
                 PermissionsTab()
             }
         case .dictation:
@@ -124,8 +133,10 @@ struct SettingsPage: View {
         case .updates:
             VStack(alignment: .leading, spacing: 26) {
                 SettingsCard(title: "Updates") { UpdateSection() }
-                AboutView(embedded: true)
+                AboutView(embedded: true, openCredits: { pane = .credits })
             }
+        case .credits:
+            CreditsPage(back: { pane = .general })
         }
     }
 }
@@ -836,6 +847,10 @@ struct GeneralSettingsTab: View {
     @AppStorage("dictationSounds") private var sounds = true
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
+    /// 0.7.3.1: opens Settings › General › Credits & licenses.
+    var openCredits: () -> Void
+
+    init(openCredits: @escaping () -> Void = {}) { self.openCredits = openCredits }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
@@ -854,6 +869,15 @@ struct GeneralSettingsTab: View {
                 SettingRow(title: "Welcome screen", detail: "The first-run guide: models, microphone, typing") {
                     Button("Show again") { onboarded = false }.buttonStyle(.nightSecondary)
                 }
+            }
+            SettingsCard(title: "About") {
+                SettingRow(title: "Credits & licenses", detail: "Speech models, open-source code and fonts, with their licenses") {
+                    Button("Open") { openCredits() }.buttonStyle(.nightSecondary)
+                }
+                NightDivider()
+                LegalRow(title: "Privacy Policy", url: LegalLinks.privacyURL)
+                NightDivider()
+                LegalRow(title: "Terms of Use", url: LegalLinks.termsURL)
             }
         }
         .onChange(of: launchAtLogin) { _, on in setLaunchAtLogin(on) }

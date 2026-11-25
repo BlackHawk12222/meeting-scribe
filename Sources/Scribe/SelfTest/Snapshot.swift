@@ -94,6 +94,8 @@ enum Snapshot {
         // 0.7.3 Profile: an invented sample name (no real person), member since a fixed sample date.
         store.profile = UserProfile(displayName: "Robin Vale", memberSince: Date(timeIntervalSince1970: 1_751_328_000))
         let liveTape = LevelTape(); liveTape.fillPreview(seconds: 30)
+        // 0.7.3.1: the live meeting view shows the recording-consent notice (as on a first meeting).
+        model.consent.showForPreview()
         let nightShots: [(String, AnyView, Bool)] = [
             ("P01_home_light", AnyView(env(ContentView(section: .home))), false),
             ("P01b_home_dark", AnyView(env(ContentView(section: .home))), true),
@@ -103,6 +105,8 @@ enum Snapshot {
             ("P03b_meeting_dark", AnyView(env(ContentView(initialSelection: .meeting(meetingID)))), true),
             ("P03c_meeting_live_light", AnyView(env(ContentView(section: .meetings,
                                                                livePreview: LivePreview(elapsed: 768, tape: liveTape)))), false),
+            ("P03d_meeting_live_dark", AnyView(env(ContentView(section: .meetings,
+                                                               livePreview: LivePreview(elapsed: 768, tape: liveTape)))), true),
             ("P04_people_light", AnyView(env(ContentView(initialSelection: .people))), false),
             ("P04b_people_dark", AnyView(env(ContentView(initialSelection: .people))), true),
             ("P05_settings_general_light", AnyView(env(ContentView(section: .settings, settingsPane: .general))), false),
@@ -113,6 +117,9 @@ enum Snapshot {
             ("P07b_profile_dark", AnyView(env(ContentView(section: .profile))), true),
             ("P09_settings_vocabulary_light", AnyView(env(ContentView(section: .settings, settingsPane: .vocabulary))), false),
             ("P09b_settings_models_dark", AnyView(env(ContentView(section: .settings, settingsPane: .models))), true),
+            // 0.7.3.1 Credits & licenses (Settings › General › Credits & licenses).
+            ("P11_settings_credits_light", AnyView(env(ContentView(section: .settings, settingsPane: .credits))), false),
+            ("P11b_settings_credits_dark", AnyView(env(ContentView(section: .settings, settingsPane: .credits))), true),
         ]
         for (name, view, dark) in nightShots {
             made += await serverCapture(view, size: nightSize, name: name, dir: dir, dark: dark, chrome: true)
@@ -134,6 +141,15 @@ enum Snapshot {
                 made += await serverCapture(env(VoiceEditorView(meeting: sm, audioURL: nil, preview: ed)), size: edSize,
                                             name: dark ? "P08b_name_voices_dark" : "P08_name_voices_light", dir: dir, dark: dark)
             }
+        }
+        // 0.7.3.1: the whole Credits & licenses page, Parakeet v2's license text open.
+        for dark in [false, true] {
+            let page = ScrollView {
+                CreditsPage(expanded: ["parakeet-tdt-0.6b-v2"]).padding(28).frame(width: 680, alignment: .leading)
+            }
+            .background(Night.canvas)
+            made += await serverCapture(env(page), size: NSSize(width: 680, height: 1000),
+                                        name: dark ? "P11d_credits_full_dark" : "P11c_credits_full_light", dir: dir, dark: dark)
         }
         // 0.7.3 Poster capsule: the four states, horizontal and vertical (left/right edge), on a
         // light and a dark backdrop.

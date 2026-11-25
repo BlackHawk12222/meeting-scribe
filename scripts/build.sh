@@ -23,6 +23,16 @@ xcodebuild -project Scribe.xcodeproj -scheme Scribe -configuration Release \
 echo "warnings: $(grep -c "warning:" build/xcodebuild.log || true)"
 APP=build/DD/Build/Products/Release/Scribe.app
 test -d "$APP" || { echo "build failed: no app"; exit 1; }
+# 0.7.3.1 Credits & licenses: every resolved Swift package must have a license entry, and every
+# license file must be in the bundle. The resolved versions ship next to them (before signing).
+RESOLVED=Scribe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+[ -f "$RESOLVED" ] || RESOLVED=$(find Scribe.xcodeproj build/SourcePackages -maxdepth 4 -name Package.resolved 2>/dev/null | head -1 || true)
+echo "Package.resolved: ${RESOLVED:-not found}"
+if [ -n "$RESOLVED" ] && [ -f "$RESOLVED" ]; then
+  cp "$RESOLVED" "$APP/Contents/Resources/Licenses/Package.resolved"
+  cat "$RESOLVED"
+fi
+python3 scripts/check_licenses.py "${RESOLVED:-missing}" "$APP/Contents/Resources/Licenses"
 # Signing. Not notarized either way: first launch needs right-click > Open (or System Settings >
 # Privacy & Security > Open Anyway).
 #  • If SIGNING_CERT_P12 (base64 of a .p12) + SIGNING_CERT_PASSWORD are set (GitHub secrets), sign

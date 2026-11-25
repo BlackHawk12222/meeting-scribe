@@ -36,6 +36,8 @@ final class AppModel: ObservableObject {
     let permissions = Permissions()
     let models = ModelStore.shared
     let updater = Updater()
+    /// 0.7.3.1: "Let everyone know you're recording" notice on the live meeting view.
+    let consent = ConsentReminder()
     /// Set when a meeting recording stops, so the window can jump to it.
     @Published var justRecordedMeeting: UUID?
     /// Set by the menu bar ("open this meeting"); the main window selects it.
@@ -62,6 +64,7 @@ final class AppModel: ObservableObject {
         }.store(in: &bag)
         recorder.$isRecording.removeDuplicates().sink { [weak self] on in
             guard let self else { return }
+            self.consent.recordingChanged(on)
             if on && UserDefaults.standard.object(forKey: "showMeetingScroll") as? Bool ?? true {
                 self.meetingTape.reset()
                 self.meetingOverlay.show(MeetingOverlayView(recorder: self.recorder, tape: self.meetingTape))
