@@ -9,6 +9,8 @@
 //   dictation  – press→listening and release→text timings: mic engine start (if the runner has a
 //                mic), release→text while the models are STILL LOADING (first press after launch),
 //                launch→ready, then warm release→text. Runner = virtual M1, no Neural Engine.
+//   tachys     – (0.7.3 preview) release→text with the Tachys speculative pass on vs off, same
+//                audio (speech + 1 s quiet while held); the text must be identical.
 // The app icon's appearance variants are checked by the workflow with `assetutil --info`.
 
 import Foundation
@@ -288,6 +290,47 @@ enum SelfTest072 {
             r["warm_release_to_text_2s_ms"] = w2
             r["warm_release_to_text_5s_ms"] = w5
         } catch { fail.append("dictation warm: \(error)") }
+        // 4) Tachys (0.7.3 preview): speech, then 1 s of quiet while the key is still held. The
+        //    speculative pass runs during the quiet; release should reuse it. Compared with Tachys
+        //    off (the 0.7.2 path) on the same audio: text must match, timings side by side.
+        let tachysKey = TachysEngine.enabledKey
+        let before = UserDefaults.standard.object(forKey: tachysKey)
+        func held(_ samples: [Float], tachysOn: Bool) async throws -> (ms: Double, text: String, mode: String) {
+            UserDefaults.standard.set(tachysOn, forKey: tachysKey)
+            let session = UUID()
+            await SpeechEngine.shared.liveVadStart(session: session)
+            var i = 0
+            while i < samples.count {
+                await SpeechEngine.shared.liveVadFeed(Array(samples[i..<min(samples.count, i + 1600)]))
+                i += 1600
+            }
+            _ = await SpeechEngine.shared.tachysWaitForSpeculation()   // the user is still holding the key
+            let quiet = await SpeechEngine.shared.tachysQuietNow()
+            let t0 = Date()
+            if !quiet { try? await Task.sleep(nanoseconds: 150_000_000) }   // same as the app's tail wait
+            let res = try await Dictation.run(samples: samples, useAI: false, removeFillers: true, live: true, session: session)
+            return (ms(Date().timeIntervalSince(t0)), res.text, res.transcript.tachys)
+        }
+        do {
+            var tr: [String: Any] = [:]
+            for (name, base) in [("2s", clip2), ("5s", clip5)] {
+                let audio = base + [Float](repeating: 0, count: 16_000)
+                var on: [Double] = [], off: [Double] = []
+                var modes: [String] = []
+                var textOn = "", textOff = ""
+                for _ in 0..<2 {
+                    let a = try await held(audio, tachysOn: true); on.append(a.ms); modes.append(a.mode); textOn = a.text
+                    let b = try await held(audio, tachysOn: false); off.append(b.ms); textOff = b.text
+                }
+                let same = textOn == textOff
+                tr[name] = ["tachys_on_release_to_text_ms": on, "tachys_off_release_to_text_ms": off,
+                            "speculative_pass": modes, "same_text": same,
+                            "text_on": textOn, "text_off": textOff] as [String: Any]
+                if !same { fail.append("tachys \(name): text differs from the 0.7.2 path") }
+            }
+            r["tachys"] = tr
+        } catch { fail.append("tachys: \(error)") }
+        if let before { UserDefaults.standard.set(before, forKey: tachysKey) } else { UserDefaults.standard.removeObject(forKey: tachysKey) }
         log("dictation startup: \(r)")
         return (r, fail)
     }
