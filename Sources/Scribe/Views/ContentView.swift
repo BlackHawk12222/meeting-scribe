@@ -248,7 +248,7 @@ struct NavRail: View {
                 .padding(.bottom, 2)
             item(.settings)
         }
-        .padding(.top, 42)
+        .padding(.top, 46)
         .padding(.bottom, 14)
         .frame(width: Night.railWidth)
         .frame(maxHeight: .infinity)

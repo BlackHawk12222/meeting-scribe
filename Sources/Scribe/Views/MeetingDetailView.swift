@@ -150,6 +150,7 @@ struct MeetingDetailView: View {
                 }
                 Text(meta(m)).font(.nightBody).foregroundStyle(Night.text2).lineLimit(1)
             }
+            .layoutPriority(1)
             Spacer(minLength: 12)
             if audio.playing {
                 Button { audio.stop() } label: { Label("Stop audio", systemImage: "stop.fill") }
@@ -157,10 +158,10 @@ struct MeetingDetailView: View {
             }
             if m.status == .done {
                 NightSegmented(selection: $tab, options: DetailTab.allCases.map { (value: $0, title: $0.rawValue) })
-                Button { audio.stop(); editingVoices = true } label: { Label("Name voices", systemImage: "person.wave.2") }
-                    .buttonStyle(.nightSecondary)
-                    .fixedSize()
-                    .help("Open the recording, select who talks where, and teach Scribe their voices")
+                Button { audio.stop(); editingVoices = true } label: { Image(systemName: "person.wave.2") }
+                    .buttonStyle(NightIconButtonStyle(size: Night.controlHeight))
+                    .help("Name voices: open the recording, select who talks where, and teach Scribe their voices")
+                    .accessibilityLabel("Name voices")
                 Button { copyNotes(m) } label: {
                     Label(copied ? "Copied" : "Copy notes", systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
@@ -184,6 +185,11 @@ struct MeetingDetailView: View {
                 .disabled(m.status != .done)
             }
             NightDivider().padding(.vertical, 4)
+            Button { moreOpen = false; audio.stop(); editingVoices = true } label: {
+                Label("Name voices…", systemImage: "person.wave.2").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(MenuRowStyle())
+            .disabled(m.status != .done)
             Button { moreOpen = false; Task { await store.makeNotes(m.id) } } label: {
                 Label("Redo notes", systemImage: "arrow.triangle.2.circlepath").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }
