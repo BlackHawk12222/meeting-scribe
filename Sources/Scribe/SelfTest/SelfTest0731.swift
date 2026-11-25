@@ -6,6 +6,11 @@
 //             not come back on later starts or after a relaunch (UserDefaults), and it never
 //             shows while nothing is recording. Uses its own UserDefaults suite, so the real
 //             setting is untouched.
+//   meeting – FluidAudio's text-to-speech data (LuxTTS G2P: eSpeak NG output + FrequencyWords
+//             keys) is NOT in Scribe.app (build.sh strips it), and meetings still work without it:
+//             real models diarize + transcribe the first 120 s of the AMI test meeting
+//             (--meeting-wav) into several speakers and real text. Dictation is checked by the
+//             existing dictation_startup check in the same run.
 //   credits – licenses.json is in the bundle with the Parakeet v2 (CC BY 4.0, FluidInference,
 //             unmodified weights) and FluidAudio (Apache 2.0) entries, every entry's license file
 //             loads, and Privacy / Terms have no URL yet ("Coming soon").
@@ -67,6 +72,47 @@ enum SelfTest0731 {
         r["message"] = ConsentReminder.message
         if ConsentReminder.message != "Let everyone know you're recording. Some places require everyone's OK." {
             fail.append("consent: message text changed")
+        }
+        return (r, fail)
+    }
+
+    static func meetingCheck() async -> ([String: Any], [String]) {
+        var r: [String: Any] = [:]
+        var fail: [String] = []
+        // 1. The TTS resources are gone from the app.
+        var found: [String] = []
+        if let e = FileManager.default.enumerator(atPath: Bundle.main.bundlePath) {
+            for case let rel as String in e {
+                let l = rel.lowercased()
+                if l.contains("luxtts") || l.contains("espeak") || l.contains("en_full") { found.append(rel) }
+            }
+        }
+        r["tts_files_in_app"] = found
+        if !found.isEmpty { fail.append("meeting: TTS resources still in Scribe.app: \(found.prefix(5))") }
+        // 2. A real meeting still diarizes + transcribes.
+        guard let wavPath = SelfTest.argValue("--meeting-wav") else {
+            r["skipped"] = "no --meeting-wav"
+            return (r, fail)
+        }
+        do {
+            let tl = Date()
+            try await SpeechEngine.shared.prepare { _, _ in }
+            r["load_seconds"] = Date().timeIntervalSince(tl)
+            let samples = Array(try SpeechEngine.loadSamples(URL(fileURLWithPath: wavPath)).prefix(120 * 16_000))
+            let t0 = Date()
+            let out = try await SpeechEngine.shared.process(samples: samples)
+            let words = out.utterances.map { $0.text.split(separator: " ").count }.reduce(0, +)
+            let speakers = Set(out.utterances.map(\.speakerKey)).count
+            r["audio_seconds"] = Double(samples.count) / 16_000
+            r["process_seconds"] = Date().timeIntervalSince(t0)
+            r["utterances"] = out.utterances.count
+            r["words"] = words
+            r["speakers"] = speakers
+            r["first_lines"] = out.utterances.prefix(3).map { "\($0.speakerKey): \($0.text.prefix(80))" }
+            if words < 100 { fail.append("meeting: only \(words) words from 120 s of meeting audio") }
+            if speakers < 2 { fail.append("meeting: only \(speakers) speaker(s) found in a 4-person meeting") }
+        } catch {
+            fail.append("meeting: \(error)")
         }
         return (r, fail)
     }

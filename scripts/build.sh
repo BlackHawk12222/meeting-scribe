@@ -8,6 +8,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p build
 xcodegen generate
+# 0.7.3.1: the committed Package.resolved (repo root) pins the Swift packages for the build.
+if [ -f Package.resolved ]; then
+  mkdir -p Scribe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm
+  cp Package.resolved Scribe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+fi
 SDK=$(xcrun --sdk macosx --show-sdk-path)
 if [ -d "$SDK/System/Library/Frameworks/FoundationModels.framework" ]; then
   echo "SDK has FoundationModels: Apple Intelligence features compiled in"
@@ -23,6 +28,15 @@ xcodebuild -project Scribe.xcodeproj -scheme Scribe -configuration Release \
 echo "warnings: $(grep -c "warning:" build/xcodebuild.log || true)"
 APP=build/DD/Build/Products/Release/Scribe.app
 test -d "$APP" || { echo "build failed: no app"; exit 1; }
+# 0.7.3.1: Scribe has no text-to-speech. FluidAudio's LuxTTS G2P data (eSpeak NG output,
+# GPL-3.0-or-later, and FrequencyWords keys, CC-BY-SA-4.0) is used only by its TTS, and its own
+# notice says apps without TTS can leave it out. Strip that resource bundle before signing and
+# fail if any of those files are still in the app.
+echo "Resource bundles in the app:"; find "$APP" -maxdepth 4 -name "*.bundle" -print || true
+find "$APP" -depth -name "*LuxTtsG2pResources*.bundle" -print -exec rm -rf {} +
+LEFT=$(find "$APP" \( -iname "*luxtts*" -o -iname "*espeak*" -o -iname "*en_full*" \) -print)
+if [ -n "$LEFT" ]; then echo "::error::TTS resources still in Scribe.app:"; echo "$LEFT"; exit 1; fi
+echo "TTS_STRIP_CHECK ok: no LuxTTS / eSpeak NG / FrequencyWords files in Scribe.app"
 # 0.7.3.1 Credits & licenses: every resolved Swift package must have a license entry, and every
 # license file must be in the bundle. The resolved versions ship next to them (before signing).
 RESOLVED=Scribe.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved

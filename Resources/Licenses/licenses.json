@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "note": "Settings › General › Credits & licenses reads this file. Every pin in the build's Package.resolved must have an entry with a matching \"pin\" (scripts/check_licenses.py fails the build otherwise). License texts sit next to this file in Contents/Resources/Licenses.",
+  "note": "Settings › General › Credits & licenses reads this file. Every pin in the build's Package.resolved must have an entry with a matching \"pin\" (scripts/check_licenses.py fails the build otherwise). License texts sit next to this file in Contents/Resources/Licenses. Lists only what ships in Scribe.app: FluidAudio's LuxTTS data is stripped by build.sh, and models Scribe downloads only for text-to-speech are not used.",
   "entries": [
     {
       "id": "parakeet-tdt-0.6b-v2",
@@ -19,7 +19,7 @@
       "kind": "package",
       "name": "FluidAudio",
       "version": "0.18.3",
-      "what": "Runs the speech models on Core ML: speech-to-text, voice detection and who-spoke-when.",
+      "what": "Runs the speech models on Core ML: speech-to-text, voice detection and who-spoke-when. Scribe has no text-to-speech, so FluidAudio's text-to-speech data (the LuxTTS pronunciation files built from eSpeak NG and FrequencyWords) is removed from the app.",
       "license": "Apache 2.0",
       "copyright": "Copyright FluidInference",
       "url": "https://github.com/FluidInference/FluidAudio",
@@ -28,12 +28,7 @@
         "FluidAudio-third-party/fastcluster-LICENSE.md",
         "FluidAudio-third-party/vbx-LICENSE.md",
         "FluidAudio-third-party/NemoTextProcessing-LICENSE.md",
-        "FluidAudio-third-party/LuxTtsEnglishG2P-LICENSE.md",
-        "FluidAudio-third-party/JapaneseG2P-LICENSE.md",
-        "FluidAudio-third-party/KokoroAneSpanishFrenchG2P-LICENSE.md",
-        "FluidAudio-third-party/KokoroANE-v3-NOTICE",
-        "FluidAudio-third-party/KokoroANE-v3-conversion-LICENSE",
-        "FluidAudio-third-party/KokoroANE-v3-mattmireles-LICENSE"
+        "FluidAudio-third-party/JapaneseG2P-LICENSE.md"
       ]
     },
     {

@@ -44,6 +44,9 @@ enum SelfTest072 {
         out["credits"] = cr.0; failures += cr.1
         let dict = await dictationCheck()
         out["dictation_startup"] = dict.0; failures += dict.1
+        // 0.7.3.1: meetings still work with FluidAudio's TTS data stripped from the app.
+        let mt = await SelfTest0731.meetingCheck()
+        out["meeting_after_tts_strip"] = mt.0; failures += mt.1
         out["failures"] = failures
         out["pass"] = failures.isEmpty
         for f in failures { log("FAIL: \(f)") }

@@ -184,12 +184,12 @@ struct CreditRow: View {
             }
             HStack(spacing: 14) {
                 if let s = entry.url, let u = URL(string: s) {
-                    Link(destination: u) { Text(short(s)).lineLimit(1) }
-                        .font(.nightMeta).foregroundStyle(Night.accent)
+                    Link(destination: u) { Text(entry.kind == "model" ? "Model page" : "Project page").lineLimit(1) }
+                        .font(.nightMeta).foregroundStyle(Night.accent).help(s)
                 }
                 if let s = entry.extraUrl, let u = URL(string: s) {
-                    Link(destination: u) { Text(short(s)).lineLimit(1) }
-                        .font(.nightMeta).foregroundStyle(Night.accent)
+                    Link(destination: u) { Text("Core ML version").lineLimit(1) }
+                        .font(.nightMeta).foregroundStyle(Night.accent).help(s)
                 }
                 Spacer(minLength: 0)
                 if entry.file != nil {
@@ -228,9 +228,6 @@ struct CreditRow: View {
         .padding(.vertical, 13)
     }
 
-    private func short(_ s: String) -> String {
-        s.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "www.", with: "")
-    }
     private func noticeName(_ path: String) -> String {
         (path as NSString).lastPathComponent
             .replacingOccurrences(of: "-LICENSE.md", with: "")
