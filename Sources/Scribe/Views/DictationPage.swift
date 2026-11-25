@@ -27,7 +27,7 @@ struct DictationPage: View {
                         StyleCard()
                         ShortcutCard()
                     }
-                    .frame(width: 360)
+                    .frame(width: 380)
                 }
                 .padding(.top, 24)
             }
@@ -357,7 +357,7 @@ struct StyleCard: View {
     var body: some View {
         let current = DictationStyle(rawValue: styleRaw) ?? .natural
         PosterCard(symbol: "text.alignleft", title: "Style") { EmptyView() } content: {
-            HStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 ForEach(DictationStyle.allCases) { s in
                     let on = s == current
                     Button { styleRaw = s.rawValue } label: {
@@ -371,10 +371,9 @@ struct StyleCard: View {
                             }
                             Text(s.detail).font(.system(size: 12.5)).foregroundStyle(Night.text2)
                                 .fixedSize(horizontal: false, vertical: true)
-                                .lineLimit(3)
                         }
                         .padding(10)
-                        .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
+                        .frame(maxWidth: .infinity, minHeight: 92, alignment: .topLeading)
                         .background(RoundedRectangle(cornerRadius: Night.rCard, style: .continuous).fill(Night.surface))
                         .overlay(RoundedRectangle(cornerRadius: Night.rCard, style: .continuous)
                             .strokeBorder(on ? Night.text : Night.line, lineWidth: on ? 2 : 1))

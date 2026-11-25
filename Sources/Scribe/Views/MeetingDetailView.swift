@@ -142,7 +142,6 @@ struct MeetingDetailView: View {
                 }
                 Text(meta(m)).font(.nightBody).foregroundStyle(Night.text2).lineLimit(1)
             }
-            .layoutPriority(1)
             Spacer(minLength: 12)
             if audio.playing {
                 Button { audio.stop() } label: { Label("Stop audio", systemImage: "stop.fill") }
@@ -154,6 +153,7 @@ struct MeetingDetailView: View {
                     Label(copied ? "Copied" : "Copy notes", systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
                 .buttonStyle(.nightSecondary)
+                .fixedSize()
             }
             Button { moreOpen.toggle() } label: { Image(systemName: "ellipsis") }
                 .buttonStyle(NightIconButtonStyle(size: Night.controlHeight))

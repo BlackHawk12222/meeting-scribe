@@ -304,12 +304,12 @@ enum Snapshot {
         return ZStack {
             (dark ? Color(hex: 0x1C1C20) : Color(hex: 0xE9EAEE))
             VStack(spacing: 70) {
-                HStack(spacing: 24) {
+                HStack(spacing: 16) {
                     ForEach(Array(modes.enumerated()), id: \.offset) { _, m in
                         OverlayCapsule(mode: m, tape: tape, elapsed: 4, previewSpin: 1)
                     }
                 }
-                .scaleEffect(1.4)
+                .scaleEffect(1.1)
                 HStack(spacing: 90) {
                     ForEach(Array(modes.enumerated()), id: \.offset) { _, m in
                         OverlayCapsule(mode: m, tape: tape, elapsed: 4, previewSpin: 1).environment(\.overlayVertical, true)
