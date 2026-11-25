@@ -13,6 +13,7 @@
 
 import Foundation
 import AppKit
+import SwiftUI
 
 enum SelfTest072 {
     static func log(_ s: String) { SelfTest.log(s) }

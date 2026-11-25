@@ -70,6 +70,20 @@ final class MicCapture: @unchecked Sendable {
         }
     }
 
+    /// Start and wait until the mic runs (voice enrollment / Test my voice, which aren't timing-critical).
+    func start() throws {
+        lock.lock(); samples.removeAll(keepingCapacity: true); firstBufferPending = true; lock.unlock()
+        try queue.sync {
+            if engine == nil || needsRebuild { try build() }
+            guard let engine else { throw Recorder.RecorderError.noMicrophone }
+            lock.lock(); running = true; lock.unlock()
+            do { if !engine.isRunning { try engine.start() } } catch {
+                lock.lock(); running = false; lock.unlock()
+                throw error
+            }
+        }
+    }
+
     /// Stop and hand back everything recorded (16 kHz mono). Waits for a start still in progress.
     func stop() -> [Float] {
         queue.sync {
