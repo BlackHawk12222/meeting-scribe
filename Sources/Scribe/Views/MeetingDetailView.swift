@@ -4,6 +4,8 @@
 // (checkboxes saved to disk, owner chips) beside "Who talked" (share of talk time from the
 // speaker diarization). Copy notes puts the summary + action items on the clipboard. The
 // transcript is one switch away. Naming a speaker here teaches the voice library.
+// 0.7.3.2: opened from the Meetings dashboard with `onBack`: a Back button on top, and ⌘[ / Esc or a
+// pull past the top of the page go back (MeetingBackProbe, MeetingsHome.swift).
 
 import SwiftUI
 import AVFoundation
@@ -51,6 +53,8 @@ struct MeetingDetailView: View {
     @EnvironmentObject var store: Store
     @ObservedObject private var audio = SamplePlayer.shared
     let meetingID: UUID
+    /// 0.7.3.2: back to the Meetings dashboard (Back button, ⌘[ / Esc, or a pull past the top).
+    var onBack: (() -> Void)? = nil
     @State private var naming: SpeakerRef?
     /// 0.7.3: the "Name voices" audio editor.
     @State private var editingVoices = false
@@ -72,6 +76,7 @@ struct MeetingDetailView: View {
         if let m = meeting {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    if let onBack { backBar(onBack).padding(.bottom, 10) }
                     header(m)
                     if m.status == .done {
                         tiles(m).padding(.top, 20)
@@ -90,8 +95,11 @@ struct MeetingDetailView: View {
                     }
                 }
                 .padding(.horizontal, 32)
-                .padding(.top, 22)
+                .padding(.top, onBack == nil ? 22 : 14)
                 .padding(.bottom, 32)
+                .background(alignment: .top) {
+                    if let onBack { MeetingBackProbe(onBack: onBack).frame(width: 1, height: 1).accessibilityHidden(true) }
+                }
             }
             .scrollIndicators(.never)
             .sheet(item: $naming) { ref in
@@ -104,6 +112,20 @@ struct MeetingDetailView: View {
             }
             .onDisappear { audio.stop() }
         }
+    }
+
+    /// "‹ Meetings" + the hint that a pull down also goes back.
+    private func backBar(_ onBack: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            Button { audio.stop(); onBack() } label: {
+                Label("Meetings", systemImage: "chevron.left").labelStyle(.titleAndIcon)
+            }
+            .buttonStyle(NightButtonStyle(kind: .ghost, height: 26))
+            .help("Back to Meetings (⌘[ or Esc, or pull down past the top)")
+            .accessibilityLabel("Back to Meetings")
+            Spacer(minLength: 0)
+        }
+        .padding(.leading, -8)
     }
 
     private func unnamed(_ m: Meeting) -> [SpeakerCluster] {

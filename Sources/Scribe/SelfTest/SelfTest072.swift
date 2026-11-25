@@ -37,6 +37,9 @@ enum SelfTest072 {
         out["voice_editor"] = ve.0; failures += ve.1
         let fx = await MainActor.run { SelfTest073.fixCheck() }
         out["learn_from_fixes"] = fx.0; failures += fx.1
+        // 0.7.3.2: accounts (crypto, payload, signed-out), My voice, Meetings dashboard + navigation.
+        let a0732 = await SelfTest0732.run()
+        out["v0732"] = a0732.0; failures += a0732.1
         let dict = await dictationCheck()
         out["dictation_startup"] = dict.0; failures += dict.1
         out["failures"] = failures

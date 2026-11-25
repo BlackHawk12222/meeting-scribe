@@ -23,6 +23,15 @@ xcodebuild -project Scribe.xcodeproj -scheme Scribe -configuration Release \
 echo "warnings: $(grep -c "warning:" build/xcodebuild.log || true)"
 APP=build/DD/Build/Products/Release/Scribe.app
 test -d "$APP" || { echo "build failed: no app"; exit 1; }
+# 0.7.3.2 accounts: fill the bundled Supabase.plist (placeholders in git) from the build
+# environment, BEFORE signing. Unset = accounts stay off ("Accounts coming soon").
+if [ -n "${SUPABASE_URL:-}" ] && [ -n "${SUPABASE_ANON_KEY:-}" ]; then
+  /usr/libexec/PlistBuddy -c "Set :SupabaseURL $SUPABASE_URL" -c "Set :SupabaseAnonKey $SUPABASE_ANON_KEY" \
+    "$APP/Contents/Resources/Supabase.plist"
+  echo "Accounts: Supabase URL + anon key set from the build environment"
+else
+  echo "Accounts: not configured (placeholders) -> the app shows 'Accounts coming soon'"
+fi
 # Signing. Not notarized either way: first launch needs right-click > Open (or System Settings >
 # Privacy & Security > Open Anyway).
 #  • If SIGNING_CERT_P12 (base64 of a .p12) + SIGNING_CERT_PASSWORD are set (GitHub secrets), sign

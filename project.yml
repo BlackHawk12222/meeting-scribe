@@ -39,6 +39,10 @@ targets:
       # The model manifest: every model file's size + hash (scripts/make_model_manifest.py).
       - path: Resources/ModelManifest.json
         buildPhase: resources
+      # 0.7.3.2 accounts: the Supabase project URL + anon key. Committed with PLACEHOLDERS only
+      # (= accounts off, "coming soon"); scripts/build.sh fills the built copy from build secrets.
+      - path: Resources/Supabase.plist
+        buildPhase: resources
     dependencies:
       - package: FluidAudio
       - package: WhisperKit

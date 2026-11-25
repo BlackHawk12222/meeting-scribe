@@ -898,6 +898,11 @@ struct MeetingsSettingsTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 26) {
+            // 0.7.3.2: your own voiceprint (setup, strength, Train it more, Test it).
+            SettingsCard(title: "My voice",
+                         footer: "Your voiceprint stays on this Mac. Scribe never keeps the audio you record here.") {
+                MyVoiceCard()
+            }
             SettingsCard(title: "Recording") {
                 ToggleRow(title: "Noise cleanup", detail: "Apple voice processing: reduces background noise while recording", isOn: $noiseCleanup)
                 NightDivider()

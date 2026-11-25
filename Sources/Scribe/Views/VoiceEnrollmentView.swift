@@ -56,6 +56,11 @@ struct VoiceEnrollmentView: View {
     @State private var mic = MicCapture()
     @State private var timer: Timer?
 
+    /// 0.7.3.2 My voice: enroll YOU (no name step; saved as the profile's own voice).
+    private var forMe = false
+    /// My voice › Re-record from scratch: the old voiceprint is cleared when this one is saved.
+    private var fromScratch = false
+
     private let prompts = VoiceEnrollment.prompts
     /// At least this many good clips before Save is allowed (the free-talk one can be skipped).
     private let minimumClips = 5
@@ -70,7 +75,10 @@ struct VoiceEnrollmentView: View {
         var problem = "Too noisy. Try a quieter spot."
     }
 
-    init(preview: Preview? = nil) {
+    init(preview: Preview? = nil, forMe: Bool = false, fromScratch: Bool = false) {
+        self.forMe = forMe
+        self.fromScratch = fromScratch
+        if forMe { _name = State(initialValue: "You") }
         guard let p = preview else { return }
         _name = State(initialValue: p.name)
         _started = State(initialValue: p.step != .intro)
@@ -110,15 +118,20 @@ struct VoiceEnrollmentView: View {
     private var intro: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Add a person").font(.nightDisplay).tracking(-0.3)
-                Text("They read six short lines out loud, about 30 to 45 seconds in all. Each line asks for a different way of talking, so Scribe can tell their voice apart in meetings, even in a busy room.")
+                Text(forMe ? (fromScratch ? "Re-record your voice" : "Teach Scribe your voice") : "Add a person")
+                    .font(.nightDisplay).tracking(-0.3)
+                Text(forMe
+                     ? "Read six short lines out loud, about 30 to 45 seconds in all. Each line asks for a different way of talking, so meetings know it's you, even in a busy room. It stays on this Mac."
+                     : "They read six short lines out loud, about 30 to 45 seconds in all. Each line asks for a different way of talking, so Scribe can tell their voice apart in meetings, even in a busy room.")
                     .font(.nightSecondary).foregroundStyle(Night.text2).lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Name").font(.nightMeta).foregroundStyle(Night.text3)
-                NightField(placeholder: "Their name", text: $name, height: 40, font: .nightTitle) {
-                    if canStart { started = true }
+            if !forMe {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Name").font(.nightMeta).foregroundStyle(Night.text3)
+                    NightField(placeholder: "Their name", text: $name, height: 40, font: .nightTitle) {
+                        if canStart { started = true }
+                    }
                 }
             }
             VStack(alignment: .leading, spacing: 10) {
@@ -141,7 +154,7 @@ struct VoiceEnrollmentView: View {
         }
     }
 
-    private var canStart: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty }
+    private var canStart: Bool { forMe || !name.trimmingCharacters(in: .whitespaces).isEmpty }
 
     private func tip(_ symbol: String, _ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -280,8 +293,9 @@ struct VoiceEnrollmentView: View {
                 SparkleView(size: 40, glow: true)
                     .frame(width: 52, height: 52)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("\(name) is ready").font(.nightDisplay).tracking(-0.3)
-                    Text("\(good.count) of \(prompts.count) lines recorded. Scribe will put their name on their voice in meetings.")
+                    Text(forMe ? "Your voice is ready" : "\(name) is ready").font(.nightDisplay).tracking(-0.3)
+                    Text(forMe ? "\(good.count) of \(prompts.count) lines recorded. Meetings will know it's you."
+                               : "\(good.count) of \(prompts.count) lines recorded. Scribe will put their name on their voice in meetings.")
                         .font(.nightSecondary).foregroundStyle(Night.text2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -307,7 +321,8 @@ struct VoiceEnrollmentView: View {
                 Spacer()
                 Button {
                     let clips = prompts.compactMap { p in good[p.style].map { (p.style, $0) } }
-                    store.enrollPerson(named: name, clips: clips)
+                    if forMe { store.enrollMe(clips: clips, fromScratch: fromScratch) }
+                    else { store.enrollPerson(named: name, clips: clips) }
                     dismiss()
                 } label: { Text("Save").frame(minWidth: 80) }
                 .scribeButton(prominent: true)

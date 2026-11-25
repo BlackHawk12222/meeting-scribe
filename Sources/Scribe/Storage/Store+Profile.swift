@@ -11,6 +11,8 @@ struct UserProfile: Codable, Hashable {
     var displayName: String = ""
     /// First time this profile was saved or read (filled in on first launch of 0.7.3).
     var memberSince: Date?
+    /// 0.7.3.2 "My voice": the voice-library person that is you (nil = not set up yet).
+    var myPersonID: UUID? = nil
 
     var shownName: String {
         let t = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
