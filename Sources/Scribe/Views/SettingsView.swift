@@ -501,6 +501,7 @@ struct VocabularySettingsTab: View {
                     }
                 }
             }
+            LearnedFixesCard(changed: { words = Vocabulary.words; pairs = DictionaryReplacements.pairs })
             SettingsCard(footer: "Uses a small extra model (about 100 MB, downloaded once) to check your words against how they sounded, so misheard names can be fixed even when the spelling is far off. Off by default: it can sometimes swap an ordinary word for one of yours.") {
                 ToggleRow(title: "Also match against the audio",
                           detail: acoustic && !store.vocabularyBoostStatus.isEmpty ? store.vocabularyBoostStatus : nil,
@@ -638,6 +639,7 @@ struct ModelSettingsTab: View {
                 .padding(.horizontal, Night.rowPaddingH).padding(.vertical, Night.rowPaddingV + 2)
             }
             }
+            CorrectionsCard()
             SettingsCard(title: "Downloaded models",
                          footer: "Models live outside the app (in Application Support), so updating or reinstalling Scribe never downloads them again. Only missing or changed files are fetched. Verify re-checks every byte.") {
                 ModelComponentsList()

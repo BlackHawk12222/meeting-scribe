@@ -99,6 +99,7 @@ struct ContentView: View {
             .background(Night.canvas)
         }
         .ignoresSafeArea()
+        .overlay(alignment: .bottom) { LearnedToast() }
         .foregroundStyle(Night.text)
         .background(hiddenShortcuts)
         .alert("Heads up", isPresented: Binding(get: { model.alertText != nil }, set: { if !$0 { model.alertText = nil } })) {

@@ -52,6 +52,10 @@ struct MeetingDetailView: View {
     @ObservedObject private var audio = SamplePlayer.shared
     let meetingID: UUID
     @State private var naming: SpeakerRef?
+    /// 0.7.3: the "Name voices" audio editor.
+    @State private var editingVoices = false
+    /// 0.7.3: the transcript line being fixed.
+    @State private var editingLine: Utterance?
     @State private var editingTitle = false
     @State private var titleDraft = ""
     @State private var titleHover = false
@@ -92,6 +96,10 @@ struct MeetingDetailView: View {
             .scrollIndicators(.never)
             .sheet(item: $naming) { ref in
                 NameSpeakerSheet(meetingID: ref.meetingID, clusterKey: ref.key) { naming = nil }
+                    .environmentObject(store)
+            }
+            .sheet(isPresented: $editingVoices) {
+                VoiceEditorView(meeting: m, audioURL: store.audioURL(for: m))
                     .environmentObject(store)
             }
             .onDisappear { audio.stop() }
@@ -149,6 +157,10 @@ struct MeetingDetailView: View {
             }
             if m.status == .done {
                 NightSegmented(selection: $tab, options: DetailTab.allCases.map { (value: $0, title: $0.rawValue) })
+                Button { audio.stop(); editingVoices = true } label: { Label("Name voices", systemImage: "person.wave.2") }
+                    .buttonStyle(.nightSecondary)
+                    .fixedSize()
+                    .help("Open the recording, select who talks where, and teach Scribe their voices")
                 Button { copyNotes(m) } label: {
                     Label(copied ? "Copied" : "Copy notes", systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
@@ -524,7 +536,18 @@ struct MeetingDetailView: View {
                         Text(u.text).font(.nightReading).foregroundStyle(Night.text).lineSpacing(4).textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    Spacer(minLength: 0)
+                    Button { editingLine = u } label: { Image(systemName: "pencil") }
+                        .buttonStyle(NightIconButtonStyle(size: 24))
+                        .help("Fix this line")
+                        .accessibilityLabel("Edit line")
                 }
+                .contextMenu { Button("Edit line…") { editingLine = u } }
+            }
+        }
+        .sheet(item: $editingLine) { u in
+            EditTextSheet(title: "Edit line", original: u.text) {
+                _ = store.editUtterance(meetingID: m.id, utteranceID: u.id, text: $0)
             }
         }
         .frame(maxWidth: Brand.readingWidth, alignment: .leading)

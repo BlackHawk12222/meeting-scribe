@@ -32,6 +32,11 @@ enum SelfTest072 {
         out["speakers"] = spk.0; failures += spk.1
         let ren = await MainActor.run { renameCheck() }
         out["rename"] = ren.0; failures += ren.1
+        // 0.7.3: "Name voices" editor (range assign, voiceprint learning, Vocabulary, Space key).
+        let ve = await MainActor.run { SelfTest073.voiceEditorCheck() }
+        out["voice_editor"] = ve.0; failures += ve.1
+        let fx = await MainActor.run { SelfTest073.fixCheck() }
+        out["learn_from_fixes"] = fx.0; failures += fx.1
         let dict = await dictationCheck()
         out["dictation_startup"] = dict.0; failures += dict.1
         out["failures"] = failures

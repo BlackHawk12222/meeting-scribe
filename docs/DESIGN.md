@@ -88,6 +88,16 @@ Meetings list 300 pt. Poster tiles: Home 186 pt tall, other pages 120–132 pt.
   add/change/remove photo; tiles (words dictated all time, streak, words per minute, meetings);
   links to Shortcut & style, My voice, Appearance, Updates. Name and photo stay on this Mac
   (`profile.json`, `profile-photo.png`).
+- **Name voices** (Meeting › Name voices): waveform timeline with speaker bands, ruler scrub,
+  playhead, Space = play/pause (not while typing), drag to select, drag edges / ±0.1 s to trim,
+  zoom 1–8×; assign to a person chip or a typed name, Assign all to…; transcript updates live;
+  Undo (⌘Z), Save (⌘↩). Save re-teaches voiceprints (confirmed audio weighted ×2) and adds typed
+  names to Vocabulary. Meetings only (dictations don't keep audio). No model retraining.
+- **Learn from my fixes**: edit a dictation (History › pencil) or a transcript line (pencil);
+  the word diff learns a fix seen twice as a replacement, a capitalized name after one fix (also
+  into Vocabulary); black "Learned: X → Y" toast with Undo; Settings › Vocabulary › Learned from
+  your fixes lists and removes them. Settings › Models › Corrections: opt-in (off) local audio +
+  corrected-text pairs for a future fine-tune, with a count and Delete all.
 
 ## 5. Data rules
 

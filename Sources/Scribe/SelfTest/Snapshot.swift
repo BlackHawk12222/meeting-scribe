@@ -111,9 +111,29 @@ enum Snapshot {
             ("P05d_settings_dictation_light", AnyView(env(ContentView(section: .settings, settingsPane: .dictation))), false),
             ("P07_profile_light", AnyView(env(ContentView(section: .profile))), false),
             ("P07b_profile_dark", AnyView(env(ContentView(section: .profile))), true),
+            ("P09_settings_vocabulary_light", AnyView(env(ContentView(section: .settings, settingsPane: .vocabulary))), false),
+            ("P09b_settings_models_dark", AnyView(env(ContentView(section: .settings, settingsPane: .models))), true),
         ]
         for (name, view, dark) in nightShots {
             made += await serverCapture(view, size: nightSize, name: name, dir: dir, dark: dark, chrome: true)
+        }
+        // 0.7.3 "Learn from my fixes": the edit sheet (sample text).
+        for dark in [false, true] {
+            made += await serverCapture(env(EditTextSheet(title: "Edit dictation", original: "Ask zorvath to send teh robot notes before practice.") { _ in }),
+                                        size: NSSize(width: 560, height: 300), name: dark ? "P10b_edit_text_dark" : "P10_edit_text_light",
+                                        dir: dir, dark: dark)
+        }
+        // 0.7.3 "Name voices" editor on the sample meeting: a selection, the playhead inside it.
+        if let sm = store.meetings.first(where: { $0.id == meetingID }) {
+            let edSize = NSSize(width: VoiceEditorView.size.width, height: VoiceEditorView.size.height)
+            for dark in [false, true] {
+                let ed = VoiceEditorModel(meeting: sm, audioURL: nil, preview: true)
+                let span = sm.utterances.dropFirst().first.map { $0.start...$0.end } ?? 5...12
+                ed.selection = span
+                ed.seek(span.lowerBound + (span.upperBound - span.lowerBound) * 0.4)
+                made += await serverCapture(env(VoiceEditorView(meeting: sm, audioURL: nil, preview: ed)), size: edSize,
+                                            name: dark ? "P08b_name_voices_dark" : "P08_name_voices_light", dir: dir, dark: dark)
+            }
         }
         // 0.7.3 Poster capsule: the four states, horizontal and vertical (left/right edge), on a
         // light and a dark backdrop.

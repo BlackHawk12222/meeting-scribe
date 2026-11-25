@@ -29,6 +29,10 @@ final class Store: ObservableObject {
     /// Stored only in this folder, never uploaded (Storage/Store+Profile.swift).
     @Published var profile = UserProfile()
     @Published var profilePhoto: NSImage?
+    /// Self-test: how many times a confirmed speaker re-taught a person's voiceprint (Name voices).
+    var voiceprintUpdates = 0
+    /// 0.7.3 "Learn from my fixes": what the last edit taught (the toast with Undo).
+    @Published var learnedToast: [LearnedFix] = []
 
     let folder: URL
     let audioFolder: URL

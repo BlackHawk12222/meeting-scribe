@@ -344,12 +344,18 @@ final class DictationController: ObservableObject {
                 let text = finalText + (DictationSettings.trailingSpace ? " " : "")
                 let paste = await TextInserter.insert(text, target: target, restoreClipboard: DictationSettings.restoreClipboard)
                 let outcome = paste.outcome
-                store?.addDictation(DictationEntry(date: Date(), text: finalText, raw: r.transcript.text,
-                                                   method: style == .exact ? .none : r.method,
-                                                   audioSeconds: r.transcript.audioSeconds,
-                                                   latencySeconds: Date().timeIntervalSince(released),
-                                                   appBundleID: target?.bundleID, appName: target?.appName,
-                                                   style: style.rawValue))
+                let entry = DictationEntry(date: Date(), text: finalText, raw: r.transcript.text,
+                                           method: style == .exact ? .none : r.method,
+                                           audioSeconds: r.transcript.audioSeconds,
+                                           latencySeconds: Date().timeIntervalSince(released),
+                                           appBundleID: target?.bundleID, appName: target?.appName,
+                                           style: style.rawValue)
+                store?.addDictation(entry)
+                // 0.7.3: only with Settings › Models › "Save my corrections" on (off by default):
+                // keep this clip locally so a later correction can pair it with the fixed text.
+                if CorrectionStore.enabled, let base = store?.folder {
+                    CorrectionStore.keepPending(base, id: entry.id, samples: samples)
+                }
                 let releaseMs = Date().timeIntervalSince(released) * 1000
                 Perf.log.info("key release → text inserted: \(releaseMs, format: .fixed(precision: 0))ms")
                 Perf.log.info("Tachys release→text: \(releaseMs, format: .fixed(precision: 0))ms (speculative pass: \(r.transcript.tachys, privacy: .public), tail wait skipped: \(quiet, privacy: .public), audio \(r.transcript.audioSeconds, format: .fixed(precision: 1))s)")

@@ -155,11 +155,14 @@ struct DictationPage: View {
 
 /// One history row: time · app · text · words. Copy on hover.
 struct HistoryRow: View {
+    @EnvironmentObject var store: Store
     let entry: DictationEntry
     var color: Color
     var appName: String
     @State private var hover = false
     @State private var copied = false
+    /// 0.7.3: fix the text (Scribe learns from repeated fixes and names).
+    @State private var editing = false
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 14) {
@@ -189,12 +192,21 @@ struct HistoryRow: View {
                     .opacity(hover || copied ? 1 : 0)
             }
             .frame(width: 80, alignment: .trailing)
+            Button { editing = true } label: { Image(systemName: "pencil") }
+                .buttonStyle(NightIconButtonStyle(size: 24))
+                .opacity(hover ? 1 : 0)
+                .help("Fix the text")
+                .accessibilityLabel("Edit dictation")
         }
         .padding(.vertical, 12)
         .overlay(alignment: .bottom) { NightDivider() }
         .contentShape(Rectangle())
         .onHover { hover = $0 }
         .help(helpText)
+        .contextMenu { Button("Edit text…") { editing = true } }
+        .sheet(isPresented: $editing) {
+            EditTextSheet(title: "Edit dictation", original: entry.text) { _ = store.editDictation(entry.id, text: $0) }
+        }
     }
 
     private var helpText: String {
