@@ -72,6 +72,7 @@ final class AppModel: ObservableObject {
             guard let self else { return false }
             return self.recorder.isRecording || self.dictation.state.isBusy
         }
+        updater.launchHousekeeping()     // "Updated to X" / failed-install note, stale staged update
         updater.startAutomatic()
         // Typing permission lost (e.g. after an update)? Explain how to fix it, once per build.
         permissions.refresh()

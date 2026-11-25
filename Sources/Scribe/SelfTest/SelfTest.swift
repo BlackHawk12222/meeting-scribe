@@ -388,6 +388,8 @@ enum SelfTest {
             // ---- 0.5 tests ----
             log("paste logic test")
             report["paste_logic"] = await pasteLogicTest()
+            log("updater logic test")
+            report["updater"] = updaterLogicTest()
             log("pause test")
             do { report["pause"] = try await pauseTest() } catch { report["pause_error"] = "\(error)" }
             checkpoint(report)

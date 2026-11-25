@@ -41,6 +41,25 @@ struct MenuBarView: View {
             if case .ready(let r) = updater.phase {
                 NightDivider()
                 updateReady(r).padding(.horizontal, 12).padding(.vertical, 8)
+            } else if case .needsMove(let r) = updater.phase {
+                NightDivider()
+                needsMove(r).padding(.horizontal, 12).padding(.vertical, 8)
+            }
+            if let n = updater.notice {
+                NightDivider()
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "info.circle").foregroundStyle(Night.accent)
+                    Text(n).font(.scribe(12, 600)).foregroundStyle(Night.text2).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+                    if n.contains("see ") {
+                        Button("Log") { NSWorkspace.shared.open(Updater.logURL) }
+                            .buttonStyle(.plain).font(.scribe(12, 700)).foregroundStyle(Night.accent)
+                    }
+                    Button { updater.dismissNotice() } label: { Image(systemName: "xmark").font(.system(size: 9, weight: .bold)) }
+                        .buttonStyle(.plain).foregroundStyle(Night.text3)
+                        .accessibilityLabel("Dismiss")
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
             }
             NightDivider()
             footer
@@ -81,7 +100,22 @@ struct MenuBarView: View {
             Spacer()
             Button("Restart") { updater.restartNow() }
                 .buttonStyle(NightButtonStyle(kind: .secondary, height: 28))
-                .disabled(busy)
+                .opacity(busy ? 0.6 : 1)
+        }
+    }
+
+    /// Downloaded, but this copy can't replace itself (translocated / read-only folder).
+    private func needsMove(_ r: Updater.Release) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "folder").foregroundStyle(Night.accent)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Move Scribe to Applications to update").font(.scribe(13, 700))
+                Text("Scribe \(r.version) is ready, but this copy can't replace itself where it runs from.")
+                    .font(.nightMeta).foregroundStyle(Night.text3).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button("Show") { NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL]) }
+                .buttonStyle(NightButtonStyle(kind: .secondary, height: 28))
         }
     }
 

@@ -763,6 +763,20 @@ struct UpdateSection: View {
                     .disabled(updater.phase == .checking || updater.phase == .installing)
             }
             phaseView
+            if let n = updater.notice {
+                HStack(alignment: .top, spacing: 10) {
+                    Text(n).font(.scribe(12.5, 600)).foregroundStyle(Night.text2).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    if n.contains("see ") {
+                        Button("Show log") { NSWorkspace.shared.open(Updater.logURL) }
+                            .buttonStyle(NightButtonStyle(kind: .secondary, height: 28))
+                    }
+                    Button { updater.dismissNotice() } label: { Image(systemName: "xmark") }
+                        .buttonStyle(NightIconButtonStyle(size: 28))
+                        .accessibilityLabel("Dismiss")
+                }
+                .padding(.horizontal, 18).padding(.bottom, 14)
+            }
         }
     }
 
@@ -792,6 +806,15 @@ struct UpdateSection: View {
                 Label("Scribe \(r.version) is ready.", systemImage: "arrow.down.circle.fill").font(.scribe(12.5, 600))
                 Spacer()
                 Button("Restart Now") { updater.restartNow() }.buttonStyle(.nightPrimary)
+            }
+            .padding(.horizontal, 18).padding(.bottom, 14)
+        case .needsMove(let r):
+            HStack {
+                Label("Scribe \(r.version) is downloaded. Move Scribe to Applications to update.", systemImage: "folder")
+                    .font(.scribe(12.5, 600)).fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Show Scribe") { NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL]) }
+                    .buttonStyle(NightButtonStyle(kind: .secondary, height: 32))
             }
             .padding(.horizontal, 18).padding(.bottom, 14)
         case .installing:
