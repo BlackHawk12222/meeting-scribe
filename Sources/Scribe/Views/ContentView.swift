@@ -289,7 +289,7 @@ struct HomeView: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 10) {
                     Text(recorder.isRecording ? "Recording a meeting" : "Start a meeting").font(.nightTitle)
-                    if recorder.isRecording { LiveChip(text: Exporter.clock(recorder.elapsed)) }
+                    if recorder.isRecording { LiveChip(text: Night.clock(recorder.elapsed)) }
                 }
                 Text("Scribe listens, tells voices apart, and writes the notes when you stop.")
                     .font(.nightSecondary).foregroundStyle(Night.text2).lineSpacing(2)
@@ -547,8 +547,8 @@ struct ListRow: View {
                 }
             }
             Spacer(minLength: 6)
-            if !compact || meeting.clusters.count <= 3 {
-                AvatarStack(people: speakers, size: 20, limit: compact ? 3 : 4)
+            if !compact {
+                AvatarStack(people: speakers, size: 20, limit: 4)
             }
             Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Night.text3)
         }
@@ -565,7 +565,7 @@ struct ListRow: View {
         if Calendar.current.isDateInToday(meeting.date) { day = "Today" }
         else if Calendar.current.isDateInYesterday(meeting.date) { day = "Yesterday" }
         else { day = meeting.date.formatted(.dateTime.weekday(.abbreviated)) }
-        return "\(day) · \(meeting.date.formatted(date: .omitted, time: .shortened)) · \(Exporter.clock(meeting.duration))"
+        return "\(day) · \(meeting.date.formatted(date: .omitted, time: .shortened)) · \(Night.clock(meeting.duration))"
     }
 
     @ViewBuilder private var statusMark: some View {

@@ -107,7 +107,7 @@ struct NightTabs<Value: Hashable>: View {
             ForEach(Array(options.enumerated()), id: \.offset) { _, o in
                 let on = o.value == selection
                 Button { withAnimation(Night.spring) { selection = o.value } } label: {
-                    VStack(spacing: 7) {
+                    VStack(alignment: .leading, spacing: 7) {
                         Text(o.title)
                             .font(.scribe(13.5, 700))
                             .foregroundStyle(on ? Night.text : Night.text3)
@@ -120,6 +120,7 @@ struct NightTabs<Value: Hashable>: View {
                             }
                         }
                     }
+                    .fixedSize()
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

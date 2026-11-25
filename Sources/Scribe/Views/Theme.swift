@@ -105,6 +105,12 @@ enum Night {
     static let gutterLeading: CGFloat = 32, gutterTrailing: CGFloat = 28, cardGap: CGFloat = 16
     static let cardPadding: CGFloat = 20
 
+    /// A duration as m:ss, or h:mm:ss from an hour (list rows, chips, timers).
+    static func clock(_ t: TimeInterval) -> String {
+        let s = max(0, Int(t.rounded()))
+        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) : String(format: "%d:%02d", s / 60, s % 60)
+    }
+
     /// Default motion: nothing bounces.
     static let spring = Animation.spring(response: 0.35, dampingFraction: 0.85)
 }
@@ -405,12 +411,13 @@ enum MenuBarGlyph {
             guard let cg = NSGraphicsContext.current?.cgContext else { return false }
             cg.setFillColor(NSColor.black.cgColor)
             // Five capsule bars (the icon's wave), a little narrower when a badge sits beside it.
-            let heights: [CGFloat] = [5, 10, 14, 9, 6]
-            let w: CGFloat = 2.2
-            let gap: CGFloat = mode == .idle ? 1.4 : 1.0
+            let idle = mode == .idle
+            let heights: [CGFloat] = idle ? [5, 10, 14, 9, 6] : [4, 8, 11, 7, 5]
+            let w: CGFloat = idle ? 2.2 : 1.9
+            let gap: CGFloat = idle ? 1.4 : 0.9
             let total = CGFloat(heights.count) * w + CGFloat(heights.count - 1) * gap
-            let x0: CGFloat = mode == .idle ? (18 - total) / 2 : 0.6
-            let cy: CGFloat = mode == .idle ? 9 : 8
+            let x0: CGFloat = idle ? (18 - total) / 2 : 0.5
+            let cy: CGFloat = idle ? 9 : 6.5
             for (i, h) in heights.enumerated() {
                 let r = CGRect(x: x0 + CGFloat(i) * (w + gap), y: cy - h / 2, width: w, height: h)
                 cg.addPath(CGPath(roundedRect: r, cornerWidth: w / 2, cornerHeight: w / 2, transform: nil))

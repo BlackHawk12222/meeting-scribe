@@ -121,7 +121,7 @@ struct MeetingDetailView: View {
     }
 
     private func meta(_ m: Meeting) -> String {
-        var parts = [m.date.formatted(date: .abbreviated, time: .shortened), Exporter.clock(m.duration)]
+        var parts = [m.date.formatted(date: .abbreviated, time: .shortened), Night.clock(m.duration)]
         if let p = m.processingSeconds, p > 0 {
             parts.append(String(format: "processed in %.0f s (%.0f× real time)", p, m.duration / p))
         }
@@ -204,7 +204,7 @@ struct MeetingDetailView: View {
                             } else if let score = c.matchScore, person != nil, !c.confirmed {
                                 Text(String(format: "%.0f%% match", score * 100))
                             } else {
-                                Text(Exporter.clock(c.talkSeconds)).monospacedDigit()
+                                Text(Night.clock(c.talkSeconds)).monospacedDigit()
                             }
                         }
                         .font(.scribe(11.5, 600)).foregroundStyle(Night.text3).lineLimit(1)

@@ -20,7 +20,7 @@ struct LiveMeetingView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 14) {
                 Text("New meeting").font(.nightDisplay).tracking(-0.3).foregroundStyle(Night.text)
-                LiveChip(text: "Recording · \(Exporter.clock(elapsed))")
+                LiveChip(text: "Recording · \(Night.clock(elapsed))")
                 Spacer(minLength: 12)
                 Button { model.toggleMeetingRecording() } label: {
                     Label("Stop & write notes", systemImage: "stop.fill")
@@ -32,8 +32,13 @@ struct LiveMeetingView: View {
             VStack(spacing: Night.cardGap) {
                 meterCard
                 HStack(alignment: .top, spacing: Night.cardGap) {
-                    voicesCard.frame(maxWidth: .infinity)
-                    whatsNextCard.frame(width: 300)
+                    listeningCard.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(spacing: Night.cardGap) {
+                        voicesCard
+                        whatsNextCard
+                        Spacer(minLength: 0)
+                    }
+                    .frame(width: 320)
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
             }
@@ -67,20 +72,41 @@ struct LiveMeetingView: View {
         .background(NightCardBackground())
     }
 
+    // MARK: Listening (where the transcript lands)
+
+    private var listeningCard: some View {
+        VStack(spacing: 14) {
+            Spacer(minLength: 0)
+            SparkleView(size: 44, glow: true)
+            CapsuleBars(levels: Array(repeating: 0, count: 9), barWidth: 5, spacing: 5, maxLength: 5, style: .dim)
+            Text("Scribe is listening").font(.nightHeadline).foregroundStyle(Night.text)
+            Text("The transcript, who said what and the notes are written on this Mac when you stop, using the whole recording.")
+                .font(.nightSecondary).foregroundStyle(Night.text2)
+                .multilineTextAlignment(.center)
+                .lineSpacing(3)
+                .lineLimit(3)
+                .frame(maxWidth: 380)
+            Spacer(minLength: 0)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(NightCardBackground())
+    }
+
     // MARK: Voices
 
     private var voicesCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             SectionLabel(title: "Voices Scribe knows")
             if store.people.isEmpty {
-                Text("No one yet. After this meeting, click a speaker and give them a name, and Scribe will recognize that voice next time.")
+                Text("No one yet. Name a speaker after this meeting and Scribe recognizes them next time.")
                     .font(.nightSecondary).foregroundStyle(Night.text2).lineSpacing(3)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(4)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], alignment: .leading, spacing: 10) {
-                    ForEach(store.people) { p in
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(store.people.prefix(5)) { p in
                         HStack(spacing: 10) {
-                            Avatar(name: p.name, color: Palette.color(p.colorIndex), size: 28)
+                            Avatar(name: p.name, color: Palette.color(p.colorIndex), size: 26)
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(p.name).font(.scribe(13.5, 700)).foregroundStyle(Night.text).lineLimit(1)
                                 Text("\(p.meetingCount) meeting\(p.meetingCount == 1 ? "" : "s")")
@@ -90,18 +116,15 @@ struct LiveMeetingView: View {
                             CapsuleBars(levels: CapsuleBars.wave(6, seed: CapsuleBars.seed(p.name), floor: 0.25),
                                         barWidth: 3, spacing: 2, maxLength: 16, style: .dim)
                         }
-                        .padding(12)
-                        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Night.well))
-                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Night.line, lineWidth: 1))
+                    }
+                    if store.people.count > 5 {
+                        Text("and \(store.people.count - 5) more").font(.nightMeta).foregroundStyle(Night.text3)
                     }
                 }
-                Text("When you stop, Scribe tells the voices apart and puts these names on the ones it recognizes.")
-                    .font(.nightMeta).foregroundStyle(Night.text3)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .nightCard(padding: 22)
+        .nightCard(padding: 20)
     }
 
     // MARK: After you stop
@@ -117,11 +140,11 @@ struct LiveMeetingView: View {
                 }
             }
             NightDivider().padding(.vertical, 4)
-            Text("Notes write themselves when you stop. Nothing leaves this Mac.")
+            Text("Nothing leaves this Mac.")
                 .font(.nightMeta).foregroundStyle(Night.text3)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .nightCard(padding: 22)
+        .nightCard(padding: 20)
     }
 }
