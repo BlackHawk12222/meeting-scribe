@@ -10,9 +10,11 @@ A free, native macOS app (SwiftUI, Apple Silicon, macOS 14+, **macOS 15+ recomme
 
 No account, no cloud, nothing uploaded. Models download once (~490 MB), then it works offline.
 
-**v0.4 look:** plain macOS. System fonts and colors (light and dark), standard materials, SF Symbols and one
-quiet indigo accent. The icon is a single fountain-pen nib. While you talk, a small capsule shows level bars and a
-timer; you choose where it sits (Settings › Dictation › Overlay) or drag it anywhere.
+**Look (0.7.2):** "Night Sky" in dark mode (matte near-black, one lavender accent) and its own "Daylight" design in
+light mode (paper-white, soft shadows, softer lavender). Compact, Mac-sized text and controls. Every color, size
+and spacing is a token in `Views/Theme.swift`, explained for designers in [docs/DESIGN.md](docs/DESIGN.md). On
+macOS 26 the app icon follows the Mac's look (light, dark, tinted/clear). While you talk, a small capsule shows
+level bars and a timer; you choose where it sits (Settings › Dictation › Overlay) or drag it anywhere.
 
 ## Install (unsigned app)
 1. Download `Scribe.zip` (or `Scribe.dmg`) from Releases. Unzip, drag **Scribe** into **Applications**.
@@ -152,7 +154,7 @@ launch at login (`SMAppService`), permissions with live status, About & licenses
 | `Dictation/` | Hotkeys, mic capture, recording overlay, paste, dictation state machine, settings keys |
 | `Engine/ModelStore.swift`, `ModelDownloader.swift` | Model manifest check + parallel resumable downloads |
 | `System/Updater.swift` | Check for Updates (app zip only; model changes from components.json) |
-| `Views/Theme.swift` | Accent + spacing, the nib shape, app icon view, menu bar glyph |
+| `Views/Theme.swift` | The design system: color/type/space/radius/motion tokens + shared components (docs/DESIGN.md) |
 | `Views/RunnerGame.swift` | Quill Dash, the first-run mini-game |
 | `Engine/SpeechEngine.swift` | Loads models; meeting pipeline (diarize + transcribe) and dictation (VAD + transcribe) |
 | `Engine/TextCleanup.swift`, `AppleIntelligence.swift` | Rule cleanup + guarded Foundation Models wrapper |
@@ -162,6 +164,7 @@ launch at login (`SMAppService`), permissions with live status, About & licenses
 | `System/Permissions.swift` | Mic + Accessibility checks and System Settings links |
 | `Views/` | Main window, meeting detail (Notes/Transcript), People, Dictation history, Settings, first-run window, About |
 | `SelfTest/SelfTest.swift` | `Scribe --selftest`: dictation clip + AMI meeting, used by CI |
+| `SelfTest/SelfTest072.swift` | `--suite targeted`: only the checks for what the current release changed |
 
 ## Build it yourself
 ```
@@ -170,8 +173,10 @@ brew install xcodegen
 ```
 Xcode 16 builds everything except the Apple Intelligence parts (they are behind `#if canImport(FoundationModels)`
 and turn into the rule-based fallback). Xcode 26 compiles them in. CI picks the newest Xcode 26 on the runner.
-Put `[release]` in a commit message to publish a GitHub Release (tag `v0.3.<build>`, assets Scribe.zip, Scribe.dmg,
-components.json). The **ui-screenshots** workflow (Actions tab, manual) runs `Scribe --snapshot` and uploads PNGs of
+Put `[release]` in a commit message to publish a GitHub Release (tag `v<VERSION file>`, assets Scribe.zip, Scribe.dmg,
+components.json). A push only runs the tests for what it changed: the app-icon check always, the targeted self-test
+when engine/dictation/storage code changed, nothing long by default (`[selftest:quick]` etc. in the message forces
+one). CI builds on the `macos-26` runner (actool needs it for the Icon Composer icon). The **ui-screenshots** workflow (Actions tab, manual) runs `Scribe --snapshot` and uploads PNGs of
 every screen, the recording overlay and the icons.
 
 ## Credits / licenses

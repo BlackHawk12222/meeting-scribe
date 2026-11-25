@@ -176,7 +176,8 @@ jobs:
           SUITE="$SCRIBE_SUITE"
           EXTRA=""; [ "${{ github.event.inputs.compare_models }}" = "true" ] && EXTRA="--compare-models"
           ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --selftest --suite "$SUITE" --seconds 300 --meeting-wav "$PWD/Tests/ES2004a_first300s.wav" --libri-dir "$PWD/Tests/librispeech" --noise-wav "$PWD/Tests/noise/crowd_noise_16k.wav" $EXTRA ${{ github.event.inputs.noisy_args }} --measure-download | tee selftest.out
-          grep '^SELFTEST_JSON:' selftest.out | sed 's/^SELFTEST_JSON://' > selftest.json
+          # -o: a Core ML log line without a newline can sit in front of the JSON on the same line.
+          grep -o 'SELFTEST_JSON:.*' selftest.out | tail -1 | sed 's/^SELFTEST_JSON://' > selftest.json
           python3 -m json.tool selftest.json
           sysctl -n machdep.cpu.brand_string >> selftest-machine.txt; sysctl -n hw.memsize >> selftest-machine.txt
           sw_vers >> selftest-machine.txt; xcodebuild -version >> selftest-machine.txt
@@ -187,13 +188,13 @@ jobs:
           for f in ~/Library/Logs/DiagnosticReports/Scribe* /Library/Logs/DiagnosticReports/Scribe*; do
             [ -f "$f" ] || continue; echo "=== $f"; head -c 60000 "$f"; cp "$f" . ; done
       - name: UI screenshots (light + dark, quick set)
-        if: github.event.inputs.snapshots == 'true'
+        if: always() && github.event.inputs.snapshots == 'true'
         timeout-minutes: 10
         run: |
           mkdir -p shots
           ./build/DD/Build/Products/Release/Scribe.app/Contents/MacOS/Scribe --snapshot --quick --out "$PWD/shots" 2>&1 | tee shots/snapshot.log || true
       - name: Upload screenshots
-        if: github.event.inputs.snapshots == 'true'
+        if: always() && github.event.inputs.snapshots == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: screenshots
