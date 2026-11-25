@@ -144,7 +144,8 @@ extension SelfTest {
         let dict = Vocabulary.englishWords()
         check("acoustic guard: word list loaded", dict.count > 100_000, "\(dict.count) words")
         let refusals: [(String, String)] = [("cute", "CAD"), ("cute?", "CAD"), ("practise", "CAD"), ("head", "CAD"), ("head", "Onshape"),
-                                            ("nods", "Notion"), ("notion", "Notion"), ("scribe", "Scribe"), ("cad", "CAD"), ("vex", "VEX"), ("v five", "V5")]
+                                            ("nods", "Notion"), ("notion", "Notion"), ("scribe", "Scribe"), ("cad", "CAD"), ("vex", "VEX"), ("v five", "V5"),
+                                            ("Vex V5", "Xcode"), ("V5", "Xcode"), ("Figma", "Notion")]
         let wrongly = refusals.filter { Vocabulary.acousticReplacementAllowed(original: $0.0, replacement: $0.1, dict: dict) }
         check("acoustic guard: refuses everyday words and short acronyms", wrongly.isEmpty, wrongly.map { "\($0.0)→\($0.1)" }.joined(separator: ", "))
         let wins: [(String, String)] = [("Swift UI", "SwiftUI"), ("OnShade", "Onshape"), ("Figmah", "Figma"), ("git hub", "GitHub"), ("x code", "Xcode")]
