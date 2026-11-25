@@ -19,6 +19,7 @@
 
 import Foundation
 import FluidAudio
+@preconcurrency import CoreML
 import os
 
 /// Timing logs. See them live: Console.app → search "Scribe", or
@@ -182,8 +183,28 @@ actor SpeechEngine {
     /// Step 1 — what dictation needs: Parakeet + the voice detector.
     /// The files are normally already on disk (ModelStore downloads them in parallel first),
     /// so FluidAudio only LOADS them here. If they're not, FluidAudio downloads them itself.
+    ///
+    /// Tachys (0.7.2.3): one load at a time. The app starts this at the very top of launch
+    /// (`TachysEngine.startEarlyLoad`), before the window exists; the normal startup call then
+    /// joins that same load instead of starting a second one. The loaded models stay resident.
     func prepareDictation(model: SpeechModel = .current, prewarm warm: Bool = true,
                           status: @escaping @Sendable (String, Double?) -> Void) async throws {
+        if let l = dictationLoad, l.model == model {
+            status("Loading \(model.title)…", nil)
+            try await l.task.value
+            return
+        }
+        let task = Task { try await self.prepareDictationNow(model: model, prewarm: warm, status: status) }
+        dictationLoad = (model, task)
+        defer { if dictationLoad?.task == task { dictationLoad = nil } }
+        try await task.value
+    }
+
+    /// The load in flight (shared by the early launch load and the startup call).
+    private var dictationLoad: (model: SpeechModel, task: Task<Void, Error>)?
+
+    private func prepareDictationNow(model: SpeechModel, prewarm warm: Bool,
+                                     status: @escaping @Sendable (String, Double?) -> Void) async throws {
         let t0 = Date()
         var changed = false
         if asr == nil || loadedModel != model {
@@ -193,16 +214,19 @@ actor SpeechEngine {
             let needVad = vad == nil
             async let vadLoad: VadManager? = needVad ? (try? await VadManager(config: VadConfig(defaultThreshold: 0.75))) : nil
             let tm = Date()
-            // Tachys: explicit Core ML compute units (Neural Engine by default = FluidAudio's default).
-            let models = try await AsrModels.downloadAndLoad(configuration: TachysEngine.modelConfiguration(),
-                                                             version: model.version, progressHandler: { p in
+            // Tachys: explicit Core ML compute units (Neural Engine by default = FluidAudio's default),
+            // and (0.7.2.3) the four Parakeet parts load at the same time instead of one by one.
+            let (models, how) = try await Self.loadParakeet(model, configuration: TachysEngine.modelConfiguration(),
+                                                            encoderUnits: TachysEngine.encoderComputeUnits,
+                                                            parallel: TachysEngine.enabled, progressHandler: { p in
                 switch p.phase {
                 case .listing: status("Finding speech model files…", p.fractionCompleted)
                 case .downloading: status("Downloading speech model…", p.fractionCompleted)
                 case .compiling: status("Optimizing speech model for this Mac…", nil)
                 }
             })
-            Perf.log.info("Parakeet Core ML load: \(Date().timeIntervalSince(tm) * 1000, format: .fixed(precision: 0))ms (compute: \(TachysEngine.computeLabel, privacy: .public))")
+            lastParakeetLoad = how
+            Perf.log.info("Parakeet Core ML load: \(Date().timeIntervalSince(tm) * 1000, format: .fixed(precision: 0))ms (\(how, privacy: .public); compute: \(TachysEngine.computeLabel, privacy: .public), encoder: \(TachysEngine.encoderComputeLabel, privacy: .public))")
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
             let second = AsrManager(config: .default)
@@ -688,6 +712,109 @@ actor SpeechEngine {
     }
 
     func unloadVocabularyBoost() { vocabularyBoost = nil; vocabularyBoostTerms = [] }
+
+    /// How the last dictation load ran ("parallel …" or "serial …"), for the self-test.
+    private(set) var lastParakeetLoad = ""
+
+    // MARK: Tachys parallel load (0.7.2.3)
+    //
+    // FluidAudio's AsrModels.load opens Preprocessor, Encoder, Decoder and JointDecision one after
+    // another. Opening a compiled Core ML model is mostly independent work per file, so Tachys opens
+    // all four at once with `MLModel.load` in a TaskGroup, using EXACTLY the per-part configuration
+    // FluidAudio uses (ModelHub.loadModelsOnce: computeUnits + allowLowPrecisionAccumulationOnGPU;
+    // preprocessor on the CPU, encoder on the encoder units, decoder/joint on the config's units),
+    // then builds AsrModels through its public init with the same configuration, vocabulary and
+    // version. Same files, same settings → the same models and the same text.
+    // Only for Parakeet v2 (the default "Fast" model; plain file names, single-shape encoder).
+    // Anything else, an encoder with extra window functions, or ANY error → FluidAudio's own
+    // serial load, which also owns download + corrupted-cache recovery.
+
+    static func loadParakeet(_ model: SpeechModel, configuration: MLModelConfiguration?,
+                             encoderUnits: MLComputeUnits?, parallel: Bool,
+                             progressHandler: ProgressHandler? = nil) async throws -> (AsrModels, String) {
+        let version = model.version
+        func serial(_ why: String) async throws -> (AsrModels, String) {
+            let m = try await AsrModels.downloadAndLoad(configuration: configuration, version: version,
+                                                        encoderComputeUnits: encoderUnits,
+                                                        progressHandler: progressHandler)
+            return (m, "serial (\(why))")
+        }
+        guard parallel else { return try await serial("Tachys off") }
+        guard version == .v2 else { return try await serial("parallel load is v2-only") }
+        let config = configuration ?? AsrModels.defaultConfiguration()
+        let encUnits = encoderUnits ?? config.computeUnits
+        // Makes sure every file is on disk (returns at once when it is; ModelStore normally did it).
+        let dir = try await AsrModels.download(version: version, encoderComputeUnits: encUnits,
+                                               progressHandler: progressHandler)
+        let names = ModelNames.ASR.self
+        let encoderURL = dir.appendingPathComponent(names.encoderFile)
+        if await hasEncoderLadder(encoderURL) { return try await serial("encoder has window functions") }
+        let parts: [(String, MLComputeUnits)] = [
+            (names.preprocessorFile, .cpuOnly),
+            (names.encoderFile, encUnits),
+            (names.decoderFile, config.computeUnits),
+            (names.jointFile, config.computeUnits),
+        ]
+        do {
+            let t0 = Date()
+            let loaded = try await withThrowingTaskGroup(of: (String, LoadedPart, Double).self) { group -> [String: (MLModel, Double)] in
+                for (name, units) in parts {
+                    group.addTask {
+                        let c = MLModelConfiguration()
+                        c.computeUnits = units
+                        c.allowLowPrecisionAccumulationOnGPU = true
+                        let ts = Date()
+                        let m = try await MLModel.load(contentsOf: dir.appendingPathComponent(name), configuration: c)
+                        return (name, LoadedPart(model: m), Date().timeIntervalSince(ts) * 1000)
+                    }
+                }
+                var out: [String: (MLModel, Double)] = [:]
+                for try await (name, part, ms) in group { out[name] = (part.model, ms) }
+                return out
+            }
+            guard let pre = loaded[names.preprocessorFile]?.0, let enc = loaded[names.encoderFile]?.0,
+                  let dec = loaded[names.decoderFile]?.0, let joint = loaded[names.jointFile]?.0 else {
+                return try await serial("a part did not load")
+            }
+            let vocab = try parseVocabulary(dir.appendingPathComponent(names.vocabularyFile))
+            guard (0..<version.blankId).allSatisfy({ vocab[$0] != nil }) else { return try await serial("vocabulary incomplete") }
+            let models = AsrModels(encoder: enc, preprocessor: pre, decoder: dec, joint: joint, ctcHead: nil,
+                                   encoderLadder: [], configuration: config, vocabulary: vocab, version: version)
+            let each = parts.map { "\($0.0.replacingOccurrences(of: ".mlmodelc", with: "")) \(Int(loaded[$0.0]?.1 ?? 0))ms" }
+            return (models, "parallel \(Int(Date().timeIntervalSince(t0) * 1000))ms: " + each.joined(separator: ", "))
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            Perf.log.error("Tachys parallel load failed (\(error.localizedDescription, privacy: .public)); FluidAudio's serial load instead")
+            return try await serial("parallel failed")
+        }
+    }
+
+    /// One loaded Core ML model handed from a load task back to the group (MLModel is thread-safe
+    /// for loading/prediction; it is only stored here, never used by two tasks at once).
+    private struct LoadedPart: @unchecked Sendable { let model: MLModel }
+
+    /// True when the encoder is a multifunction model with `enc_<N>ms` window functions (FluidAudio
+    /// then also loads an "encoder ladder", which only its own loader can build).
+    private static func hasEncoderLadder(_ url: URL) async -> Bool {
+        guard #available(macOS 15.0, *) else { return false }
+        guard let names = try? await MLModelAsset(url: url).functionNames else { return false }
+        return names.contains { $0.hasPrefix("enc_") }
+    }
+
+    /// Parakeet's vocabulary JSON, read the way FluidAudio reads it (dictionary "id": token, or an array).
+    private static func parseVocabulary(_ url: URL) throws -> [Int: String] {
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
+        var v: [Int: String] = [:]
+        if let a = json as? [String] {
+            for (i, t) in a.enumerated() { v[i] = t }
+        } else if let d = json as? [String: String] {
+            for (k, t) in d { if let i = Int(k) { v[i] = t } }
+        } else {
+            throw AsrModelsError.loadingFailed("Vocabulary file has unexpected format")
+        }
+        return v
+    }
 
     /// A separate Parakeet manager for another model (self-test model comparison).
     static func loadManager(_ model: SpeechModel) async throws -> AsrManager {

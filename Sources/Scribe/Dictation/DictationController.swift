@@ -320,10 +320,12 @@ final class DictationController: ObservableObject {
             }
             await consumer?.value          // the live VAD has seen every slice (takes ~ms)
             // Models still loading (right after launch/update)? The audio is safe; wait for them.
+            var waitedMs = 0.0
             if await !SpeechEngine.shared.isDictationReady {
                 let tw = Date()
                 let ok = await SpeechEngine.shared.waitUntilDictationReady(timeout: 90)
-                Perf.log.info("release: waited \(Date().timeIntervalSince(tw) * 1000, format: .fixed(precision: 0))ms for the models (ready: \(ok, privacy: .public))")
+                waitedMs = Date().timeIntervalSince(tw) * 1000
+                Perf.log.info("release: waited \(waitedMs, format: .fixed(precision: 0))ms for the models (ready: \(ok, privacy: .public))")
                 guard ok else { flash(.failed("Speech model didn't load")); return }
             }
             Perf.log.info("key release → mic stopped + live VAD caught up: \(Date().timeIntervalSince(released) * 1000, format: .fixed(precision: 0))ms")
@@ -352,6 +354,7 @@ final class DictationController: ObservableObject {
                 Perf.log.info("key release → text inserted: \(releaseMs, format: .fixed(precision: 0))ms")
                 Perf.log.info("Tachys release→text: \(releaseMs, format: .fixed(precision: 0))ms (speculative pass: \(r.transcript.tachys, privacy: .public), tail wait skipped: \(quiet, privacy: .public), audio \(r.transcript.audioSeconds, format: .fixed(precision: 1))s)")
                 if r.transcript.tachys != "off" { TachysEngine.record(releaseToTextMs: releaseMs, hit: r.transcript.tachys == "hit") }
+                TachysEngine.logFirstPress(releasedAt: released, releaseToTextMs: releaseMs, waitedMs: waitedMs)
                 switch outcome {
                 case .typedDirectly, .pasted:
                     let app = target?.appName ?? ""

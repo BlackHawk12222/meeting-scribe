@@ -74,7 +74,9 @@ enum Night {
     static let highlight = Color.night(0xFFFFFF, 0xFFFFFF, lightAlpha: 0, darkAlpha: 0)
     static let text = Color.night(0x111113, 0xEDEDF0)
     static let text2 = Color.night(0x6B6B73, 0x9A9AA3)
-    static let text3 = Color.night(0x8E8E96, 0x76767E)
+    /// Captions and times. 0.7.2.3: darker in light / lighter in dark so it reads at ≥ 4.5:1 on
+    /// canvas, surface, rail and well (light 4.91 on white, dark 5.23 on #111112); still a step under text2.
+    static let text3 = Color.night(0x707078, 0x86868E)
     static let accentTop = Color.night(0x5B57D9, 0x8E8BF5)
     static let accentBottom = Color.night(0x5B57D9, 0x8E8BF5)
     static let accent = Color.night(0x5B57D9, 0x8E8BF5)

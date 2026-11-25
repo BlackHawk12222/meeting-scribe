@@ -16,6 +16,8 @@ enum Main {
             Snapshot.runAndExit()            // renders the UI to PNGs (CI screenshots), never returns
         } else {
             LegacyMigration.runOnce()        // settings + sync token from an older bundle id, once
+            // Tachys: start loading the dictation models now, before the window is built.
+            MainActor.assumeIsolated { TachysEngine.startEarlyLoad() }
             ScribeApp.main()
         }
     }

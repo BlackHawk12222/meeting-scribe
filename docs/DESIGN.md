@@ -26,7 +26,7 @@ Light or Dark.
 | `line2` | control borders | `#DADADF` | `#2E2E32` |
 | `text` | main text | `#111113` | `#EDEDF0` |
 | `text2` | secondary text | `#6B6B73` | `#9A9AA3` |
-| `text3` | captions, times | `#8E8E96` | `#76767E` |
+| `text3` | captions, times (≥ 4.5:1 on canvas, surface, rail, well) | `#707078` | `#86868E` |
 | `primary` / `onPrimary` | Record pill, primary buttons | `#111113` / white | `#EDEDF0` / `#111113` |
 | `accent` | switches, links | `#5B57D9` | `#8E8BF5` |
 | `live` | recording dot only | `#E5484D` | `#E5484D` |
@@ -39,6 +39,11 @@ App colors ("Where you talk", history dots), by rank of words: `#F5B83D`, `#34C7
 
 Heatmap, empty → busiest: light `#EEEEF3 #D6D4FB #ABA7F5 #7C77EB #5B57D9`,
 dark `#1E1E22 #2E2B5C #433E9A #625CD6 #8E8BF5`.
+
+Contrast (WCAG, checked by the targeted self-test): `text` ≥ 7, `text2` and `text3` ≥ 4.5 on
+`canvas`/`surface` (and `text3` also on `rail`/`well`). `text3` is light 4.91 on white / 4.59 on
+`#F7F7F8`, dark 5.23 on `#111112` / 5.45 on `#0B0B0C`, and stays a step quieter than `text2`.
+No shadows in either mode (`shadow` alpha 0, radius 0); no inner highlight.
 
 Speaker avatars (white letter): `#5B57D9 #F2685B #1FA463 #F5B83D #3D8BFD #36B5D9`; an unnamed
 speaker is grey.

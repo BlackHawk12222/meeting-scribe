@@ -11,9 +11,12 @@
 //                launch→ready, then warm release→text. Runner = virtual M1, no Neural Engine.
 //   tachys     – (0.7.3 preview) release→text with the Tachys speculative pass on vs off, same
 //                audio (speech + 1 s quiet while held); the text must be identical.
+//                0.7.2.3: Parakeet's parts load in parallel; parallel vs FluidAudio's serial load
+//                times on the same runner, and the text from both loads must be identical.
 // The app icon's appearance variants are checked by the workflow with `assetutil --info`.
 
 import Foundation
+import FluidAudio
 import AppKit
 import SwiftUI
 
@@ -72,6 +75,8 @@ enum SelfTest072 {
             ("text2_on_surface", Night.text2, Night.surface, 4.5),
             ("text3_on_canvas", Night.text3, Night.canvas, 4.5),
             ("text3_on_surface", Night.text3, Night.surface, 4.5),
+            ("text3_on_rail", Night.text3, Night.rail, 4.5),
+            ("text3_on_well", Night.text3, Night.well, 4.5),
             ("accent_on_surface", Night.accent, Night.surface, 4.5),
             ("onAccent_on_accent", Night.onAccent, Night.accent, 4.5),
             ("live_dot_on_surface", Night.live, Night.surface, 3),
@@ -86,17 +91,30 @@ enum SelfTest072 {
             }
             r[dark ? "dark_contrast" : "light_contrast"] = d
         }
-        // Light must be its own design: different canvas, light shadow on, dark shadow off.
+        // Poster (0.7.3): light and dark are each their own design, both flat: no shadow in either
+        // mode (hairlines do the work), no inner highlight, and text3 is a step under text2.
         let cl = rgb(ns(Night.canvas), dark: false), cd = rgb(ns(Night.canvas), dark: true)
         if lum(cl) < 0.8 || lum(cd) > 0.05 { fail.append("theme: canvas light/dark not light/dark") }
         let shL = rgb(ns(Night.shadow), dark: false).3, shD = rgb(ns(Night.shadow), dark: true).3
-        if shL <= 0 || shD != 0 { fail.append("theme: shadow should be light-only") }
-        let hlL = rgb(ns(Night.highlight), dark: false).3
-        if hlL != 0 { fail.append("theme: light mode should not use the dark inner highlight") }
-        r["light_shadow_alpha"] = shL
+        if shL != 0 || shD != 0 || Night.shadowRadius != 0 || Night.shadowY != 0 {
+            fail.append("theme: Poster has no shadow (alpha light \(shL), dark \(shD), radius \(Night.shadowRadius))")
+        }
+        let hlL = rgb(ns(Night.highlight), dark: false).3, hlD = rgb(ns(Night.highlight), dark: true).3
+        if hlL != 0 || hlD != 0 { fail.append("theme: Poster has no inner highlight") }
+        for dark in [false, true] {
+            let t2 = contrast(ns(Night.text2), on: ns(Night.canvas), dark: dark)
+            let t3 = contrast(ns(Night.text3), on: ns(Night.canvas), dark: dark)
+            if t3 >= t2 { fail.append("theme \(dark ? "dark" : "light"): text3 should stay a step under text2") }
+        }
+        r["shadow_alpha"] = ["light": shL, "dark": shD]
         r["sizes"] = ["rail": Night.railWidth, "meetings_list": Night.meetingsListWidth, "settings_list": Night.settingsListWidth,
-                      "control_height": Night.controlHeight, "row_height": Night.rowHeight, "card_padding": Night.cardPadding]
-        if Night.railWidth != 52 || Night.meetingsListWidth != 230 || Night.settingsListWidth != 124 { fail.append("theme: sidebar widths") }
+                      "header": Night.headerHeight, "control_height": Night.controlHeight, "row_height": Night.rowHeight,
+                      "card_padding": Night.cardPadding, "tile": Night.tileHeight, "tile_compact": Night.tileHeightCompact]
+        // Poster layout (docs/DESIGN.md § 3): rail 46, meetings list 300, settings list 196, top bar 52.
+        if Night.railWidth != 46 || Night.meetingsListWidth != 300 || Night.settingsListWidth != 196 || Night.headerHeight != 52 {
+            fail.append("theme: sidebar widths (rail \(Night.railWidth), meetings \(Night.meetingsListWidth), settings \(Night.settingsListWidth), header \(Night.headerHeight))")
+        }
+        if Night.tileHeight != 186 || Night.controlHeight != 28 || Night.rCard != 8 || Night.rTile != 10 { fail.append("theme: Poster sizes") }
         return (r, fail)
     }
 
@@ -331,6 +349,40 @@ enum SelfTest072 {
             r["tachys"] = tr
         } catch { fail.append("tachys: \(error)") }
         if let before { UserDefaults.standard.set(before, forKey: tachysKey) } else { UserDefaults.standard.removeObject(forKey: tachysKey) }
+        // 5) Tachys (0.7.2.3): how the first load above ran, then the parallel load against
+        //    FluidAudio's serial load (same files, same configuration), alternating so neither gets
+        //    all the warm-cache benefit, and the text from both must be identical.
+        let firstLoad = await SpeechEngine.shared.lastParakeetLoad
+        r["first_load_mode"] = firstLoad
+        if firstLoad.hasPrefix("serial (parallel failed") { fail.append("tachys load: parallel load failed (\(firstLoad))") }
+        do {
+            let model = SpeechModel.current
+            let config = TachysEngine.modelConfiguration()
+            var par: [Double] = [], ser: [Double] = []
+            var textPar = "", textSer = "", modePar = ""
+            func text(_ models: AsrModels) async throws -> String {
+                let m = AsrManager(config: .default)
+                try await m.loadModels(models)
+                var st = TdtDecoderState.make(decoderLayers: await m.decoderLayerCount)
+                return try await m.transcribe(clip5, decoderState: &st).text
+            }
+            for i in 0..<2 {
+                var t = Date()
+                let s = try await SpeechEngine.loadParakeet(model, configuration: config, encoderUnits: nil, parallel: false)
+                ser.append(ms(Date().timeIntervalSince(t)))
+                if i == 0 { textSer = try await text(s.0) }
+                t = Date()
+                let p = try await SpeechEngine.loadParakeet(model, configuration: config, encoderUnits: nil, parallel: true)
+                par.append(ms(Date().timeIntervalSince(t)))
+                modePar = p.1
+                if i == 0 { textPar = try await text(p.0) }
+            }
+            r["parakeet_load"] = ["serial_fluidaudio_ms": ser, "parallel_tachys_ms": par, "parallel_mode": modePar,
+                                  "same_text": textPar == textSer, "text_parallel": textPar, "text_serial": textSer] as [String: Any]
+            if textPar != textSer { fail.append("tachys load: text from the parallel-loaded model differs from FluidAudio's serial load") }
+            if textPar.isEmpty { fail.append("tachys load: no text from the parallel-loaded model") }
+            if modePar.hasPrefix("serial (parallel failed") { fail.append("tachys load: parallel load failed (\(modePar))") }
+        } catch { fail.append("tachys load: \(error)") }
         log("dictation startup: \(r)")
         return (r, fail)
     }
