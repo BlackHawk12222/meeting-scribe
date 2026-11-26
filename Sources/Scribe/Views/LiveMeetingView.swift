@@ -14,6 +14,7 @@ struct LiveMeetingView: View {
     var preview: LivePreview?
 
     private var tape: LevelTape { preview?.tape ?? model.meetingTape }
+    private var audioProblem: Recorder.AudioProblem? { preview?.problem ?? (preview == nil ? recorder.problem : nil) }
     private var systemAudioOn: Bool { preview?.systemAudio ?? recorder.systemAudioActive }
     private var elapsed: TimeInterval { preview?.elapsed ?? recorder.elapsed }
 
@@ -34,13 +35,14 @@ struct LiveMeetingView: View {
                 // 0.7.3.1: recording-consent reminder (non-blocking; see ConsentNotice.swift).
                 ConsentNoticeView(reminder: model.consent)
                 // 0.7.5: a source that isn't delivering sound, with the Settings page that fixes it.
-                if let p = preview?.problem ?? (preview == nil ? recorder.problem : nil) { AudioProblemBanner(problem: p) }
+                if let p = audioProblem { AudioProblemBanner(problem: p) }
                 meterCard
                 HStack(alignment: .top, spacing: Night.cardGap) {
                     listeningCard.frame(maxWidth: .infinity, maxHeight: .infinity)
                     VStack(spacing: Night.cardGap) {
                         voicesCard
-                        whatsNextCard
+                        // 0.7.5: the problem banner takes this card's room, so the page still fits the window.
+                        if audioProblem == nil { whatsNextCard }
                         Spacer(minLength: 0)
                     }
                     .frame(width: 320)
@@ -163,9 +165,10 @@ struct AudioProblemBanner: View {
                 .font(.system(size: 16, weight: .semibold)).foregroundStyle(Night.warn)
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 3) {
-                Text(problem.title).font(.nightHeadline).foregroundStyle(Night.text)
+                Text(problem.title).font(.nightHeadline).foregroundStyle(Night.text).lineLimit(1)
+                // No fixedSize: the live view must keep fitting the window (the listening card shrinks).
                 Text(problem.detail).font(.nightSecondary).foregroundStyle(Night.text2)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2).truncationMode(.tail)
             }
             Spacer(minLength: 8)
             if let pane = problem.pane {
@@ -173,8 +176,9 @@ struct AudioProblemBanner: View {
                     .buttonStyle(NightButtonStyle(kind: .secondary, height: 30))
             }
         }
-        .padding(.horizontal, 18).padding(.vertical, 14)
+        .padding(.horizontal, 18).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
         .background(NightCardBackground())
         .accessibilityElement(children: .contain)
         .accessibilityLabel(problem.title)
