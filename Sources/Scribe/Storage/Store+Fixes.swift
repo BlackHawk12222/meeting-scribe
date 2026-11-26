@@ -1,6 +1,6 @@
 // Store+Fixes.swift
 // 0.7.3: editing a dictation's text or a meeting transcript line, and learning from the edit
-// (Engine/FixLearner.swift). Speaker fixes keep teaching voiceprints as before (Name voices,
+// (0.7.6: Engine/Learning.swift, FixUps: a fix turns on after 2 sightings or your approval). Speaker fixes keep teaching voiceprints as before (Name voices,
 // Name speaker); this file is only about words.
 
 import Foundation
@@ -8,7 +8,7 @@ import Foundation
 extension Store {
     /// Save an edited dictation. Returns what was learned (also shown in the toast).
     @discardableResult
-    func editDictation(_ id: UUID, text: String) -> [LearnedFix] {
+    func editDictation(_ id: UUID, text: String) -> [FixUpRule] {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let i = dictations.firstIndex(where: { $0.id == id }), !t.isEmpty, t != dictations[i].text else { return [] }
         let old = dictations[i].text
@@ -20,7 +20,7 @@ extension Store {
 
     /// Save an edited transcript line. Returns what was learned.
     @discardableResult
-    func editUtterance(meetingID: UUID, utteranceID: UUID, text: String) -> [LearnedFix] {
+    func editUtterance(meetingID: UUID, utteranceID: UUID, text: String) -> [FixUpRule] {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let i = index(of: meetingID), let k = meetings[i].utterances.firstIndex(where: { $0.id == utteranceID }),
               !t.isEmpty, t != meetings[i].utterances[k].text else { return [] }
@@ -39,8 +39,8 @@ extension Store {
         return learnFrom(old: u.text, new: t)
     }
 
-    private func learnFrom(old: String, new: String) -> [LearnedFix] {
-        let learned = FixLearner.record(old: old, new: new)
+    private func learnFrom(old: String, new: String) -> [FixUpRule] {
+        let learned = FixUps.record(old: old, new: new)
         if !learned.isEmpty {
             learnedToast = learned
             if learned.contains(where: { !$0.addedWords.isEmpty }) { Task { await prepareVocabularyBoost() } }
@@ -48,10 +48,19 @@ extension Store {
         return learned
     }
 
-    /// Toast Undo / Settings remove.
-    func undoLearned(_ item: LearnedFix) {
-        FixLearner.undo(item)
+    /// Toast Undo / Settings › Learning delete or dismiss: the rule goes and isn't learned again.
+    func undoLearned(_ item: FixUpRule) {
+        FixUps.delete(item.id)
         learnedToast.removeAll { $0.id == item.id }
         if !item.addedWords.isEmpty { Task { await prepareVocabularyBoost() } }
+    }
+
+    /// Toast / Settings › Learning Approve.
+    @discardableResult
+    func approveFixUp(_ item: FixUpRule) -> FixUpRule? {
+        let r = FixUps.approve(item.id)
+        learnedToast.removeAll { $0.id == item.id }
+        if let r, !r.addedWords.isEmpty { Task { await prepareVocabularyBoost() } }
+        return r
     }
 }

@@ -125,7 +125,7 @@ enum SelfTest073 {
         var r: [String: Any] = [:]
         var fail: [String] = []
         let keys = [Vocabulary.key, DictionaryReplacements.key, FixLearner.countsKey, FixLearner.itemsKey,
-                    FixLearner.blockedKey, CorrectionStore.key]
+                    FixLearner.blockedKey, CorrectionStore.key, FixUps.key, FixUps.migratedKey]
         let saved = keys.map { UserDefaults.standard.object(forKey: $0) }
         defer {
             for (k, v) in zip(keys, saved) {
@@ -147,38 +147,43 @@ enum SelfTest073 {
         r["save_corrections_default"] = CorrectionStore.enabled
         if CorrectionStore.enabled { fail.append("fixes: Save my corrections must be off by default") }
 
-        // Replacement: learned on the 2nd identical fix, not the 1st.
+        // 0.7.6: a fix becomes a rule (FixUps, applied before Style) on the 2nd identical fix, not the 1st.
+        let isOn = { (from: String, to: String) in FixUps.rules.contains { $0.from.lowercased() == from && $0.to == to && $0.isActive } }
         let first = store.editDictation(d1.id, text: "we fixed the bug today")
-        let hasPair = { DictationReplacementsHas("teh", "the") }
-        if !first.isEmpty || hasPair() { fail.append("fixes: a word fix was learned after 1 time (needs 2)") }
+        if !first.isEmpty || isOn("teh", "the") { fail.append("fixes: a word fix was learned after 1 time (needs 2)") }
         let second = store.editDictation(d2.id, text: "the robot moved")
         r["after_two"] = second.map(\.label)
-        if second.map(\.label) != ["teh → the"] || !hasPair() { fail.append("fixes: teh → the not learned after 2 fixes (\(second.map(\.label)))") }
+        if second.map(\.label) != ["teh → the"] || !isOn("teh", "the") { fail.append("fixes: teh → the not learned after 2 fixes (\(second.map(\.label)))") }
         if store.learnedToast.map(\.label) != ["teh → the"] { fail.append("fixes: no toast for the learned fix") }
+        if DictationReplacementsHas("teh", "the") { fail.append("fixes: 0.7.6 rules must not be written into the Dictionary") }
 
-        // Name: learned after 1 fix, and added to Vocabulary.
+        // Name: seen once = a suggestion (toast offers Approve); approving turns it on + adds it to Vocabulary.
         let name = store.editDictation(d3.id, text: "ask Zorvath about the plan")
         r["name"] = name.map(\.label)
-        guard let nameItem = name.first, name.count == 1, nameItem.isName else {
-            fail.append("fixes: capitalized name not learned after 1 fix (\(name.map(\.label)))")
+        guard let nameItem = name.first, name.count == 1, nameItem.isName, !nameItem.isActive else {
+            fail.append("fixes: a name seen once should be a suggestion (\(name.map(\.label)))")
             return (r, fail)
         }
-        if !Vocabulary.words.contains("Zorvath") { fail.append("fixes: learned name not added to Vocabulary") }
-        if !DictationReplacementsHas("zorvath", "Zorvath") { fail.append("fixes: learned name has no replacement") }
-        if !FixLearner.learned.contains(where: { $0.id == nameItem.id }) { fail.append("fixes: learned list (Settings) misses the name") }
-
-        // Undo removes it and blocks re-learning.
-        store.undoLearned(nameItem)
-        if Vocabulary.words.contains("Zorvath") || DictationReplacementsHas("zorvath", "Zorvath")
-            || FixLearner.learned.contains(where: { $0.id == nameItem.id }) {
-            fail.append("fixes: Undo didn't remove the name / replacement / list entry")
+        if Vocabulary.words.contains("Zorvath") { fail.append("fixes: a name was added to Vocabulary before approval") }
+        guard let approved = store.approveFixUp(nameItem), approved.isActive else {
+            fail.append("fixes: Approve didn't turn the name on")
+            return (r, fail)
         }
-        if !FixLearner.record(old: "ask zorvath now", new: "ask Zorvath now").isEmpty { fail.append("fixes: an undone fix was learned again") }
-        if FixLearner.learned.count != 1 { fail.append("fixes: learned list should hold only teh → the (\(FixLearner.learned.map(\.label)))") }
+        if !Vocabulary.words.contains("Zorvath") { fail.append("fixes: approved name not added to Vocabulary") }
+
+        // Delete removes it (and the word it added) and blocks re-learning.
+        store.undoLearned(approved)
+        if Vocabulary.words.contains("Zorvath") || FixUps.rules.contains(where: { $0.id == approved.id }) {
+            fail.append("fixes: delete didn't remove the name / its word / the rule")
+        }
+        if !FixUps.record(old: "ask zorvath now", new: "ask Zorvath now").isEmpty
+            || FixUps.rules.contains(where: { $0.to == "Zorvath" }) { fail.append("fixes: a deleted fix was learned again") }
+        if FixUps.rules.map(\.label) != ["teh → the"] { fail.append("fixes: rules should hold only teh → the (\(FixUps.rules.map(\.label)))") }
 
         // Case-only change of an ordinary word is not a fix.
-        _ = FixLearner.record(old: "the plan works", new: "The plan works")
-        if !FixLearner.record(old: "the plan works", new: "The plan works").isEmpty { fail.append("fixes: sentence-start capital was learned") }
+        _ = FixUps.record(old: "the plan works", new: "The plan works")
+        if !FixUps.record(old: "the plan works", new: "The plan works").isEmpty
+            || FixUps.rules.contains(where: { $0.to == "The" }) { fail.append("fixes: sentence-start capital was learned") }
 
         // No length limit: 5,000 words, one changed.
         let long = (0..<5000).map { "word\($0)" }

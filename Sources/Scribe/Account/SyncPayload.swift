@@ -44,14 +44,14 @@ enum SyncKind: String, CaseIterable, Codable {
         switch self {
         case .dictionary: return [DictionaryReplacements.key]
         case .vocabulary: return [Vocabulary.key, Vocabulary.boostKey]
-        case .learned_fixes: return [FixLearner.itemsKey, FixLearner.countsKey, FixLearner.blockedKey]
+        case .learned_fixes: return [FixLearner.itemsKey, FixLearner.countsKey, FixLearner.blockedKey, FixUps.key]
         case .styles: return [DictationStyle.key]
         case .settings:
             return ["holdKey", "dictationMode", "aiCleanup", "removeFillers", "restoreClipboard", "trailingSpace",
                     "dictationSounds", "doubleTapHandsFree", "pauseWhileThinking", "directInsert",
                     "toggleDisabled", "toggleKeyCode", "toggleModifiers", "toggleLabel",
                     "aiNotes", "noiseCleanup", "showMeetingScroll", "tachysEnabled",
-                    "overlayPosition", "appearance", "showInDock"]
+                    "overlayPosition", "appearance", "showInDock", WordBoost.key]
         case .people, .voiceprints: return []
         }
     }
@@ -194,6 +194,23 @@ enum SyncPayload {
         let ids = Set(items.map(\.id))
         for it in remoteItems where !ids.contains(it.id) && !blocked.contains(it.label) { items.append(it) }
         if let d = try? JSONEncoder().encode(items) { defaults.set(d, forKey: FixLearner.itemsKey) }
+        // 0.7.6 fix-up rules: union by fix; times seen = the higher count; approved on either Mac wins;
+        // the on/off switch stays as this Mac has it; anything dismissed or deleted (blocked) stays gone.
+        let rdec = JSONDecoder(); rdec.dateDecodingStrategy = .iso8601
+        let renc = JSONEncoder(); renc.dateEncodingStrategy = .iso8601
+        var rules = defaults.data(forKey: FixUps.key).flatMap { try? rdec.decode([FixUpRule].self, from: $0) } ?? []
+        let remoteRules = (remote[FixUps.key] as? Data).flatMap { try? rdec.decode([FixUpRule].self, from: $0) } ?? []
+        for r in remoteRules where !blocked.contains(r.key) {
+            if let i = rules.firstIndex(where: { $0.key == r.key }) {
+                rules[i].seen = max(rules[i].seen, r.seen)
+                rules[i].approved = rules[i].approved || r.approved
+                rules[i].lastSeen = max(rules[i].lastSeen, r.lastSeen)
+            } else {
+                rules.append(r)
+            }
+        }
+        rules.removeAll { blocked.contains($0.key) }
+        if let d = try? renc.encode(rules) { defaults.set(d, forKey: FixUps.key) }
     }
 
     /// People by id (a different id with the same name on this Mac is treated as the same person);

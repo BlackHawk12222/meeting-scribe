@@ -32,7 +32,7 @@ final class Store: ObservableObject {
     /// Self-test: how many times a confirmed speaker re-taught a person's voiceprint (Name voices).
     var voiceprintUpdates = 0
     /// 0.7.3 "Learn from my fixes": what the last edit taught (the toast with Undo).
-    @Published var learnedToast: [LearnedFix] = []
+    @Published var learnedToast: [FixUpRule] = []
 
     let folder: URL
     let audioFolder: URL

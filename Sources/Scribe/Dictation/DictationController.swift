@@ -20,6 +20,9 @@ enum Dictation {
     struct Result {
         var transcript: DictationTranscript
         var text: String
+        /// 0.7.6: the model's text after learned fix-ups + "Boost my words", before clean-up and Style.
+        /// Style.finish gets this as its raw text (so Exact keeps the fix-ups too).
+        var heard: String
         var method: CleanupMethod
         var cleanupSeconds: Double
     }
@@ -46,13 +49,14 @@ enum Dictation {
         let t = try await SpeechEngine.shared.dictate(samples: samples, live: live, session: session,
                                                       asrOverride: asrOverride, external: external)
         let t0 = Date()
-        // Rules (fillers, false starts, numbers, capitals) then your vocabulary list. Both < 20 ms.
-        let rulesText = Vocabulary.apply(removeFillers ? TextCleanup.rules(t.text) : TextCleanup.light(t.text))
-        var text = rulesText
+        // 0.7.6: learned fix-ups + "Boost my words" first, then the rules (fillers, false starts,
+        // numbers, capitals) and your vocabulary list. All < 20 ms.
+        let steps = textSteps(t.text, removeFillers: removeFillers)
+        var text = steps.cleaned
         var method: CleanupMethod = removeFillers ? .rules : .none
         if useAI, AppleIntelligence.isAvailable, t.audioSeconds >= aiMinimumSeconds, !t.text.isEmpty {
             // Race Apple Intelligence against a timer: the paste never waits longer than aiTimeout.
-            let raw = t.text
+            let raw = steps.heard
             let smart: (String, CleanupMethod)? = await withTaskGroup(of: (String, CleanupMethod)?.self) { group in
                 group.addTask { await TextCleanup.clean(raw, useAI: true, removeFillers: removeFillers) }
                 group.addTask {
@@ -65,7 +69,19 @@ enum Dictation {
             }
             if let smart { text = Vocabulary.apply(smart.0); method = smart.1 }
         }
-        return Result(transcript: t, text: text, method: method, cleanupSeconds: Date().timeIntervalSince(t0))
+        return Result(transcript: t, text: text, heard: steps.heard, method: method, cleanupSeconds: Date().timeIntervalSince(t0))
+    }
+
+    /// The text steps that need no model, in order: learned fix-ups, "Boost my words"
+    /// (Engine/Learning.swift), then clean-up rules and the Vocabulary text pass. Style comes after
+    /// (DictationStyle.finish). Pure, so the self-test checks the order on plain text.
+    static func textSteps(_ raw: String, removeFillers: Bool, rules: [FixUpRule]? = nil,
+                          terms: [VocabularyTerm] = Vocabulary.terms, boost: Bool = WordBoost.enabled,
+                          log: Bool = true) -> (heard: String, cleaned: String, learning: Learning.Outcome) {
+        let learned = Learning.afterRecognition(raw, rules: rules, terms: terms, boost: boost, log: log)
+        let heard = learned.text
+        let cleaned = Vocabulary.apply(removeFillers ? TextCleanup.rules(heard) : TextCleanup.light(heard), terms: terms)
+        return (heard, cleaned, learned)
     }
 }
 
@@ -336,7 +352,7 @@ final class DictationController: ObservableObject {
                                                 removeFillers: style.removeFillers, live: true,
                                                 session: mySession)
                 guard mySession == session else { return }      // a newer recording started: drop this one
-                let finalText = style.finish(cleaned: r.text, raw: r.transcript.text)
+                let finalText = style.finish(cleaned: r.text, raw: r.heard)
                 guard !finalText.isEmpty else {
                     flash(.done("Didn't catch that"))
                     return

@@ -60,6 +60,7 @@ final class AppModel: ObservableObject {
         AppearanceChoice.apply()
         DockPolicy.apply()               // Settings › General › Show in Dock
         dictation.attach(store: store, recorder: recorder)
+        Learning.startup()              // 0.7.6: migrate 0.7.3 learned fixes once; counts to scribe.log
         // Meeting capsule: the bars follow the recorder's mic level.
         recorder.$level.sink { [weak self] l in
             guard let self, self.recorder.isRecording else { return }

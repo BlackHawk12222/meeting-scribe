@@ -9,6 +9,8 @@
 // Undo / remove takes back exactly what was added and stops that same fix from being re-learned.
 // Nothing here retrains the speech model: it changes the Dictionary and Vocabulary lists that the
 // text pass applies after transcription.
+// 0.7.6: the learning moved to Engine/Learning.swift (FixUps). This file keeps the word diff, the
+// name check, the "don't learn again" list and the 0.7.3 data types (read once to migrate).
 
 import Foundation
 
@@ -105,53 +107,9 @@ enum FixLearner {
         set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: itemsKey) }
     }
 
-    /// Record one edit; returns what was learned from it (shown in the toast).
-    @discardableResult
-    static func record(old: String, new: String) -> [LearnedFix] {
-        var c = counts
-        var items = learned
-        let block = blocked
-        var out: [LearnedFix] = []
-        for h in hunks(old: old, new: new) {
-            let k = key(h)
-            guard !block.contains(k) else { continue }
-            let name = isName(h.to)
-            // A case-only change of an ordinary word (e.g. sentence start) is not a fix to learn.
-            if h.from.lowercased() == h.to.lowercased() && !name { continue }
-            c[k, default: 0] += 1
-            guard name || c[k]! >= repeatsNeeded else { continue }
-            c[k] = nil
-            var item = LearnedFix(from: h.from, to: h.to, isName: name)
-            let pairs = DictionaryReplacements.pairs
-            if !pairs.contains(where: { $0.from.caseInsensitiveCompare(h.from) == .orderedSame && $0.to == h.to }) {
-                DictionaryReplacements.add(.init(from: h.from, to: h.to))
-                item.addedReplacement = true
-            }
-            if name { item.addedWords = Store.addToVocabulary([h.to]) }
-            guard item.addedReplacement || !item.addedWords.isEmpty else { continue }
-            items.append(item)
-            out.append(item)
-        }
-        counts = c
-        learned = items
-        return out
-    }
-
-    /// Undo / remove: take back what the item added and don't learn the same fix again.
-    static func undo(_ item: LearnedFix) {
-        if item.addedReplacement {
-            let p = DictionaryReplacements.pairs.filter { $0.from.caseInsensitiveCompare(item.from) == .orderedSame && $0.to == item.to }
-            for x in p { DictionaryReplacements.remove(x) }
-        }
-        if !item.addedWords.isEmpty {
-            let drop = Set(item.addedWords.map { $0.lowercased() })
-            Vocabulary.words = Vocabulary.words.filter { !drop.contains($0.lowercased()) }
-        }
-        learned = learned.filter { $0.id != item.id }
-        var b = blocked
-        b.insert(key(Hunk(from: item.from, to: item.to)))
-        blocked = b
-    }
+    // 0.7.6: learning itself moved to FixUps (Engine/Learning.swift): rules need 2 sightings or your
+    // approval, never change a common word without approval, and are listed in Settings › Learning.
+    // `learned` / `counts` above are read once to migrate what 0.7.3–0.7.5 learned.
 }
 
 // MARK: - Corrections kept for a future fine-tune (opt-in, off by default)
@@ -186,6 +144,19 @@ enum CorrectionStore {
         let files = (try? FileManager.default.contentsOfDirectory(at: folder(base), includingPropertiesForKeys: nil)) ?? []
         return files.filter { $0.pathExtension == "json" }.count
     }
+
+    /// Minutes of audio saved so far (the `seconds` of every pair), for Settings › Learning.
+    static func totalSeconds(_ base: URL) -> Double {
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder(base), includingPropertiesForKeys: nil)) ?? []
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        return files.filter { $0.pathExtension == "json" }.reduce(0) { sum, f in
+            guard let d = try? Data(contentsOf: f), let p = try? dec.decode(Pair.self, from: d) else { return sum }
+            return sum + max(0, p.seconds)
+        }
+    }
+    /// The amount of your own corrected speech a personal model would want (a goal; no model yet).
+    static let personalModelGoalMinutes = 60.0
 
     static func deleteAll(_ base: URL) {
         try? FileManager.default.removeItem(at: folder(base))

@@ -242,6 +242,9 @@ enum Snapshot {
         made += await serverCapture(env(ContentView(section: .profile)), size: nightSize, name: "P13c_profile_link_or_code_dark",
                                     dir: dir, dark: true, chrome: true)
         AccountModel.shared = realAccount
+        // 0.7.6 Settings › Learning with INVENTED sample data (no real fixes, no audio): learned fix-ups,
+        // suggestions, and 23 minutes of saved corrections (JSON stubs in the sample store's folder).
+        made += await learningShots(store: store, dir: dir)
         // 0.7.2 targeted CI: only the Night/Daylight screens (+ the smallest window size).
         if CommandLine.arguments.contains("--quick") {
             made += await serverCapture(env(ContentView(section: .home)), size: NSSize(width: 900, height: 600),
@@ -630,6 +633,57 @@ enum Snapshot {
     }
 
     // MARK: - Sample data (made up, screenshots only: never shown to users)
+
+    private static func learningShots(store: Store, dir: URL) async -> [String] {
+        let keys = [FixUps.key, FixUps.migratedKey, CorrectionStore.key]
+        let saved = keys.map { UserDefaults.standard.object(forKey: $0) }
+        defer {
+            for (k, v) in zip(keys, saved) {
+                if let v { UserDefaults.standard.set(v, forKey: k) } else { UserDefaults.standard.removeObject(forKey: k) }
+            }
+        }
+        let day: TimeInterval = 86_400
+        let base = Date(timeIntervalSince1970: 1_764_000_000)
+        func rule(_ f: String, _ t: String, seen: Int, approved: Bool = false, on: Bool = true, name: Bool = false, ago: Double) -> FixUpRule {
+            FixUpRule(from: f, to: t, seen: seen, approved: approved, enabled: on, firstSeen: base.addingTimeInterval(-ago * day - 5 * day),
+                      lastSeen: base.addingTimeInterval(-ago * day), isName: name)
+        }
+        UserDefaults.standard.set(true, forKey: FixUps.migratedKey)
+        FixUps.rules = [
+            rule("superbase", "Supabase", seen: 4, ago: 0.2),
+            rule("teh", "the", seen: 3, ago: 1),
+            rule("zorvath", "Zorvath", seen: 1, approved: true, name: true, ago: 2),
+            rule("on shape", "Onshape", seen: 2, approved: true, on: false, ago: 3),
+            rule("their", "there", seen: 2, ago: 0.5),
+            rule("fluid audio", "FluidAudio", seen: 1, ago: 0.8),
+            rule("tamsin", "Tamsin", seen: 1, name: true, ago: 4),
+        ]
+        CorrectionStore.enabled = true
+        let folder = CorrectionStore.folder(store.folder)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        for i in 0..<46 {      // 46 × 30 s = 23 min of invented corrections (text only, no audio files)
+            let p = CorrectionStore.Pair(id: UUID(), source: "dictation", original: "sample \(i)", corrected: "Sample \(i)",
+                                         seconds: 30, savedAt: base)
+            try? enc.encode(p).write(to: folder.appendingPathComponent("\(p.id.uuidString).json"))
+        }
+        var made: [String] = []
+        let size = NSSize(width: 1200, height: 800)
+        for dark in [false, true] {
+            made += await serverCapture(env(ContentView(section: .settings, settingsPane: .learning)), size: size,
+                                        name: dark ? "P15b_settings_learning_dark" : "P15_settings_learning_light",
+                                        dir: dir, dark: dark, chrome: true)
+            // The whole page (taller than the runner's screen): borderless, drawn offscreen.
+            made += await capture(env(ContentView(section: .settings, settingsPane: .learning)), size: NSSize(width: 1200, height: 1560),
+                                  name: dark ? "P15d_settings_learning_full_dark" : "P15c_settings_learning_full_light",
+                                  dir: dir, titled: false, dark: dark)
+        }
+        made += await serverCapture(env(ContentView(section: .settings, settingsPane: .dictation)), size: size,
+                                    name: "P15e_settings_dictation_boost_light", dir: dir, dark: false, chrome: true)
+        CorrectionStore.deleteAll(store.folder)
+        return made
+    }
 
     private static func fillSampleData(_ store: Store) -> UUID {
         let cal = Calendar.current

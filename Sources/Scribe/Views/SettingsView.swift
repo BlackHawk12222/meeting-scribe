@@ -11,12 +11,12 @@ import ServiceManagement
 import AVFoundation
 
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, dictation, meetings, vocabulary, models, updates
+    case general, dictation, meetings, vocabulary, learning, models, updates
     /// 0.7.3.1: Settings › General › Credits & licenses (a sub-page; not in the section list).
     case credits
 
     /// The section list (Credits & licenses opens from General).
-    static let sidebar: [SettingsPane] = [.general, .dictation, .meetings, .vocabulary, .models, .updates]
+    static let sidebar: [SettingsPane] = [.general, .dictation, .meetings, .vocabulary, .learning, .models, .updates]
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -24,6 +24,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .dictation: return "Dictation"
         case .meetings: return "Meetings"
         case .vocabulary: return "Vocabulary"
+        case .learning: return "Learning"
         case .models: return "Models"
         case .updates: return "Updates"
         case .credits: return "Credits & licenses"
@@ -35,6 +36,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .dictation: return "mic"
         case .meetings: return "waveform"
         case .vocabulary: return "character.book.closed"
+        case .learning: return "sparkles"
         case .models: return "cpu"
         case .updates: return "arrow.down.circle"
         case .credits: return "doc.text"
@@ -46,6 +48,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .dictation: return "How you talk to type, and where the capsule sits."
         case .meetings: return "Recording, notes, and where they're saved."
         case .vocabulary: return "Words Scribe should spell your way."
+        case .learning: return "What Scribe picked up from your fixes. It all stays on this Mac."
         case .models: return "What runs on this Mac."
         case .updates: return "New versions, and who made what."
         case .credits: return "The models, code and fonts Scribe is built on, and their licenses."
@@ -129,6 +132,7 @@ struct SettingsPage: View {
                 SyncSettingsTab()
             }
         case .vocabulary: VocabularySettingsTab()
+        case .learning: LearningSettingsTab()
         case .models: ModelSettingsTab()
         case .updates:
             VStack(alignment: .leading, spacing: 26) {
@@ -234,6 +238,8 @@ struct DictationSettingsTab: View {
     @AppStorage("pauseWhileThinking") private var pauseWhileThinking = true
     @AppStorage("doubleTapHandsFree") private var doubleTap = true
     @AppStorage(DictationStyle.key) private var style = DictationStyle.natural.rawValue
+    /// 0.7.6: "Boost my words" (Engine/Learning.swift, WordBoost). On by default.
+    @AppStorage(WordBoost.key) private var boostWords = true
     /// 0.7.5: which microphone Scribe opens (MicDevices).
     @AppStorage(MicDevices.settingKey) private var micDevice = "auto"
     @State private var mics: [MicDevice] = MicDevices.inputs()
@@ -296,6 +302,10 @@ struct DictationSettingsTab: View {
                 SettingRow(title: "Style", detail: (DictationStyle(rawValue: style) ?? .natural).detail) {
                     NightSegmented(selection: $style, options: DictationStyle.allCases.map { (value: $0.rawValue, title: $0.title) })
                 }
+            }
+            SettingsCard(title: "Your words",
+                         footer: "Fixes close misses of the words in Settings › Vocabulary right after Scribe hears you, by how they sound and how they're spelled: “superbase” → Supabase, “swift ui” → SwiftUI. It never changes an everyday English word.") {
+                ToggleRow(title: "Boost my words", detail: "Spell your Vocabulary words your way, even when they're misheard a little", isOn: $boostWords)
             }
             SettingsCard(title: "Clean-up (Natural style)") {
                 ToggleRow(title: "Clean up filler words", detail: "Removes “um”, “uh” and false starts", isOn: $removeFillers)
@@ -537,7 +547,6 @@ struct VocabularySettingsTab: View {
                     }
                 }
             }
-            LearnedFixesCard(changed: { words = Vocabulary.words; pairs = DictionaryReplacements.pairs })
             SettingsCard(footer: "Uses a small extra model (about 100 MB, downloaded once) to check your words against how they sounded, so misheard names can be fixed even when the spelling is far off. Off by default: it can sometimes swap an ordinary word for one of yours.") {
                 ToggleRow(title: "Also match against the audio",
                           detail: acoustic && !store.vocabularyBoostStatus.isEmpty ? store.vocabularyBoostStatus : nil,
@@ -675,7 +684,6 @@ struct ModelSettingsTab: View {
                 .padding(.horizontal, Night.rowPaddingH).padding(.vertical, Night.rowPaddingV + 2)
             }
             }
-            CorrectionsCard()
             SettingsCard(title: "Downloaded models",
                          footer: "Models live outside the app (in Application Support), so updating or reinstalling Scribe never downloads them again. Only missing or changed files are fetched. Verify re-checks every byte.") {
                 ModelComponentsList()
