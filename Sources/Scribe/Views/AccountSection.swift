@@ -83,13 +83,13 @@ struct AccountSection: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 13)
             NightDivider()
-            CardNote(text: "No password: we email you a 6-digit code. Optional; Scribe works fully without an account.")
+            CardNote(text: "No password: we email you a sign-in link. Optional; Scribe works fully without an account.")
         }
     }
 
     private func codeStep(_ e: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            CardNote(text: "Type the 6-digit code we sent to \(e).")
+            CardNote(text: "Sent to \(e). " + AccountModel.checkEmailText)
             NightDivider()
             HStack(spacing: 10) {
                 NightField(placeholder: "123456", text: $code, height: 32, font: .system(size: 15, weight: .semibold, design: .monospaced)) { verify() }

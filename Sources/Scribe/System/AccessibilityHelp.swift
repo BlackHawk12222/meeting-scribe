@@ -4,6 +4,7 @@
 
 import AppKit
 import SwiftUI
+import AVFoundation
 
 @MainActor
 enum AccessibilityHelp {
@@ -12,7 +13,7 @@ enum AccessibilityHelp {
     static var headline: String { "Scribe needs Accessibility to type" }
     static var explanation: String {
         Permissions.likelyResetByUpdate
-            ? "Scribe was updated, so macOS turned off its permission to type — even if the switch still looks on."
+            ? "This copy of Scribe has a different signature than the last one, so macOS turned off its permission to type — even if the switch still looks on."
             : "Without it, Scribe can only copy your words; you'd press ⌘V yourself."
     }
 
@@ -42,9 +43,11 @@ enum AccessibilityHelp {
 
     static func close() { window?.orderOut(nil) }
 
-    /// Once per build at launch: if typing is off after an update, open the help by itself.
+    /// Once per build at launch: if typing (or the microphone) is ACTUALLY off — checked live, not a
+    /// stored flag — open the help by itself. Nothing shows when both are on.
     static func showAtLaunchIfNeeded() {
-        guard UserDefaults.standard.bool(forKey: "onboarded"), !AXIsProcessTrusted() else { return }
+        let micOff = AVCaptureDevice.authorizationStatus(for: .audio) == .denied
+        guard UserDefaults.standard.bool(forKey: "onboarded"), !AXIsProcessTrusted() || micOff else { return }
         let key = "axHelpShownFor"
         guard UserDefaults.standard.string(forKey: key) != Permissions.currentBuild else { return }
         UserDefaults.standard.set(Permissions.currentBuild, forKey: key)
@@ -67,13 +70,22 @@ struct AccessibilityHelpView: View {
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
+            if permissions.microphone == .denied || permissions.microphone == .restricted {
+                HStack(spacing: 8) {
+                    Image(systemName: "mic.slash.fill").foregroundStyle(.orange)
+                    Text("The microphone is off for Scribe, so dictation and meetings record silence.")
+                        .font(.callout).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 4)
+                    Button("Open Microphone Settings") { Permissions.open(.microphone) }.controlSize(.small)
+                }
+            }
             if !permissions.accessibility {
                 VStack(alignment: .leading, spacing: 6) {
                     step(1, "In System Settings › Privacy & Security › Accessibility, select Scribe and click –.")
                     step(2, "Click +, choose Scribe in Applications, and make sure its switch is on.")
                     step(3, "Come back — this window turns green by itself.")
                 }
-                Text("Why every update: Scribe isn't signed with a paid Apple certificate, so macOS treats each new version as a different app.")
+                Text("Scribe 0.7.5 and later keep the same signature in every update, so macOS should remember this from now on.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Button("Open Accessibility Settings") { Permissions.open(.accessibility) }

@@ -917,6 +917,7 @@ enum DockPolicy {
 
 struct MeetingsSettingsTab: View {
     @AppStorage("noiseCleanup") private var noiseCleanup = true
+    @AppStorage("meetingSystemAudio") private var systemAudio = true
     @AppStorage("showMeetingScroll") private var showMeetingScroll = true
     @AppStorage("aiNotes") private var aiNotes = true
 
@@ -929,6 +930,10 @@ struct MeetingsSettingsTab: View {
             }
             SettingsCard(title: "Recording") {
                 ToggleRow(title: "Noise cleanup", detail: "Apple voice processing: reduces background noise while recording", isOn: $noiseCleanup)
+                NightDivider()
+                ToggleRow(title: "Also record the Mac's sound",
+                          detail: "The other people on a call (Zoom, Meet, Teams…), even with headphones. macOS asks once to allow System Audio Recording. Needs macOS 14.4+.",
+                          isOn: $systemAudio)
                 NightDivider()
                 ToggleRow(title: "Show the capsule while a meeting records", detail: "A red dot and a timer at the edge of the screen", isOn: $showMeetingScroll)
             }

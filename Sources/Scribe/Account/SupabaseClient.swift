@@ -1,7 +1,11 @@
 // SupabaseClient.swift
 // The few Supabase REST calls Scribe needs, over URLSession (no SDK):
-//   Auth (GoTrue):  POST /auth/v1/otp      email a 6-digit code (creates the user the first time)
+//   Auth (GoTrue):  POST /auth/v1/otp?redirect_to=scribe://auth-callback
+//                                          email a sign-in link (and a 6-digit code once the project's
+//                                          email template has {{ .Token }}); creates the user the first time
 //                   POST /auth/v1/verify   code → session (access + refresh token)
+//                   POST /auth/v1/token?grant_type=pkce   link (?code=…) + this Mac's code_verifier → session
+//                   GET  /auth/v1/user     implicit link (#access_token=…) → who signed in
 //                   POST /auth/v1/token?grant_type=refresh_token
 //                   POST /auth/v1/logout
 //   Data (PostgREST, row-level security = only your own rows; backend/supabase/):
@@ -11,6 +15,8 @@
 // Only ciphertext (SyncCrypto) and a few labels (item kind, a random device id) are ever sent.
 
 import Foundation
+import CryptoKit
+import Security
 
 struct SupabaseSession: Codable, Equatable {
     var accessToken: String
@@ -60,8 +66,46 @@ final class SupabaseClient: @unchecked Sendable {
 
     // MARK: Auth
 
-    func sendCode(email: String) async throws {
-        _ = try await send("POST", "/auth/v1/otp", json: ["email": email, "create_user": true])
+    /// 0.7.5: where the email's link sends the browser. Registered as a URL scheme in Info.plist
+    /// (CFBundleURLTypes) and must be on the Supabase project's redirect allow-list.
+    static let redirectURL = "scribe://auth-callback"
+
+    /// The /otp path with redirect_to (what supabase-js sends for emailRedirectTo).
+    static var otpPath: String {
+        var allowed = CharacterSet.alphanumerics; allowed.insert(charactersIn: "-._~")
+        return "/auth/v1/otp?redirect_to=" + (redirectURL.addingPercentEncoding(withAllowedCharacters: allowed) ?? "")
+    }
+
+    /// The JSON body of the sign-in request. `codeChallenge` (PKCE, S256) makes the link come back
+    /// as scribe://auth-callback?code=… instead of tokens in the URL.
+    static func otpBody(email: String, codeChallenge: String?) -> [String: Any] {
+        var json: [String: Any] = ["email": email, "create_user": true]
+        if let codeChallenge {
+            json["code_challenge"] = codeChallenge
+            json["code_challenge_method"] = "s256"
+        }
+        return json
+    }
+
+    func sendCode(email: String, codeChallenge: String? = nil) async throws {
+        _ = try await send("POST", Self.otpPath, json: Self.otpBody(email: email, codeChallenge: codeChallenge))
+    }
+
+    /// PKCE link: the ?code=… from scribe://auth-callback + the verifier this Mac kept → session.
+    func exchange(authCode: String, verifier: String) async throws -> SupabaseSession {
+        let d = try await send("POST", "/auth/v1/token?grant_type=pkce", json: ["auth_code": authCode, "code_verifier": verifier])
+        return try Self.session(from: d, fallbackEmail: "")
+    }
+
+    /// Implicit link: tokens arrive in the URL fragment without the user; ask who it is.
+    func session(accessToken: String, refreshToken: String, expiresIn: Double) async throws -> SupabaseSession {
+        let d = try await send("GET", "/auth/v1/user", token: accessToken)
+        guard let o = try JSONSerialization.jsonObject(with: d) as? [String: Any], let id = o["id"] as? String else {
+            throw ClientError.badResponse
+        }
+        return SupabaseSession(accessToken: accessToken, refreshToken: refreshToken,
+                               expiresAt: Date().addingTimeInterval(expiresIn), userID: id,
+                               email: (o["email"] as? String) ?? "")
     }
 
     func verify(email: String, code: String) async throws -> SupabaseSession {
@@ -86,6 +130,62 @@ final class SupabaseClient: @unchecked Sendable {
         return SupabaseSession(accessToken: access, refreshToken: refresh,
                                expiresAt: Date().addingTimeInterval(expiresIn),
                                userID: id, email: (user["email"] as? String) ?? fallbackEmail)
+    }
+
+    // MARK: PKCE + the link coming back
+
+    /// A random code_verifier (43–128 chars, URL-safe).
+    static func newVerifier() -> String {
+        var bytes = [UInt8](repeating: 0, count: 48)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return base64url(Data(bytes))
+    }
+
+    /// S256 code_challenge = base64url(SHA-256(verifier)), no padding.
+    static func challenge(for verifier: String) -> String {
+        base64url(Data(SHA256.hash(data: Data(verifier.utf8))))
+    }
+
+    static func base64url(_ d: Data) -> String {
+        d.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    /// What the sign-in link brought back (scribe://auth-callback…).
+    enum Callback: Equatable {
+        case implicit(accessToken: String, refreshToken: String, expiresIn: Double)
+        case pkce(code: String)
+        case failure(String)
+    }
+
+    /// nil = not a Scribe sign-in link. Reads both the query (?code=…, ?error=…) and the fragment
+    /// (#access_token=…&refresh_token=…&expires_in=…, #error=…&error_description=…).
+    static func parseCallback(_ url: URL) -> Callback? {
+        guard url.scheme?.lowercased() == "scribe" else { return nil }
+        let target = ((url.host ?? "") + url.path).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard target == "auth-callback" else { return nil }
+        var p: [String: String] = [:]
+        func add(_ s: String?) {
+            guard let s, !s.isEmpty else { return }
+            for pair in s.split(separator: "&") {
+                let kv = pair.split(separator: "=", maxSplits: 1).map(String.init)
+                guard let k = kv.first?.removingPercentEncoding else { continue }
+                let v = kv.count > 1 ? (kv[1].replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? kv[1]) : ""
+                p[k] = v
+            }
+        }
+        let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        add(comps?.percentEncodedQuery)
+        add(comps?.percentEncodedFragment)
+        if p["error"] != nil || p["error_code"] != nil || p["error_description"] != nil {
+            let d = p["error_description"] ?? p["error"] ?? p["error_code"] ?? ""
+            return .failure(d.isEmpty ? "The sign-in link didn't work." : d)
+        }
+        if let a = p["access_token"], !a.isEmpty, let r = p["refresh_token"], !r.isEmpty {
+            return .implicit(accessToken: a, refreshToken: r, expiresIn: Double(p["expires_in"] ?? "") ?? 3600)
+        }
+        if let c = p["code"], !c.isEmpty { return .pkce(code: c) }
+        return .failure("The sign-in link was incomplete. Send a new one.")
     }
 
     // MARK: Data

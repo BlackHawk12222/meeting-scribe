@@ -45,6 +45,9 @@ enum SelfTest072 {
         // 0.7.3.2: accounts (crypto, payload, signed-out), My voice, Meetings dashboard + navigation.
         let a0732 = await SelfTest0732.run()
         out["v0732"] = a0732.0; failures += a0732.1
+        // 0.7.5: signature identity, meeting audio (silence check, mixer), sign-in link.
+        let a075 = await SelfTest075.run()
+        out["v075"] = a075.0; failures += a075.1
         let dict = await dictationCheck()
         out["dictation_startup"] = dict.0; failures += dict.1
         // 0.7.3.1: meetings still work with FluidAudio's TTS data stripped from the app.

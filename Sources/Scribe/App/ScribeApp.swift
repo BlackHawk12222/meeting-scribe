@@ -5,6 +5,7 @@
 
 import SwiftUI
 import Combine
+import AVFoundation
 
 @main
 enum Main {
@@ -42,6 +43,8 @@ final class AppModel: ObservableObject {
     @Published var justRecordedMeeting: UUID?
     /// Set by the menu bar ("open this meeting"); the main window selects it.
     @Published var openMeetingRequest: UUID?
+    /// 0.7.5: a sign-in link opened Scribe → show Profile (where the account card is).
+    @Published var openProfileRequest = false
 
     /// The meeting capsule (red dot + level bars + timer) while a meeting records.
     private let meetingOverlay = OverlayPanel()
@@ -80,10 +83,21 @@ final class AppModel: ObservableObject {
         }
         updater.launchHousekeeping()     // "Updated to X" / failed-install note, stale staged update
         updater.startAutomatic()
+        // 0.7.5: log the signature macOS keys permissions to + the real permission states.
+        Permissions.launchAudit()
         // Typing permission lost (e.g. after an update)? Explain how to fix it, once per build.
         permissions.refresh()
         AccessibilityHelp.showAtLaunchIfNeeded()
         GitHubSync.shared.kick()          // send anything left in the queue from last time
+    }
+
+    /// 0.7.5: scribe://auth-callback… (the sign-in email's link).
+    func openURL(_ url: URL) {
+        AppLog.log("opened URL scribe://\(url.host ?? "")")      // never the tokens/code
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.first { $0.identifier?.rawValue.contains("main") == true || $0.title == "Scribe" }?.makeKeyAndOrderFront(nil)
+        openProfileRequest = true
+        Task { await AccountModel.shared.handleCallback(url) }
     }
 
     /// Menu bar → "open this meeting in the main window".
@@ -94,15 +108,20 @@ final class AppModel: ObservableObject {
     /// Record / Stop a meeting (window button, ⌘R, or the menu bar).
     func toggleMeetingRecording() {
         if recorder.isRecording {
-            if let (url, duration) = recorder.stop() {
-                let m = store.addMeeting(audioURL: url, duration: duration)
-                justRecordedMeeting = m.id
-                Task { await store.process(m.id) }
+            Task {
+                // 0.7.5: finish() mixes the Mac's sound (calls) into the meeting file off the main thread.
+                if let (url, duration) = await recorder.finish() {
+                    let m = store.addMeeting(audioURL: url, duration: duration)
+                    justRecordedMeeting = m.id
+                    await store.process(m.id)
+                }
             }
         } else {
             Task {
                 guard await Recorder.requestPermission() else {
+                    AppLog.log("meeting not started: microphone \(Permissions.micName(AVCaptureDevice.authorizationStatus(for: .audio)))")
                     alertText = "Scribe needs the microphone. Turn it on in System Settings → Privacy & Security → Microphone."
+                    Permissions.open(.microphone)
                     return
                 }
                 do {
@@ -117,6 +136,20 @@ final class AppModel: ObservableObject {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// 0.7.5: the scribe:// URL scheme (sign-in links). An Apple Event handler works whether or not
+    /// the main window is open (SwiftUI's onOpenURL needs a window and may open a new one).
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        let gurl = AEEventClass(0x4755_524C)              // 'GURL' = kInternetEventClass / kAEGetURL
+        NSAppleEventManager.shared().setEventHandler(self, andSelector: #selector(handleGetURL(_:withReply:)),
+                                                     forEventClass: gurl, andEventID: AEEventID(gurl))
+    }
+
+    @objc func handleGetURL(_ event: NSAppleEventDescriptor, withReply reply: NSAppleEventDescriptor) {
+        guard let s = event.paramDescriptor(forKeyword: AEKeyword(0x2D2D_2D2D))?.stringValue,   // keyDirectObject '----'
+              let url = URL(string: s) else { return }
+        MainActor.assumeIsolated { AppModel.shared.openURL(url) }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated { AppModel.shared.start() }
     }

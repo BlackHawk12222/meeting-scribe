@@ -45,6 +45,9 @@ enum NavSection: String, Hashable, CaseIterable {
 struct LivePreview {
     var elapsed: TimeInterval
     var tape: LevelTape
+    /// 0.7.5 snapshots: show an audio problem banner.
+    var problem: Recorder.AudioProblem? = nil
+    var systemAudio = true
 }
 
 struct ContentView: View {
@@ -126,6 +129,9 @@ struct ContentView: View {
         }
         .onChange(of: model.openMeetingRequest) { _, id in
             if let id { selectedMeeting = id; section = .meetings; model.openMeetingRequest = nil }
+        }
+        .onChange(of: model.openProfileRequest) { _, on in
+            if on { section = .profile; model.openProfileRequest = false }
         }
         .onChange(of: recorder.isRecording) { _, on in
             if on { withAnimation(Night.base) { section = .meetings } }

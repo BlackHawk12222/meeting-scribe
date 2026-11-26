@@ -211,6 +211,12 @@ final class Updater: ObservableObject {
                 let newApp = work.appendingPathComponent("Scribe.app")
                 guard FileManager.default.fileExists(atPath: newApp.path) else { throw UpdateError.message("The zip had no Scribe.app.") }
                 try Self.run("/usr/bin/codesign", ["--verify", "--deep", newApp.path])
+                // 0.7.5: macOS keeps Microphone/Accessibility only if the new build has the SAME
+                // designated requirement (same certificate). Log both so a reset is explainable.
+                let newID = Permissions.codeIdentity(of: newApp), curID = Permissions.codeIdentity()
+                let same = newID.designatedRequirement != nil && newID.designatedRequirement == curID.designatedRequirement
+                Self.log("staged \(r.version): signature \(same ? "same as this build (permissions carry over)" : "DIFFERENT (macOS will ask for permissions again)"); new => \(newID.designatedRequirement ?? "none"); running => \(curID.designatedRequirement ?? "none")")
+                AppLog.log("update \(r.version) staged; same signature: \(same)")
                 let plist = NSDictionary(contentsOf: newApp.appendingPathComponent("Contents/Info.plist"))
                 let newVersion = plist?["CFBundleShortVersionString"] as? String ?? "?"
                 guard newVersion == r.version else { throw UpdateError.message("Version mismatch (\(newVersion) vs \(r.version)).") }

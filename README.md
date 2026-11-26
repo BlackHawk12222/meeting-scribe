@@ -128,6 +128,29 @@ falls back to ad-hoc. The first update to a certificate-signed build changes the
 Scribe in Accessibility once); after that the permission sticks. It is still not notarized (that needs a paid Apple
 Developer account), so the very first open still needs *Open Anyway*.
 
+### 0.7.5: permissions that stick
+- Every CI build (releases AND preview/dev-branch builds) is signed with the same certificate, and
+  build.sh pins the designated requirement to `identifier "com.blackhawk12222.Scribe" and certificate
+  leaf = H"…"` (never a cdhash). The build fails if it isn't. A CI step compares it with the latest
+  release (`DR_MATCH yes/no`).
+- At launch Scribe logs its designated requirement and the real permission states (Microphone,
+  Accessibility, System Audio Recording, Input Monitoring) to `~/Library/Logs/Scribe/scribe.log`; the
+  updater logs whether a staged update has the same signature. Setup help only appears for a
+  permission that is actually off (checked live, not a stored flag).
+
+### 0.7.5: meeting audio
+Meetings record the microphone AND the Mac's sound (Core Audio process tap, macOS 14.4+, permission
+"System Audio Recording Only"), mixed into one file when you stop. Voice processing's echo
+cancellation used to remove the call's audio from the mic. A mic that sends nothing for 3 s or pure
+digital silence for 10 s is restarted without voice processing, then reported on the live meeting
+view with a button to the right Settings page. Settings › Meetings › "Also record the Mac's sound".
+
+### 0.7.5: sign-in link
+Supabase's default email (no custom SMTP) has only a link. Scribe asks for it with
+`redirect_to=scribe://auth-callback` + a PKCE challenge and handles `scribe://auth-callback?code=…`
+(exchanged with this Mac's verifier) and `#access_token=…` (implicit). The 6-digit code still works.
+The Supabase project's Redirect URLs allow-list must contain `scribe://auth-callback`.
+
 ## Voice learning (Engine/VoiceLibrary.swift)
 Name a speaker once; next meetings label them automatically (cosine similarity of voice embeddings: since 0.6
 the best match ≥ 0.40 is labelled, one person per speaker; 0.5 only auto-labelled ≥ 0.55 and showed 0.40–0.55 as "maybe …?"). Every confirmed meeting adds up to 8 fingerprints per person, so it gets steadier.

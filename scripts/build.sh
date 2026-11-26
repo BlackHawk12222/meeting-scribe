@@ -85,16 +85,46 @@ if [ -n "${SIGNING_CERT_P12:-}" ] && [ -n "${SIGNING_CERT_PASSWORD:-}" ]; then
   rm -f build/signing.p12
   [ -z "$IDENTITY" ] && IDENTITY="-"
 fi
-if [ "$IDENTITY" != "-" ] && codesign --force --options runtime --entitlements Resources/Scribe.entitlements \
-     --keychain "$KC" -s "$IDENTITY" "$APP"; then
-  echo "SIGNED with the stable self-signed certificate ($IDENTITY)"
-else
-  [ "$IDENTITY" != "-" ] && echo "::warning::Signing with SIGNING_CERT_P12 failed; falling back to ad-hoc"
+BUNDLE_ID=com.blackhawk12222.Scribe
+# 0.7.5: macOS (TCC) keys Microphone / Accessibility / System Audio grants to the app's DESIGNATED
+# REQUIREMENT. With the stable certificate we pin it explicitly to identifier + certificate leaf
+# (never a cdhash), and sign any nested code inside-out with the same identity first.
+sign_nested() {
+  local id="$1"; shift
+  find "$APP/Contents" -depth \( -name "*.framework" -o -name "*.dylib" -o -name "*.xpc" -o -name "*.appex" \
+       -o -name "*.bundle" -o \( -path "*/Contents/*/*.app" \) \) -print 2>/dev/null | while read -r n; do
+    echo "signing nested: ${n#$APP/}"
+    codesign --force --options runtime "$@" -s "$id" "$n"
+  done
+}
+SIGNED_WITH=adhoc
+if [ "$IDENTITY" != "-" ]; then
+  LEAF=$(printf '%s' "$IDENTITY" | tr 'A-F' 'a-f')
+  REQ="designated => identifier \"$BUNDLE_ID\" and certificate leaf = H\"$LEAF\""
+  if sign_nested "$IDENTITY" --keychain "$KC" && codesign --force --options runtime --entitlements Resources/Scribe.entitlements \
+       --keychain "$KC" --requirements "=$REQ" -s "$IDENTITY" "$APP"; then
+    SIGNED_WITH=certificate
+    echo "SIGNED with the stable self-signed certificate ($IDENTITY)"
+  else
+    echo "::warning::Signing with SIGNING_CERT_P12 failed; falling back to ad-hoc"
+  fi
+fi
+if [ "$SIGNED_WITH" = adhoc ]; then
+  sign_nested - 
   codesign --force --options runtime --entitlements Resources/Scribe.entitlements -s - "$APP"
   echo "SIGNED ad-hoc"
+  echo "::warning::AD-HOC signature: macOS treats this build as a NEW app, so Microphone/Accessibility/System Audio permissions reset when it replaces another build."
 fi
-codesign --verify --verbose=2 "$APP"
-codesign -d -r- "$APP" 2>&1 | grep designated || true
+codesign --verify --deep --strict --verbose=2 "$APP"
+DR=$(codesign -d -r- "$APP" 2>&1 | grep -o 'designated => .*' || true)
+echo "SIGNATURE_DR $DR"
+codesign -dv --verbose=4 "$APP" 2>&1 | grep -E "^(Identifier|Format|CodeDirectory|Authority|TeamIdentifier|Runtime Version|Sealed Resources|Signature size)" || true
+if [ "$SIGNED_WITH" = certificate ]; then
+  case "$DR" in
+    *"identifier \"$BUNDLE_ID\""*"certificate leaf = H\"$LEAF\""*) echo "SIGNATURE_CHECK ok: stable designated requirement (identifier + certificate leaf)";;
+    *) echo "::error::designated requirement is not identifier + certificate leaf: $DR"; exit 1;;
+  esac
+fi
 # The app icon must be in the bundle (Dock/Finder): Assets.car + CFBundleIconName.
 test -f "$APP/Contents/Resources/Assets.car" || { echo "missing Assets.car (app icon)"; exit 1; }
 /usr/libexec/PlistBuddy -c "Print :CFBundleIconName" "$APP/Contents/Info.plist"
@@ -103,6 +133,7 @@ codesign -d --entitlements - "$APP" || true
 mkdir -p dist
 rm -rf dist/*
 ditto -c -k --keepParent "$APP" dist/Scribe.zip
+echo "$DR" > dist/designated-requirement.txt
 # Checksum the updater verifies before installing.
 (cd dist && shasum -a 256 Scribe.zip > Scribe.zip.sha256 && cat Scribe.zip.sha256)
 # DMG with an Applications shortcut so you can drag the app in.

@@ -14,6 +14,7 @@ struct LiveMeetingView: View {
     var preview: LivePreview?
 
     private var tape: LevelTape { preview?.tape ?? model.meetingTape }
+    private var systemAudioOn: Bool { preview?.systemAudio ?? recorder.systemAudioActive }
     private var elapsed: TimeInterval { preview?.elapsed ?? recorder.elapsed }
 
     var body: some View {
@@ -32,6 +33,8 @@ struct LiveMeetingView: View {
             VStack(spacing: Night.cardGap) {
                 // 0.7.3.1: recording-consent reminder (non-blocking; see ConsentNotice.swift).
                 ConsentNoticeView(reminder: model.consent)
+                // 0.7.5: a source that isn't delivering sound, with the Settings page that fixes it.
+                if let p = preview?.problem ?? (preview == nil ? recorder.problem : nil) { AudioProblemBanner(problem: p) }
                 meterCard
                 HStack(alignment: .top, spacing: Night.cardGap) {
                     listeningCard.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -63,7 +66,7 @@ struct LiveMeetingView: View {
             NightDivider(vertical: true).frame(height: 56)
             VStack(alignment: .leading, spacing: 3) {
                 Text("Input").font(.nightMeta).foregroundStyle(Night.text3)
-                Text("Mac microphone").font(.nightHeadline).foregroundStyle(Night.text)
+                Text(systemAudioOn ? "Mic + Mac sound" : "Mac microphone").font(.nightHeadline).foregroundStyle(Night.text)
                 Text(recorder.noiseCleanupActive ? "Noise cleanup on · no upload" : "On-device · no upload")
                     .font(.nightMeta).foregroundStyle(Night.text3)
             }
@@ -148,5 +151,32 @@ struct LiveMeetingView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .nightCard(padding: 20)
+    }
+}
+
+/// 0.7.5: "Scribe can't hear …" with the button that opens the right Settings page.
+struct AudioProblemBanner: View {
+    let problem: Recorder.AudioProblem
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: problem.pane == .systemAudio ? "speaker.slash.fill" : "mic.slash.fill")
+                .font(.system(size: 16, weight: .semibold)).foregroundStyle(Night.warn)
+                .frame(width: 22)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(problem.title).font(.nightHeadline).foregroundStyle(Night.text)
+                Text(problem.detail).font(.nightSecondary).foregroundStyle(Night.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            if let pane = problem.pane {
+                Button("Open Settings") { Permissions.open(pane) }
+                    .buttonStyle(NightButtonStyle(kind: .secondary, height: 30))
+            }
+        }
+        .padding(.horizontal, 18).padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(NightCardBackground())
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(problem.title)
     }
 }

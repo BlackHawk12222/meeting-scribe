@@ -219,6 +219,19 @@ enum Snapshot {
         made += await serverCapture(env(ContentView(section: .profile)), size: nightSize, name: "P12f_profile_recovery_key_light",
                                     dir: dir, chrome: true)
         AccountModel.shared = realAccount
+        // 0.7.5: the live meeting view when a source isn't delivering sound (+ the "Mic + Mac sound" input).
+        let probTape = LevelTape(); probTape.fillPreview(seconds: 30)
+        made += await serverCapture(env(ContentView(section: .meetings,
+                                                    livePreview: LivePreview(elapsed: 42, tape: probTape, problem: .systemSilent))),
+                                    size: nightSize, name: "P13_meeting_live_system_audio_problem_light", dir: dir, chrome: true)
+        made += await serverCapture(env(ContentView(section: .meetings,
+                                                    livePreview: LivePreview(elapsed: 42, tape: probTape, problem: .micSilent))),
+                                    size: nightSize, name: "P13b_meeting_live_mic_silent_dark", dir: dir, dark: true, chrome: true)
+        // 0.7.5: the sign-in step now says "click the link (or type the code)".
+        AccountModel.shared = AccountModel.preview(.codeSent(email: "robin@sample.invalid"))
+        made += await serverCapture(env(ContentView(section: .profile)), size: nightSize, name: "P13c_profile_link_or_code_dark",
+                                    dir: dir, dark: true, chrome: true)
+        AccountModel.shared = realAccount
         // 0.7.2 targeted CI: only the Night/Daylight screens (+ the smallest window size).
         if CommandLine.arguments.contains("--quick") {
             made += await serverCapture(env(ContentView(section: .home)), size: NSSize(width: 900, height: 600),

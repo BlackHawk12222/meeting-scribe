@@ -67,6 +67,14 @@ targets:
         LSMinimumSystemVersion: "14.0"
         LSApplicationCategoryType: public.app-category.productivity
         NSMicrophoneUsageDescription: Scribe listens while you dictate or record a meeting, and turns it into text on this Mac. Audio never leaves your Mac.
+        # 0.7.5: meetings also record the Mac's sound (Core Audio process tap). Without this string
+        # macOS would refuse (or kill the app on) the System Audio Recording request.
+        NSAudioCaptureUsageDescription: Scribe records the sound your Mac plays during a meeting (the other people on a call), so they're in the transcript. Audio never leaves your Mac.
+        # 0.7.5: scribe://auth-callback, where the account sign-in email's link comes back.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.blackhawk12222.Scribe.auth
+            CFBundleTypeRole: Viewer
+            CFBundleURLSchemes: [scribe]
         NSHumanReadableCopyright: Made by BlackHawk12222
     entitlements:
       path: Resources/Scribe.entitlements

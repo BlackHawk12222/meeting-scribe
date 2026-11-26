@@ -111,15 +111,37 @@ jobs:
       - name: Build, sign (ad-hoc), package
         env:
           SCRIBE_BUILD: ${{ github.run_number }}
-          # Optional stable signing identity (README → Signing). Empty = ad-hoc.
-          # Dev-branch test builds (release=false, not main) stay ad-hoc signed and skip the cert.
-          SIGNING_CERT_P12: ${{ (github.ref == 'refs/heads/main' || github.event.inputs.release == 'true') && secrets.SIGNING_CERT_P12 || '' }}
-          SIGNING_CERT_PASSWORD: ${{ (github.ref == 'refs/heads/main' || github.event.inputs.release == 'true') && secrets.SIGNING_CERT_PASSWORD || '' }}
+          # Stable signing identity (README → Signing). Empty = ad-hoc.
+          # 0.7.5: EVERY build uses it, preview/dev-branch builds too. An ad-hoc preview has a
+          # different identity than the releases, so installing one (or updating from one) made
+          # macOS drop Microphone/Accessibility each time.
+          SIGNING_CERT_P12: ${{ secrets.SIGNING_CERT_P12 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
           # 0.7.3.2 accounts (optional): the Supabase project URL + anon key (public by design;
           # row-level security protects the data). Unset = "Accounts coming soon".
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: ./scripts/build.sh
+      - name: Signature identity vs the latest release (what macOS keys permissions to)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APP=build/DD/Build/Products/Release/Scribe.app
+          NEW=$(codesign -d -r- "$APP" 2>&1 | grep -o 'designated => .*' || true)
+          echo "this build:     $NEW"
+          codesign -dv --verbose=4 "$APP" 2>&1 | grep -E '^(Identifier|Authority|TeamIdentifier|CodeDirectory|Runtime Version)' || true
+          R="$RUNNER_TEMP/latest-release"; rm -rf "$R"; mkdir -p "$R/x"
+          if gh release download --repo "$GITHUB_REPOSITORY" --pattern Scribe.zip --dir "$R"; then
+            ditto -x -k "$R/Scribe.zip" "$R/x"
+            OLD=$(codesign -d -r- "$R/x/Scribe.app" 2>&1 | grep -o 'designated => .*' || true)
+            echo "latest release: $OLD ($(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$R/x/Scribe.app/Contents/Info.plist"))"
+            if [ -n "$NEW" ] && [ "$NEW" = "$OLD" ]; then echo "DR_MATCH yes: permissions granted to the latest release carry over to this build"
+            else echo "DR_MATCH no: macOS will treat this build as a different app than the latest release"; fi
+          fi
+          /usr/libexec/PlistBuddy -c "Print :NSAudioCaptureUsageDescription" "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes:0" "$APP/Contents/Info.plist"
+          xattr -l "$APP" || true
       - name: App icon check (Light / Dark / Tinted looks in Assets.car)
         run: |
           APP=build/DD/Build/Products/Release/Scribe.app
@@ -159,6 +181,7 @@ jobs:
             dist/Scribe.zip
             dist/Scribe.dmg
             dist/Scribe.zip.sha256
+            dist/designated-requirement.txt
           retention-days: 30
       - name: Cache models (the app is not sandboxed, so FluidAudio uses ~/Library/Application Support)
         if: env.SCRIBE_SUITE != 'none'
@@ -247,7 +270,7 @@ jobs:
           # components.json = the model manifest; the in-app updater compares it with installed models.
           cp Resources/ModelManifest.json dist/components.json
           cat > release-notes.md <<'EOF'
-          Free, on-device dictation + meeting notes for Apple Silicon Macs (macOS 14+, 15+ recommended; Apple Intelligence features need macOS 26). Not notarized. First launch: open it once, then System Settings > Privacy & Security > Open Anyway (macOS 15+). The welcome window downloads the models (~490 MB, once) while you allow Microphone and Accessibility. After updating from an older build: System Settings > Privacy & Security > Accessibility > remove Scribe (–) and add it again (+).
+          Free, on-device dictation + meeting notes for Apple Silicon Macs (macOS 14+, 15+ recommended; Apple Intelligence features need macOS 26). Not notarized. First launch: open it once, then System Settings > Privacy & Security > Open Anyway (macOS 15+). The welcome window downloads the models (~490 MB, once) while you allow Microphone and Accessibility. Updates keep the same signature, so macOS keeps Microphone, Accessibility and System Audio Recording. Only if you ran a test build before: in System Settings > Privacy & Security, remove Scribe (–) from Microphone and Accessibility once, then open Scribe from Applications and allow again.
           EOF
           gh release create "$TAG" dist/Scribe.dmg dist/Scribe.zip dist/Scribe.zip.sha256 dist/SHA256SUMS.txt dist/components.json \
             --title "Scribe $TAG" --notes-file release-notes.md

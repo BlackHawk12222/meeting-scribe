@@ -5,7 +5,10 @@
 // settings (and, if you turn them on, People and voice profiles) across Macs, restore them after
 // a reinstall or on a new Mac, and later unlock Scribe Pro.
 //
-// Flow: email → 6-digit code (no password) → signed in.
+// Flow: email → sign-in link (or 6-digit code) (no password) → signed in.
+//   0.7.5: on Supabase's default email template the email has only a link. It opens
+//   scribe://auth-callback (PKCE ?code=… exchanged with this Mac's code_verifier, or implicit
+//   #access_token=…); the AppDelegate hands it to handleCallback(_:). The code path still works.
 //   • First Mac on this account: a new encryption key is made and a recovery key is shown once.
 //   • Another Mac: the recovery key is asked for (checked against the server's key check).
 //   • Sync now: download + open + merge, then seal + upload (SyncPayload). Opt-in kinds that are
@@ -62,9 +65,13 @@ final class AccountModel: ObservableObject {
     static let lastSyncedKey = "accountLastSynced"
     static let deviceIDKey = "syncDeviceID"
     private static let sessionName = "session"
+    /// The PKCE code_verifier of the last link we asked for (Keychain; only this Mac can use the link).
+    static let verifierName = "pkceVerifier"
+    static let checkEmailText = "Check your email and click the link (or type the code if you got one)."
     private static func keyName(_ user: String) -> String { "syncKey." + user.lowercased() }
 
-    init(config: AccountConfig? = AccountConfig.load(), secrets: SecretStore? = nil, defaults: UserDefaults = .standard) {
+    init(config: AccountConfig? = AccountConfig.load(), secrets: SecretStore? = nil, defaults: UserDefaults = .standard,
+         urlSession: URLSession = .shared) {
         self.config = config
         self.defaults = defaults
         let opts = SyncOptions.load(defaults)
@@ -79,7 +86,7 @@ final class AccountModel: ObservableObject {
         let store: SecretStore = secrets ?? KeychainSecretStore()
         self.secrets = store
         phase = .signedOut
-        client = SupabaseClient(config: config)
+        client = SupabaseClient(config: config, urlSession: urlSession)
         lastSynced = defaults.object(forKey: Self.lastSyncedKey) as? Date
         if let d = store.data(for: Self.sessionName), let s = try? JSONDecoder().decode(SupabaseSession.self, from: d) {
             session = s
@@ -109,11 +116,44 @@ final class AccountModel: ObservableObject {
         let email = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard Self.looksLikeEmail(email) else { error = "That doesn't look like an email address."; return }
         guard let client else { return }
+        let verifier = SupabaseClient.newVerifier()
         await run {
-            try await client.sendCode(email: email)
+            self.secrets?.set(Data(verifier.utf8), for: Self.verifierName)
+            try await client.sendCode(email: email, codeChallenge: SupabaseClient.challenge(for: verifier))
             self.phase = .codeSent(email: email)
-            self.notice = "We sent a 6-digit code to \(email)."
+            self.notice = "Email sent to \(email)."
         }
+    }
+
+    /// scribe://auth-callback… from the email's link. Returns true when the URL was a sign-in link.
+    @discardableResult
+    func handleCallback(_ url: URL) async -> Bool {
+        guard let cb = SupabaseClient.parseCallback(url) else { return false }
+        guard let client, !previewOnly else { return true }
+        if isSignedIn { notice = "You're already signed in."; error = nil; return true }
+        switch cb {
+        case .failure(let why):
+            error = why.localizedCaseInsensitiveContains("expired") || why.localizedCaseInsensitiveContains("invalid")
+                ? "That sign-in link has expired or was already used. Send a new one." : why
+        case .pkce(let code):
+            guard let v = secrets?.data(for: Self.verifierName), let verifier = String(data: v, encoding: .utf8) else {
+                error = "This link was requested on another Mac (or is old). Send a new one from this Mac."
+                return true
+            }
+            await run {
+                let s = try await client.exchange(authCode: code, verifier: verifier)
+                self.secrets?.set(nil, for: Self.verifierName)
+                self.adopt(s)
+                try await self.setUpKey()
+            }
+        case .implicit(let a, let r, let exp):
+            await run {
+                let s = try await client.session(accessToken: a, refreshToken: r, expiresIn: exp)
+                self.adopt(s)
+                try await self.setUpKey()
+            }
+        }
+        return true
     }
 
     func verify(code raw: String) async {
@@ -122,6 +162,7 @@ final class AccountModel: ObservableObject {
         guard code.count >= 6 else { error = "Type the 6-digit code from the email."; return }
         await run {
             let s = try await client.verify(email: email, code: code)
+            self.secrets?.set(nil, for: Self.verifierName)
             self.adopt(s)
             try await self.setUpKey()
         }
