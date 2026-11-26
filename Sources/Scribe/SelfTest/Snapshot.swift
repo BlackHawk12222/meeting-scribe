@@ -187,6 +187,14 @@ enum Snapshot {
                                             name: name + (dark ? "_dark" : "_light"), dir: dir, dark: dark, chrome: true)
             }
         }
+        // The whole Profile page signed in (taller than the runner's screen, so drawn off-screen
+        // with cacheDisplay in a borderless window): Account + the My voice row once set up.
+        for dark in [false, true] {
+            AccountModel.shared = AccountModel.preview(.signedIn(email: "robin@sample.invalid"), lastSynced: Date().addingTimeInterval(-180))
+            made += await capture(env(ContentView(section: .profile)), size: NSSize(width: 1200, height: 1180),
+                                  name: dark ? "P12d_profile_full_signed_in_dark" : "P12d_profile_full_signed_in_light",
+                                  dir: dir, titled: false, dark: dark)
+        }
         AccountModel.shared = AccountModel.preview(.codeSent(email: "robin@sample.invalid"))
         made += await serverCapture(env(ContentView(section: .profile)), size: nightSize, name: "P12e_profile_code_light",
                                     dir: dir, chrome: true)

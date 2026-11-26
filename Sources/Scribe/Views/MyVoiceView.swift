@@ -208,8 +208,8 @@ struct MyVoiceCard: View {
     private func strengthHint(_ s: VoiceStrength) -> String {
         switch s {
         case .strong: return "meetings know it's you"
-        case .good: return "works well; a few meetings make it strong"
-        case .learning: return "train it more to make it surer"
+        case .good: return "works well"
+        case .learning: return "train it more"
         }
     }
 
@@ -282,7 +282,7 @@ struct StrengthBadge: View {
 
 /// Profile › My voice when it's set up: the same card in a small sheet.
 struct MyVoiceSheet: View {
-    static let size = CGSize(width: 620, height: 380)
+    static let size = CGSize(width: 620, height: 340)
     @EnvironmentObject var store: Store
     @Environment(\.dismiss) private var dismiss
     var preview: VoiceClipRecorder.Phase? = nil
