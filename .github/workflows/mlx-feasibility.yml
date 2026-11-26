@@ -1,8 +1,14 @@
 # Research only: can a LoRA adapter be trained on Parakeet TDT 0.6B v2 with Apple MLX?
-# Manual dispatch only. Does not build the app, does not release, uses no secrets.
+# Manual dispatch. GitHub only registers a dispatchable workflow that is on the default branch
+# or has run once, so a push to the research branch `mlx-feasibility` (and only that branch,
+# only these paths) also runs it. Never runs on main. Does not build the app, does not
+# release, uses no secrets.
 # Code: research/mlx-lora/. Result: artifact "mlx-feasibility" (logs + result.json).
 name: mlx-feasibility
 on:
+  push:
+    branches: [mlx-feasibility]
+    paths: ["research/mlx-lora/**", ".github/workflows/mlx-feasibility.yml"]
   workflow_dispatch:
     inputs:
       runner:
@@ -38,13 +44,13 @@ jobs:
     env:
       MLX_LORA_OUT: ${{ github.workspace }}/research/mlx-lora/out
       HF_HUB_DISABLE_PROGRESS_BARS: "1"
-      STEPS: ${{ inputs.steps }}
-      LORA_RANK: ${{ inputs.rank }}
+      STEPS: ${{ inputs.steps || '300' }}
+      LORA_RANK: ${{ inputs.rank || '8' }}
       LORA_ALPHA: "16"
-      LORA_LAYERS: ${{ inputs.layers }}
-      LR: ${{ inputs.lr }}
-      MAX_MINUTES: ${{ inputs.max_minutes }}
-      MLX_DEVICE: ${{ inputs.device }}
+      LORA_LAYERS: ${{ inputs.layers || 'all' }}
+      LR: ${{ inputs.lr || '2e-4' }}
+      MAX_MINUTES: ${{ inputs.max_minutes || '75' }}
+      MLX_DEVICE: ${{ inputs.device || 'gpu' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
