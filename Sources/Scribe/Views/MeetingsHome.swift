@@ -170,11 +170,12 @@ struct MeetingsPage: View {
                     }
                 }
             }
-            .frame(maxWidth: 1040, alignment: .leading)
-            .padding(.horizontal, Night.gutterLeading)
-            .padding(.top, 24)
-            .padding(.bottom, 32)
+            // 0.7.6: no width cap any more. The tiles and the list fill the page edge to edge,
+            // with the same outer padding as the Dictation page.
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, Night.gutterLeading)
+            .padding(.top, 22)
+            .padding(.bottom, 32)
         }
         .scrollIndicators(.never)
     }
@@ -185,17 +186,31 @@ struct MeetingsPage: View {
 struct MeetingsDashboardTiles: View {
     var dash: MeetingsDashboard
 
+    /// 0.7.6: the four tiles share the full width equally (like the Dictation tiles).
+    static func tileWidth(total: CGFloat, gap: CGFloat = Night.cardGap) -> CGFloat {
+        max(0, (total - 3 * gap) / 4)
+    }
+
     var body: some View {
         let h = Night.tileHeightCompact
-        HStack(spacing: Night.cardGap) {
-            PosterTile(color: Night.posterIndigo, label: "Meetings", value: "\(dash.meetingsThisWeek)",
-                       caption: "this week", height: h, valueSize: 46) { EmptyView() }
-            PosterTile(color: Night.posterCoral, label: "Recorded", value: dash.hoursText, unit: "h",
-                       caption: "this week", height: h, valueSize: 46) { EmptyView() }
-            PosterTile(color: Night.posterGreen, label: "Action items", value: "\(dash.openActionItems)",
-                       caption: dash.openActionItems == 1 ? "open item" : "open items", height: h, valueSize: 46) { EmptyView() }
-            TopSpeakersTile(speakers: dash.topSpeakers, height: h)
+        GeometryReader { geo in
+            let w = Self.tileWidth(total: geo.size.width)
+            HStack(spacing: Night.cardGap) {
+                PosterTile(color: Night.posterIndigo, label: "Meetings", value: "\(dash.meetingsThisWeek)",
+                           caption: "this week", height: h, valueSize: 46) { EmptyView() }
+                    .frame(width: w)
+                PosterTile(color: Night.posterCoral, label: "Recorded", value: dash.hoursText, unit: "h",
+                           caption: "this week", height: h, valueSize: 46) { EmptyView() }
+                    .frame(width: w)
+                PosterTile(color: Night.posterGreen, label: "Action items", value: "\(dash.openActionItems)",
+                           caption: dash.openActionItems == 1 ? "open item" : "open items", height: h, valueSize: 46) { EmptyView() }
+                    .frame(width: w)
+                TopSpeakersTile(speakers: dash.topSpeakers, height: h,
+                                nameWidth: TopSpeakersTile.nameWidth(tileWidth: w))
+                    .frame(width: w)
+            }
         }
+        .frame(height: h)
     }
 }
 
@@ -203,6 +218,13 @@ struct MeetingsDashboardTiles: View {
 struct TopSpeakersTile: View {
     var speakers: [MeetingsDashboard.Speaker]
     var height: CGFloat
+    /// Width of the name column; grows with the tile so wide windows truncate less (0.7.6).
+    var nameWidth: CGFloat = 78
+
+    /// 78 pt at the narrowest window, up to 40% of a wider tile, never more than 200 pt.
+    static func nameWidth(tileWidth: CGFloat) -> CGFloat {
+        min(200, max(78, (tileWidth - 36) * 0.4))
+    }
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Night.rTile, style: .continuous)
@@ -218,7 +240,7 @@ struct TopSpeakersTile: View {
                     ForEach(Array(speakers.enumerated()), id: \.offset) { _, s in
                         HStack(spacing: 8) {
                             Text(s.name).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
-                                .frame(width: 78, alignment: .leading)
+                                .frame(width: nameWidth, alignment: .leading)
                             GeometryReader { g in
                                 Capsule().fill(Palette.color(s.colorIndex))
                                     .frame(width: max(6, g.size.width * CGFloat(s.seconds / most)), height: 6)
