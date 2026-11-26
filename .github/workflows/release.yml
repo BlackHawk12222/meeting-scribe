@@ -1,0 +1,186 @@
+# One-step release ("promote"): publishes the ALREADY-BUILT, already-signed, already-tested
+# Scribe from a passing build-mac-app run. No rebuild, so approval -> live is ~2 minutes.
+#
+#   gh workflow run release.yml -f branch=<branch> -f dry_run=false
+#
+# What it does (docs/RELEASING.md):
+#   1. finds the newest SUCCESSFUL build-mac-app run whose commit tree == the branch tip's tree
+#      (or the run you name with run_id);
+#   2. checks the tag v<VERSION> is free and main can fast-forward to the tip;
+#   3. downloads that run's "Scribe" artifact and re-checks it: SHA-256s, codesign --verify,
+#      the pinned designated requirement (identifier + certificate leaf), the same identity as
+#      the latest release, the version, and that Supabase.plist is filled (never printing values);
+#   4. fast-forwards main to the tip and publishes v<VERSION> (Scribe.zip, Scribe.dmg,
+#      Scribe.zip.sha256, SHA256SUMS.txt, components.json), marked latest, then confirms
+#      /releases/latest serves it (what the in-app updater reads).
+# dry_run=true does 1-3 and prints what 4 would do.
+name: release
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to release (its tip must have a passing build-mac-app run). Ignored when run_id is set."
+        default: ""
+      run_id:
+        description: "Optional: the exact build-mac-app run to publish"
+        default: ""
+      dry_run:
+        description: "Check everything but do not move main or publish"
+        type: boolean
+        default: true
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+env:
+  BUNDLE_ID: com.blackhawk12222.Scribe
+  CERT_LEAF: 83ca46da35633ee4054e80227ecc53eb7abb7333
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Find the passing build to publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R: ${{ github.repository }}
+          BRANCH: ${{ inputs.branch }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          echo "RELEASE_T0=$(date +%s)" >> "$GITHUB_ENV"
+          if [ -n "$RUN_ID" ]; then
+            RUN="$RUN_ID"
+            SHA=$(gh api "repos/$R/actions/runs/$RUN" --jq .head_sha)
+          else
+            [ -n "$BRANCH" ] || { echo "::error::set branch (or run_id)"; exit 1; }
+            SHA=$(gh api "repos/$R/commits/$BRANCH" --jq .sha)
+            TREE=$(gh api "repos/$R/git/commits/$SHA" --jq .tree.sha)
+            echo "Branch $BRANCH tip $SHA (tree $TREE)"
+            RUN=""
+            # Newest passing build of exactly this tree (same commit, or a commit with identical content).
+            for row in $(gh api "repos/$R/actions/workflows/build.yml/runs?status=success&per_page=40" \
+                          --jq '.workflow_runs[] | "\(.id):\(.head_sha)"'); do
+              id=${row%%:*}; hs=${row##*:}
+              if [ "$hs" = "$SHA" ] || [ "$(gh api "repos/$R/git/commits/$hs" --jq .tree.sha 2>/dev/null)" = "$TREE" ]; then RUN=$id; break; fi
+            done
+            [ -n "$RUN" ] || { echo "::error::No passing build-mac-app run for $BRANCH @ ${SHA:0:7}. Build it first: gh workflow run build.yml --ref $BRANCH -f selftest=targeted"; exit 1; }
+          fi
+          J=$(gh api "repos/$R/actions/runs/$RUN")
+          CONC=$(jq -r .conclusion <<<"$J"); WF=$(jq -r .path <<<"$J"); HREPO=$(jq -r .head_repository.full_name <<<"$J")
+          [ "$CONC" = success ] || { echo "::error::run $RUN concluded '$CONC', not success"; exit 1; }
+          case "$WF" in .github/workflows/build.yml*) ;; *) echo "::error::run $RUN is $WF, not build.yml"; exit 1;; esac
+          [ "$HREPO" = "$R" ] || { echo "::error::run $RUN was built from $HREPO (a fork)"; exit 1; }
+          VERSION=$(gh api "repos/$R/contents/VERSION?ref=$SHA" -H 'Accept: application/vnd.github.raw' | tr -d ' \n')
+          echo "Publishing run $RUN ($(jq -r .html_url <<<"$J")), commit $SHA, version $VERSION"
+          { echo "RUN=$RUN"; echo "SHA=$SHA"; echo "VERSION=$VERSION"; echo "TAG=v$VERSION"; } >> "$GITHUB_ENV"
+      - name: Preflight (tag free, main can fast-forward)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R: ${{ github.repository }}
+          DRY: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          FAIL=0
+          if gh api "repos/$R/git/ref/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::tag $TAG already exists: bump VERSION on the branch, build, then release"; FAIL=1
+          else echo "tag $TAG is free"; fi
+          ST=$(gh api "repos/$R/compare/main...$SHA" --jq .status)
+          echo "main...${SHA:0:7}: $ST"
+          case "$ST" in ahead|identical) echo "FF_STATUS=$ST" >> "$GITHUB_ENV";;
+            *) echo "::error::main cannot fast-forward to ${SHA:0:7} ($ST): rebase the branch on main and rebuild"; FAIL=1;; esac
+          if [ "$FAIL" = 1 ]; then
+            if [ "$DRY" = true ]; then echo "::warning::dry run: preflight would block a real release"; echo "FF_STATUS=${ST}" >> "$GITHUB_ENV"
+            else exit 1; fi
+          fi
+      - name: Download the build's signed artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh run download "$RUN" --repo "$GITHUB_REPOSITORY" -n Scribe -D dist
+          ls -la dist
+          for f in Scribe.zip Scribe.dmg Scribe.zip.sha256 SHA256SUMS.txt components.json release-manifest.json; do
+            test -s "dist/$f" || { echo "::error::artifact has no $f (built before the fast-release workflow? rebuild the branch)"; exit 1; }
+          done
+      - name: Verify (hashes, signature, designated requirement, version, accounts config)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd dist
+          shasum -a 256 -c Scribe.zip.sha256
+          shasum -a 256 -c SHA256SUMS.txt
+          M=release-manifest.json
+          [ "$(jq -r .version $M)" = "$VERSION" ] || { echo "::error::manifest version $(jq -r .version $M) != VERSION $VERSION"; exit 1; }
+          echo "built from $(jq -r .commit $M) (run $(jq -r .run_id $M), self-test suite: $(jq -r .selftest_suite $M))"
+          rm -rf x && mkdir x && ditto -x -k Scribe.zip x
+          APP=x/Scribe.app
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          DR=$(codesign -d -r- "$APP" 2>&1 | grep -o 'designated => .*' || true)
+          echo "SIGNATURE_DR $DR"
+          WANT="designated => identifier \"$BUNDLE_ID\" and certificate leaf = H\"$CERT_LEAF\""
+          [ "$DR" = "$WANT" ] || { echo "::error::designated requirement is not the pinned stable one"; exit 1; }
+          echo "SIGNATURE_CHECK ok: SIGNED with the stable self-signed certificate (identifier + certificate leaf)"
+          BV=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
+          [ "$BV" = "$VERSION" ] || { echo "::error::app says $BV, VERSION says $VERSION"; exit 1; }
+          echo "VERSION_CHECK ok: $BV (build $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist"))"
+          # Accounts config present (values never printed).
+          SB="$APP/Contents/Resources/Supabase.plist"
+          U=$(/usr/libexec/PlistBuddy -c 'Print :SupabaseURL' "$SB" 2>/dev/null || true)
+          K=$(/usr/libexec/PlistBuddy -c 'Print :SupabaseAnonKey' "$SB" 2>/dev/null || true)
+          case "$U" in https://*) ;; *) echo "::error::Supabase.plist SupabaseURL is not set"; exit 1;; esac
+          { [ -n "$K" ] && [ "${K#YOUR_}" = "$K" ]; } || { echo "::error::Supabase.plist SupabaseAnonKey is not set"; exit 1; }
+          echo "SUPABASE_CHECK ok: SupabaseURL and SupabaseAnonKey are set (values not shown)"
+          # Same identity as the latest release = macOS keeps Microphone / Accessibility on update.
+          mkdir -p latest/x
+          if gh release download --repo "$GITHUB_REPOSITORY" --pattern Scribe.zip --dir latest; then
+            ditto -x -k latest/Scribe.zip latest/x
+            OLD=$(codesign -d -r- latest/x/Scribe.app 2>&1 | grep -o 'designated => .*' || true)
+            if [ "$OLD" = "$DR" ]; then echo "DR_MATCH yes: permissions granted to the latest release carry over"
+            else echo "::error::DR_MATCH no: this build's identity differs from the latest release"; exit 1; fi
+          else echo "::warning::no latest release to compare with"; fi
+          # components.json must be the model manifest of the commit being released.
+          gh api "repos/$GITHUB_REPOSITORY/contents/Resources/ModelManifest.json?ref=$SHA" -H "Accept: application/vnd.github.raw" > want-components.json
+          cmp -s components.json want-components.json && echo "COMPONENTS_CHECK ok" || { echo "::error::components.json differs from Resources/ModelManifest.json at ${SHA:0:7}"; exit 1; }
+          rm -rf x latest want-components.json
+      - name: Fast-forward main and publish
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          R: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Notes first (before main moves): the release's own copy, else main's.
+          gh api "repos/$R/contents/.github/release-notes.md?ref=$SHA" -H 'Accept: application/vnd.github.raw' > notes.md 2>/dev/null \
+            || gh api "repos/$R/contents/.github/release-notes.md?ref=main" -H 'Accept: application/vnd.github.raw' > notes.md
+          test -s notes.md
+          if [ "$FF_STATUS" = ahead ]; then
+            # GITHUB_TOKEN pushes don't trigger workflows, so this never starts a second build.
+            if gh api -X PATCH "repos/$R/git/refs/heads/main" -f sha="$SHA" -F force=false >/dev/null; then
+              echo "main fast-forwarded to $SHA"
+            else
+              echo "::warning::could not move main (a commit that changes .github/workflows needs a token with the workflows scope). Publishing anyway; tag $TAG points at $SHA. Fast-forward main yourself: git push origin $SHA:main"
+            fi
+          else echo "main is already at $SHA"; fi
+          gh release create "$TAG" dist/Scribe.dmg dist/Scribe.zip dist/Scribe.zip.sha256 dist/SHA256SUMS.txt dist/components.json \
+            --repo "$R" --target "$SHA" --latest --title "Scribe $TAG" --notes-file notes.md
+          # What the in-app updater reads:
+          for i in 1 2 3 4 5 6; do
+            L=$(gh api "repos/$R/releases/latest" --jq .tag_name || true)
+            [ "$L" = "$TAG" ] && break; sleep 5
+          done
+          [ "$L" = "$TAG" ] || { echo "::error::/releases/latest says $L, not $TAG"; exit 1; }
+          gh api "repos/$R/releases/latest" --jq '.assets[].name' | sort | tr '\n' ' '; echo
+          echo "LIVE: $TAG is /releases/latest"
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "DRY RUN: would fast-forward main ($FF_STATUS) to $SHA and publish $TAG from run $RUN as latest."
+      - name: Timing
+        if: always()
+        run: |
+          T=$(( $(date +%s) - ${RELEASE_T0:-$(date +%s)} ))
+          echo "release job wall-clock (after runner pickup): ${T}s" | tee -a "$GITHUB_STEP_SUMMARY"

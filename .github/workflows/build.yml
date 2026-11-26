@@ -7,6 +7,9 @@
 #   • "[selftest:quick]" / "[selftest:full]" / "[selftest:none]" in the commit message overrides it.
 #   The dictation engine benchmark (voicebench) never runs on a push.
 # Updates are served from this repo's releases (no separate mirror repo).
+# Fast path (docs/RELEASING.md): every successful build uploads the signed, checked "Scribe" artifact
+# with a release-manifest.json, and .github/workflows/release.yml PUBLISHES that exact build in
+# ~2 minutes without rebuilding. "[release]" on main still works as the slow fallback.
 name: build-mac-app
 on:
   push:
@@ -59,11 +62,22 @@ jobs:
           sudo xcode-select -s "$X"
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
+          echo "XCODE_ID=$(xcodebuild -version | tr -d ' \n' | tr -c 'A-Za-z0-9.' '_')" >> "$GITHUB_ENV"
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
           path: build/SourcePackages
           key: spm-${{ hashFiles('project.yml') }}
+      # Compiled Swift packages (FluidAudio, WhisperKit, …) dominate the ~7-9 min compile. Only the
+      # intermediates are cached: never Products (the built app, with the filled Supabase.plist)
+      # and never the signing keychain (build/, outside DD). Saved once per Xcode + package set.
+      - name: Cache compiled Swift packages (DerivedData intermediates only)
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/DD/Build/Intermediates.noindex
+            build/DD/ModuleCache.noindex
+          key: dd-v1-${{ github.event.inputs.runner || 'macos-26' }}-${{ env.XCODE_ID }}-${{ hashFiles('Package.resolved', 'project.yml') }}
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Read version
@@ -142,6 +156,38 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :NSAudioCaptureUsageDescription" "$APP/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes:0" "$APP/Contents/Info.plist"
           xattr -l "$APP" || true
+      - name: Release manifest (lets release.yml publish this exact build without rebuilding)
+        env:
+          SUITE: ${{ env.SCRIBE_SUITE }}
+        run: |
+          APP=build/DD/Build/Products/Release/Scribe.app
+          # components.json = the model manifest; the in-app updater compares it with installed models.
+          cp Resources/ModelManifest.json dist/components.json
+          python3 - <<'PY'
+          import json, os, plistlib, subprocess
+          app = "build/DD/Build/Products/Release/Scribe.app"
+          info = plistlib.load(open(app + "/Contents/Info.plist", "rb"))
+          sb = plistlib.load(open(app + "/Contents/Resources/Supabase.plist", "rb"))
+          def filled(v): return bool(v) and not str(v).startswith("YOUR_")
+          m = {
+            "version": os.environ["SCRIBE_VERSION"],
+            "bundle_version": info.get("CFBundleShortVersionString"),
+            "build_number": info.get("CFBundleVersion"),
+            "commit": os.environ["GITHUB_SHA"],
+            "tree": subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip(),
+            "ref": os.environ["GITHUB_REF"],
+            "run_id": int(os.environ["GITHUB_RUN_ID"]),
+            "run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+            "event": os.environ["GITHUB_EVENT_NAME"],
+            "selftest_suite": os.environ.get("SUITE", ""),
+            "designated_requirement": open("dist/designated-requirement.txt").read().strip(),
+            "supabase_configured": filled(sb.get("SupabaseURL")) and filled(sb.get("SupabaseAnonKey")),
+            "runner": os.environ.get("ImageOS", "") + " " + os.environ.get("ImageVersion", ""),
+            "xcode": os.environ.get("XCODE_ID", ""),
+          }
+          json.dump(m, open("dist/release-manifest.json", "w"), indent=2)
+          print(json.dumps({k: v for k, v in m.items()}, indent=2))  # no secret values in here
+          PY
       - name: App icon check (Light / Dark / Tinted looks in Assets.car)
         run: |
           APP=build/DD/Build/Products/Release/Scribe.app
@@ -181,6 +227,9 @@ jobs:
             dist/Scribe.zip
             dist/Scribe.dmg
             dist/Scribe.zip.sha256
+            dist/SHA256SUMS.txt
+            dist/components.json
+            dist/release-manifest.json
             dist/designated-requirement.txt
           retention-days: 30
       - name: Cache models (the app is not sandboxed, so FluidAudio uses ~/Library/Application Support)
@@ -267,10 +316,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="v$SCRIBE_VERSION"
-          # components.json = the model manifest; the in-app updater compares it with installed models.
-          cp Resources/ModelManifest.json dist/components.json
-          cat > release-notes.md <<'EOF'
-          Free, on-device dictation + meeting notes for Apple Silicon Macs (macOS 14+, 15+ recommended; Apple Intelligence features need macOS 26). Not notarized. First launch: open it once, then System Settings > Privacy & Security > Open Anyway (macOS 15+). The welcome window downloads the models (~490 MB, once) while you allow Microphone and Accessibility. Updates keep the same signature, so macOS keeps Microphone, Accessibility and System Audio Recording. Only if you ran a test build before: in System Settings > Privacy & Security, remove Scribe (–) from Microphone and Accessibility once, then open Scribe from Applications and allow again.
-          EOF
+          # dist/components.json was written by the "Release manifest" step. Notes: .github/release-notes.md.
           gh release create "$TAG" dist/Scribe.dmg dist/Scribe.zip dist/Scribe.zip.sha256 dist/SHA256SUMS.txt dist/components.json \
-            --title "Scribe $TAG" --notes-file release-notes.md
+            --target "$GITHUB_SHA" --latest --title "Scribe $TAG" --notes-file .github/release-notes.md
