@@ -167,14 +167,15 @@ enum Snapshot {
                                         name: dark ? "P14b_meeting_detail_back_dark" : "P14_meeting_detail_back_light",
                                         dir: dir, dark: dark, chrome: true)
         }
-        // 0.7.6: the Meetings dashboard fills the page edge to edge: a wide window and the smallest one.
-        made += await serverCapture(env(ContentView(section: .meetings)), size: NSSize(width: 2000, height: 1000),
+        // 0.7.6: the Meetings dashboard fills the page edge to edge: a wide window (offscreen `capture`, since the
+        // runner's screen is 1024 pt and clamps window-server shots) and the smallest window.
+        made += await capture(env(ContentView(section: .meetings)), size: NSSize(width: 2000, height: 1000),
                                     name: "P13w_meetings_dashboard_wide_light", dir: dir, dark: false, chrome: true)
-        made += await serverCapture(env(ContentView(section: .meetings)), size: NSSize(width: 2000, height: 1000),
+        made += await capture(env(ContentView(section: .meetings)), size: NSSize(width: 2000, height: 1000),
                                     name: "P13wb_meetings_dashboard_wide_dark", dir: dir, dark: true, chrome: true)
         made += await serverCapture(env(ContentView(section: .meetings)), size: NSSize(width: 960, height: 600),
                                     name: "P13n_meetings_dashboard_small_light", dir: dir, dark: false, chrome: true)
-        made += await serverCapture(env(ContentView(section: .dictations)), size: NSSize(width: 2000, height: 1000),
+        made += await capture(env(ContentView(section: .dictations)), size: NSSize(width: 2000, height: 1000),
                                     name: "P13x_dictation_wide_light", dir: dir, dark: false, chrome: true)
         // 0.7.3.2 My voice: not set up (Settings › Meetings), then set up with invented voice numbers.
         for dark in [false, true] {
