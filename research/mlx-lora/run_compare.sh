@@ -8,6 +8,8 @@ run() { local n=$1; shift; echo "=== $n ==="; python -u "$@" 2>&1 | tee "out/log
 run 11_make_dataset_v2 11_make_dataset_v2.py
 run base   13_run_config.py base
 for c in ${CONFIGS:-A B C}; do run "${c}_s0" 13_run_config.py "$c" 0; done
+# EXTRA_RUNS="B:1 C:1" adds more config:seed runs (e.g. second seeds for configs that were not the winner)
+for cs in ${EXTRA_RUNS:-}; do run "${cs%%:*}_s${cs##*:}" 13_run_config.py "${cs%%:*}" "${cs##*:}"; done
 run 14_summarize 14_summarize.py
 w=$(cat out/winner.txt)
 if [ -n "$w" ] && [ "${SECOND_SEED:-1}" = "1" ]; then

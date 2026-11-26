@@ -14,6 +14,15 @@ on:
       suite:
         description: "compare (step two: regression check + configs A/B/C) or feasibility (step one)"
         default: "compare"
+      configs:
+        description: "compare suite: seed-0 configs to run (A B C)"
+        default: "A B C"
+      extra_runs:
+        description: "compare suite: extra config:seed runs, e.g. 'B:1 C:1'"
+        default: ""
+      second_seed:
+        description: "compare suite: 1 = also run seed 1 of the winner"
+        default: "1"
       runner:
         description: "Apple Silicon runner image (macos-15; macos-14 is retired on GitHub)"
         default: "macos-15"
@@ -89,6 +98,9 @@ jobs:
         working-directory: research/mlx-lora
         env:
           SUITE: ${{ inputs.suite || 'compare' }}
+          CONFIGS: ${{ inputs.configs || 'A B C' }}
+          EXTRA_RUNS: ${{ inputs.extra_runs || '' }}
+          SECOND_SEED: ${{ inputs.second_seed || '1' }}
         run: |
           if [ "$SUITE" = "feasibility" ]; then ./run_all.sh; else ./run_compare.sh; fi
       - name: Summary
