@@ -115,6 +115,10 @@ jobs:
           # Dev-branch test builds (release=false, not main) stay ad-hoc signed and skip the cert.
           SIGNING_CERT_P12: ${{ (github.ref == 'refs/heads/main' || github.event.inputs.release == 'true') && secrets.SIGNING_CERT_P12 || '' }}
           SIGNING_CERT_PASSWORD: ${{ (github.ref == 'refs/heads/main' || github.event.inputs.release == 'true') && secrets.SIGNING_CERT_PASSWORD || '' }}
+          # 0.7.3.2 accounts (optional): the Supabase project URL + anon key (public by design;
+          # row-level security protects the data). Unset = "Accounts coming soon".
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: ./scripts/build.sh
       - name: App icon check (Light / Dark / Tinted looks in Assets.car)
         run: |

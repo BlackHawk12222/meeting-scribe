@@ -82,9 +82,17 @@ struct ContentView: View {
 
     private var isLive: Bool { recorder.isRecording || livePreview != nil }
 
+    /// 0.7.3.2: picking Meetings in the rail (or ⌘2) opens its dashboard, not the last meeting.
+    private var railSection: Binding<NavSection> {
+        Binding(get: { section }, set: { s in
+            if s == .meetings { selectedMeeting = nil }
+            section = s
+        })
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            NavRail(section: $section, live: isLive)
+            NavRail(section: railSection, live: isLive)
             VStack(spacing: 0) {
                 TopBar(title: section.title,
                        query: section.hasSearch ? $query : nil,
@@ -137,7 +145,7 @@ struct ContentView: View {
             Button("") { searchFocus += 1 }.keyboardShortcut("k", modifiers: [.command])
             Button("") { model.toggleMeetingRecording() }.keyboardShortcut("r", modifiers: [.command])
             ForEach(Array(NavSection.numbered.enumerated()), id: \.offset) { i, s in
-                Button("") { section = s }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: [.command])
+                Button("") { railSection.wrappedValue = s }.keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: [.command])
             }
         }
         .opacity(0)
@@ -332,109 +340,8 @@ extension HoldKey {
     }
 }
 
-// MARK: - Meetings page (list + detail)
-
-struct MeetingsPage: View {
-    @EnvironmentObject var store: Store
-    @EnvironmentObject var model: AppModel
-    @Binding var selected: UUID?
-    @Binding var query: String
-    @State private var renaming: UUID?
-    @State private var renameText = ""
-
-    private var hits: [UUID: String] {
-        Dictionary(store.search(query).map { ($0.id, $0.snippet) }, uniquingKeysWith: { a, _ in a })
-    }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            listColumn
-                .frame(width: Night.meetingsListWidth)
-                .frame(maxHeight: .infinity)
-                .background(Night.rail)
-            NightDivider(vertical: true)
-            Group {
-                if let id = selected, store.meetings.contains(where: { $0.id == id }) {
-                    MeetingDetailView(meetingID: id).id(id)
-                } else {
-                    placeholder
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .onAppear { if selected == nil { selected = store.meetings.first?.id } }
-        .renameMeetingAlert(id: $renaming, text: $renameText)
-    }
-
-    private struct Group2: Identifiable { var title: String; var items: [Meeting]; var id: String { title } }
-
-    private func groups(_ list: [Meeting]) -> [Group2] {
-        let cal = Calendar.current
-        let weekStart = cal.dateInterval(of: .weekOfYear, for: Date())?.start ?? .distantPast
-        var out: [Group2] = []
-        for m in list {
-            let t = m.date >= weekStart ? "This week" : "Earlier"
-            if let i = out.firstIndex(where: { $0.title == t }) { out[i].items.append(m) } else { out.append(Group2(title: t, items: [m])) }
-        }
-        return out
-    }
-
-    private var listColumn: some View {
-        let found = hits
-        let shown = store.meetings.filter { query.isEmpty || found[$0.id] != nil }
-        return VStack(alignment: .leading, spacing: 0) {
-            if !store.engineReady { ModelBanner().padding(.horizontal, Night.s12).padding(.top, Night.s12) }
-            if shown.isEmpty {
-                Text(query.isEmpty ? "No meetings yet" : "Nothing matches “\(query)”")
-                    .font(.nightSecondary).foregroundStyle(Night.text3)
-                    .padding(.horizontal, 20).padding(.top, 20)
-                Spacer()
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(groups(shown)) { g in
-                            Text(g.title).font(.nightLabel).foregroundStyle(Night.text3)
-                                .padding(.horizontal, 20)
-                                .padding(.top, 16)
-                                .padding(.bottom, 6)
-                            ForEach(g.items) { m in
-                                Button { selected = m.id } label: {
-                                    MeetingListRow(meeting: m, selected: selected == m.id, snippet: found[m.id])
-                                }
-                                .buttonStyle(.plain)
-                                .contextMenu {
-                                    Button("Rename…") { renameText = m.title; renaming = m.id }
-                                    Button("Delete", role: .destructive) {
-                                        if selected == m.id { selected = nil }
-                                        store.deleteMeeting(m.id)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 6)
-                    .padding(.bottom, Night.s12)
-                }
-                .scrollIndicators(.never)
-            }
-        }
-    }
-
-    @ViewBuilder private var placeholder: some View {
-        if store.meetings.isEmpty {
-            CozyEmptyState(symbol: "waveform",
-                           title: "No meetings yet",
-                           message: "Press Record and Scribe writes the transcript, who said what, and the notes. It all stays on this Mac.") {
-                Button { model.toggleMeetingRecording() } label: { Text("Record a meeting") }
-                    .buttonStyle(.nightPrimary)
-            }
-        } else {
-            CozyEmptyState(symbol: "doc.text",
-                           title: "Pick a meeting",
-                           message: "Choose one from the list, or press ⌘R to start a new one.")
-        }
-    }
-}
+// MARK: - Meetings page
+// 0.7.3.2: MeetingsPage (dashboard + rows + detail with Back) lives in MeetingsHome.swift.
 
 /// A meeting in the list: title, then "Today, 4:10 PM" and "42 min · 4 people".
 struct MeetingListRow: View {

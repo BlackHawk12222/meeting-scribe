@@ -132,6 +132,25 @@ Developer account), so the very first open still needs *Open Anyway*.
 Name a speaker once; next meetings label them automatically (cosine similarity of voice embeddings: since 0.6
 the best match ≥ 0.40 is labelled, one person per speaker; 0.5 only auto-labelled ≥ 0.55 and showed 0.40–0.55 as "maybe …?"). Every confirmed meeting adds up to 8 fingerprints per person, so it gets steadier.
 
+## My voice (0.7.3.2, Storage/Store+MyVoice.swift, Views/MyVoiceView.swift)
+
+Settings › Meetings › My voice (and Profile › My voice): read six short lines once so meetings know
+it's you. Once set up it shows the voice strength (Strong / Good / Learning, the People rules),
+**Train it more** (one more clip into the voiceprint), **Test it** (5 s, then e.g. "Matched you —
+strong match · Score 0.78 · Scribe names you from 0.40"), **Re-record from scratch** and **Delete my
+voice**. Audio is only held in memory while a clip is checked.
+
+## Accounts (optional, 0.7.3.2, Account/)
+
+Scribe works fully signed out. An account (email + 6-digit code, no password) backs up and syncs
+your Dictionary, Vocabulary, learned fixes, Styles and settings across Macs, restores them after a
+reinstall or on a new Mac, and will later unlock Scribe Pro. People and voice profiles sync only if
+you turn them on (voiceprints are biometric data). Everything is **end-to-end encrypted on the Mac**
+(CryptoKit AES-GCM, a per-account key in the Keychain; a recovery key unlocks a second Mac). Audio,
+meetings and transcripts are never uploaded. Backend: Supabase (Auth email OTP + Postgres with
+row-level security), set up with `backend/supabase/README.md`. Until the build has a Supabase URL
+and anon key (GitHub secrets `SUPABASE_URL`, `SUPABASE_ANON_KEY`), Profile shows "Accounts coming soon".
+
 ## Models — and why
 | | Parakeet TDT v2 (default) | Parakeet TDT v3 | Whisper large-v3-turbo |
 |---|---|---|---|

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Scribe accounts (0.7.3.2). PLACEHOLDERS ONLY: never commit real values here.
+  scripts/build.sh replaces them in the BUILT app from the SUPABASE_URL / SUPABASE_ANON_KEY
+  build environment (GitHub Actions secrets). With the placeholders the app shows
+  "Accounts coming soon" and makes no account calls. See backend/supabase/README.md.
+-->
+<plist version="1.0">
+<dict>
+	<key>SupabaseURL</key>
+	<string>YOUR_SUPABASE_URL</string>
+	<key>SupabaseAnonKey</key>
+	<string>YOUR_SUPABASE_ANON_KEY</string>
+</dict>
+</plist>

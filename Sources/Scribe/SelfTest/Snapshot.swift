@@ -158,6 +158,67 @@ enum Snapshot {
                                         name: dark ? "P06b_capsule_states_dark" : "P06_capsule_states_light",
                                         dir: dir, titled: false, dark: dark)
         }
+        // 0.7.3.2 Meetings dashboard (sample meetings above); the detail with its Back button is P03/P03b.
+        for dark in [false, true] {
+            made += await serverCapture(env(ContentView(section: .meetings)), size: nightSize,
+                                        name: dark ? "P13b_meetings_dashboard_dark" : "P13_meetings_dashboard_light",
+                                        dir: dir, dark: dark, chrome: true)
+            made += await serverCapture(env(ContentView(initialSelection: .meeting(meetingID))), size: nightSize,
+                                        name: dark ? "P14b_meeting_detail_back_dark" : "P14_meeting_detail_back_light",
+                                        dir: dir, dark: dark, chrome: true)
+        }
+        // 0.7.3.2 My voice: not set up (Settings › Meetings), then set up with invented voice numbers.
+        for dark in [false, true] {
+            made += await serverCapture(env(ContentView(section: .settings, settingsPane: .meetings)), size: nightSize,
+                                        name: dark ? "P11b_my_voice_not_enrolled_dark" : "P11_my_voice_not_enrolled_light",
+                                        dir: dir, dark: dark, chrome: true)
+        }
+        var srng = SeededRandom(seed: 9)
+        let base = (0..<256).map { _ in Float(srng.next() * 2 - 1) }
+        store.enrollMe(clips: EnrollmentStyle.allCases.map { s in (s, base.map { $0 + Float(srng.next() * 0.1) }) })
+        _ = store.trainMyVoice(embedding: base)
+        for dark in [false, true] {
+            made += await serverCapture(env(ContentView(section: .settings, settingsPane: .meetings)), size: nightSize,
+                                        name: dark ? "P11d_my_voice_enrolled_dark" : "P11c_my_voice_enrolled_light",
+                                        dir: dir, dark: dark, chrome: true)
+            let v = MyVoice.verdict(score: 0.78)
+            made += await serverCapture(env(MyVoiceSheet(preview: .result(ok: v.matched, headline: v.headline, detail: v.detail))),
+                                        size: NSSize(width: MyVoiceSheet.size.width, height: MyVoiceSheet.size.height),
+                                        name: dark ? "P11f_my_voice_tested_dark" : "P11e_my_voice_tested_light", dir: dir, dark: dark)
+        }
+        made += await serverCapture(env(MyVoiceSheet(preview: .recording(.test))),
+                                    size: NSSize(width: MyVoiceSheet.size.width, height: MyVoiceSheet.size.height),
+                                    name: "P11g_my_voice_testing_light", dir: dir)
+        // 0.7.3.2 Profile › Account (invented email; preview models never call a server). P07/P07b
+        // above show this build's real state ("Accounts coming soon" while no backend is set).
+        let realAccount = AccountModel.shared
+        let accountShots: [(String, AccountModel.Phase, Date?)] = [
+            ("P12_profile_signed_out", .signedOut, nil),
+            ("P12c_profile_signed_in", .signedIn(email: "robin@sample.invalid"), Date().addingTimeInterval(-180)),
+        ]
+        for (name, phase, synced) in accountShots {
+            for dark in [false, true] {
+                AccountModel.shared = AccountModel.preview(phase, lastSynced: synced)
+                made += await serverCapture(env(ContentView(section: .profile)), size: nightSize,
+                                            name: name + (dark ? "_dark" : "_light"), dir: dir, dark: dark, chrome: true)
+            }
+        }
+        // The whole Profile page signed in (taller than the runner's screen, so drawn off-screen
+        // with cacheDisplay in a borderless window): Account + the My voice row once set up.
+        for dark in [false, true] {
+            AccountModel.shared = AccountModel.preview(.signedIn(email: "robin@sample.invalid"), lastSynced: Date().addingTimeInterval(-180))
+            made += await capture(env(ContentView(section: .profile)), size: NSSize(width: 1200, height: 1180),
+                                  name: dark ? "P12d_profile_full_signed_in_dark" : "P12d_profile_full_signed_in_light",
+                                  dir: dir, titled: false, dark: dark)
+        }
+        AccountModel.shared = AccountModel.preview(.codeSent(email: "robin@sample.invalid"))
+        made += await serverCapture(env(ContentView(section: .profile)), size: nightSize, name: "P12e_profile_code_light",
+                                    dir: dir, chrome: true)
+        AccountModel.shared = AccountModel.preview(.showRecoveryKey(email: "robin@sample.invalid",
+                                                                    recoveryKey: SyncCrypto.recoveryKey(SyncCrypto.newKey())))
+        made += await serverCapture(env(ContentView(section: .profile)), size: nightSize, name: "P12f_profile_recovery_key_light",
+                                    dir: dir, chrome: true)
+        AccountModel.shared = realAccount
         // 0.7.2 targeted CI: only the Night/Daylight screens (+ the smallest window size).
         if CommandLine.arguments.contains("--quick") {
             made += await serverCapture(env(ContentView(section: .home)), size: NSSize(width: 900, height: 600),

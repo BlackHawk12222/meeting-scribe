@@ -3,6 +3,8 @@
 //  • who you are: a big avatar (photo or initial), display name, "Member since", photo buttons.
 //    Name and photo stay on this Mac (Store+Profile.swift), never uploaded.
 //  • your numbers: four poster tiles: words dictated (all time), streak, words per minute, meetings.
+//  • 0.7.3.2: Account (optional backup + sync, AccountSection.swift); My voice shows its strength
+//    once set up and opens MyVoiceSheet (Train it more / Test it / Re-record / Delete).
 //  • shortcuts into Settings: Shortcut & style, My voice, Appearance, Updates.
 
 import SwiftUI
@@ -39,6 +41,10 @@ struct ProfileView: View {
     var openSettings: (SettingsPane) -> Void = { _ in }
     @State private var name = ""
     @State private var enrolling = false
+    /// 0.7.3.2: My voice when it's set up (strength, Train it more, Test it…).
+    @State private var myVoiceOpen = false
+    /// 0.7.3.2: the optional account (backup + sync). `.unavailable` until a backend is configured.
+    @ObservedObject private var account = AccountModel.shared
     @AppStorage(DictationStyle.key) private var styleRaw = DictationStyle.current.rawValue
     @AppStorage(AppearanceChoice.key) private var appearance = AppearanceChoice.system.rawValue
 
@@ -48,6 +54,7 @@ struct ProfileView: View {
             VStack(alignment: .leading, spacing: 0) {
                 header
                 tiles(stats).padding(.top, 28)
+                AccountSection(account: account).padding(.top, 30)
                 HairlineHeader(title: "Settings").padding(.top, 30).padding(.bottom, 4)
                 links
                 Text("Your name and photo are stored only on this Mac.")
@@ -62,7 +69,8 @@ struct ProfileView: View {
         }
         .scrollIndicators(.never)
         .onAppear { name = store.profile.displayName }
-        .sheet(isPresented: $enrolling) { VoiceEnrollmentView().environmentObject(store) }
+        .sheet(isPresented: $enrolling) { VoiceEnrollmentView(forMe: true).environmentObject(store) }
+        .sheet(isPresented: $myVoiceOpen) { MyVoiceSheet().environmentObject(store) }
     }
 
     // MARK: Header
@@ -136,14 +144,22 @@ struct ProfileView: View {
 
     // MARK: Links
 
+    /// Not set up: the setup prompt. Set up: "Strong · 8 clips · Train it more or test it".
+    private var myVoiceDetail: String {
+        guard store.myVoiceEnrolled else { return "Teach Scribe your voice so meetings know it's you" }
+        let s = store.myVoiceStrength?.rawValue ?? VoiceStrength.learning.rawValue
+        return "\(s) · \(store.myVoiceClipCount) clips · Train it more or test it"
+    }
+
     private var links: some View {
         let style = DictationStyle(rawValue: styleRaw)?.title ?? DictationStyle.current.title
         let look = (AppearanceChoice(rawValue: appearance) ?? .system).title
         return VStack(spacing: 0) {
             ProfileLinkRow(symbol: "keyboard", title: "Shortcut & style",
                            detail: "Hold \(DictationSettings.holdKey.shortName) · \(style)") { openSettings(.dictation) }
-            ProfileLinkRow(symbol: "waveform.and.person.filled", title: "My voice",
-                           detail: "Teach Scribe your voice so meetings know it's you") { enrolling = true }
+            ProfileLinkRow(symbol: "waveform.and.person.filled", title: "My voice", detail: myVoiceDetail) {
+                if store.myVoiceEnrolled { myVoiceOpen = true } else { enrolling = true }
+            }
             ProfileLinkRow(symbol: "circle.lefthalf.filled", title: "Appearance", detail: look) { openSettings(.general) }
             ProfileLinkRow(symbol: "arrow.down.circle", title: "Updates",
                            detail: "Scribe \(Updater.currentVersion)", last: true) { openSettings(.updates) }
