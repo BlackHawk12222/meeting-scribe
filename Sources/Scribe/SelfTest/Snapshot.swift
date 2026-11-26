@@ -679,8 +679,9 @@ enum Snapshot {
                                   name: dark ? "P15d_settings_learning_full_dark" : "P15c_settings_learning_full_light",
                                   dir: dir, titled: false, dark: dark)
         }
-        made += await serverCapture(env(ContentView(section: .settings, settingsPane: .dictation)), size: size,
-                                    name: "P15e_settings_dictation_boost_light", dir: dir, dark: false, chrome: true)
+        // Settings › Dictation in full (the "Boost my words" switch is below the runner's screen).
+        made += await capture(env(ContentView(section: .settings, settingsPane: .dictation)), size: NSSize(width: 1200, height: 1500),
+                              name: "P15e_settings_dictation_boost_full_light", dir: dir, titled: false, dark: false)
         CorrectionStore.deleteAll(store.folder)
         return made
     }
