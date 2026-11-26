@@ -51,6 +51,9 @@ enum SelfTest072 {
         // 0.7.6: Boost my words, learned fix-ups (thresholds, common words, migration), order before Style, log.
         let a076 = await MainActor.run { SelfTest076.run() }
         out["v076_learning"] = a076.0; failures += a076.1
+        // 0.7.7: USB wireless mic receivers (voice on one channel, real format vs stale format).
+        let a077 = SelfTest077.run()
+        out["v077_usb_mic"] = a077.0; failures += a077.1
         let dict = await dictationCheck()
         out["dictation_startup"] = dict.0; failures += dict.1
         // 0.7.3.1: meetings still work with FluidAudio's TTS data stripped from the app.

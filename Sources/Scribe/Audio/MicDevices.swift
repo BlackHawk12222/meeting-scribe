@@ -75,6 +75,49 @@ enum MicDevices {
 
     // MARK: Core Audio helpers
 
+    // MARK: 0.7.7 diagnostics (logged when a mic is opened; numbers and device names only)
+
+    static func transportName(_ t: UInt32) -> String {
+        switch t {
+        case kAudioDeviceTransportTypeBuiltIn: return "built-in"
+        case kAudioDeviceTransportTypeUSB: return "USB"
+        case kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE: return "Bluetooth"
+        case kAudioDeviceTransportTypeAggregate: return "aggregate"
+        case kAudioDeviceTransportTypeVirtual: return "virtual"
+        case 0: return "unknown"
+        default: return "other"
+        }
+    }
+
+    /// The device's current hardware sample rate (what it is actually running at).
+    static func nominalSampleRate(_ id: AudioDeviceID) -> Double? {
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyNominalSampleRate, mScope: kAudioObjectPropertyScopeGlobal,
+                                              mElement: kAudioObjectPropertyElementMain)
+        var v: Float64 = 0
+        var size = UInt32(MemoryLayout<Float64>.size)
+        guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &v) == noErr, v > 0 else { return nil }
+        return v
+    }
+
+    /// How many input channels the device has (all its input streams together).
+    static func inputChannels(_ id: AudioDeviceID) -> Int {
+        var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreamConfiguration, mScope: kAudioObjectPropertyScopeInput,
+                                              mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size) == noErr, size > 0 else { return 0 }
+        let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: MemoryLayout<AudioBufferList>.alignment)
+        defer { raw.deallocate() }
+        guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, raw) == noErr else { return 0 }
+        let list = UnsafeMutableAudioBufferListPointer(raw.assumingMemoryBound(to: AudioBufferList.self))
+        return list.reduce(0) { $0 + Int($1.mNumberChannels) }
+    }
+
+    /// One log line describing a device: name, transport, hardware rate, input channels.
+    static func describe(_ d: MicDevice) -> String {
+        let rate = nominalSampleRate(d.id).map { "\(Int($0)) Hz" } ?? "? Hz"
+        return "\(d.name) [\(transportName(d.transport)), hw \(rate), \(inputChannels(d.id)) ch, default=\(defaultInputID() == d.id)]"
+    }
+
     private static func hasInput(_ id: AudioDeviceID) -> Bool {
         var addr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreamConfiguration, mScope: kAudioObjectPropertyScopeInput,
                                               mElement: kAudioObjectPropertyElementMain)

@@ -5,6 +5,8 @@
 //                       digitally silent; a mic macOS has blocked (permission reset), a muted input
 //                       or a broken voice-processing unit delivers exact zeros.
 //   • To16kMono       – any input format (mono/stereo, interleaved or not, any rate) → 16 kHz mono.
+//   • Live16kMono     – (0.7.7) To16kMono that follows each buffer's ACTUAL format (rebuilds itself
+//                       when the rate or channel count changes), for mic taps installed with format nil.
 //   • MeetingMixer    – after the recording: mic file + Mac-sound file (with its start offset) →
 //                       one 16 kHz file for transcription.
 
@@ -65,7 +67,15 @@ final class SourceMonitor: @unchecked Sendable {
 
 /// Converts buffers of one input format to 16 kHz mono float. Not thread-safe; use from one thread.
 final class To16kMono {
-    enum Mix { case firstChannel, average }
+    /// firstChannel: channel 0 only (old mic behavior). average: plain mean of all channels (Mac sound).
+    /// voice (0.7.7, microphones): per buffer, the channels carrying sound are averaged and the
+    /// near-silent ones are left out. A USB wireless receiver (e.g. a 2-channel "Wireless
+    /// Microphone") can put the transmitter's voice on ONE channel only (often channel 2): the old
+    /// channel-0 copy recorded silence, and a plain average would halve the voice (-6 dB). "Voice"
+    /// keeps a single live channel at full level, and a normal stereo/dual-mono mic (the same voice
+    /// on both channels) comes out as the average, i.e. unchanged. A channel counts as live when its
+    /// energy is within 20 dB of the loudest channel in that buffer.
+    enum Mix { case firstChannel, average, voice }
     let inFormat: AVAudioFormat
     let mix: Mix
     private let monoIn: AVAudioFormat
@@ -92,9 +102,27 @@ final class To16kMono {
         let ch = Int(buffer.format.channelCount)
         let interleaved = buffer.format.isInterleaved && ch > 1
         var peak: Float = 0
+        // .voice: which channels are live in this buffer.
+        var live = [Bool](repeating: true, count: ch)
+        var liveCount = ch
+        if mix == .voice, ch > 1 {
+            var energy = [Float](repeating: 0, count: ch)
+            for c in 0..<ch {
+                var e: Float = 0
+                for i in 0..<n { let v = interleaved ? src[0][i * ch + c] : src[c][i]; e += v * v }
+                energy[c] = e
+            }
+            let top = energy.max() ?? 0
+            for c in 0..<ch { live[c] = top > 0 && energy[c] >= top * 0.01 }
+            liveCount = max(1, live.filter { $0 }.count)
+        }
         for i in 0..<n {
             var v: Float
-            if mix == .firstChannel || ch == 1 {
+            if mix == .voice && ch > 1 {
+                v = 0
+                for c in 0..<ch where live[c] { v += interleaved ? src[0][i * ch + c] : src[c][i] }
+                v /= Float(liveCount)
+            } else if mix == .firstChannel || ch == 1 {
                 v = interleaved ? src[0][i * ch] : src[0][i]
             } else {
                 v = 0
@@ -122,6 +150,34 @@ final class To16kMono {
     }
 
     static func level(peakOrRMS v: Float) -> Float { min(1, max(0, (20 * log10(max(v, 1e-6)) + 60) / 60)) }
+}
+
+/// 0.7.7: 16 kHz mono from whatever format the buffers really arrive in. A mic tap installed with
+/// `format: nil` hands over the input node's real format; if that changes (a USB receiver that
+/// switches 44.1 ↔ 48 kHz, 1 ↔ 2 channels) the converter is rebuilt instead of feeding the old one a
+/// buffer it can't read. Not thread-safe; one audio thread.
+final class Live16kMono {
+    let mix: To16kMono.Mix
+    private(set) var conv: To16kMono?
+    /// How many times the format changed after the first buffer (logged by the callers).
+    private(set) var formatChanges = 0
+    init(mix: To16kMono.Mix) { self.mix = mix }
+
+    static func sameFormat(_ a: AVAudioFormat, _ b: AVAudioFormat) -> Bool {
+        a.sampleRate == b.sampleRate && a.channelCount == b.channelCount && a.isInterleaved == b.isInterleaved
+            && a.commonFormat == b.commonFormat
+    }
+
+    /// (16 kHz mono buffer or nil while the converter primes, peak of the mono input-rate signal, mono input-rate buffer)
+    func process(_ buffer: AVAudioPCMBuffer) -> (out: AVAudioPCMBuffer?, peak: Float, mono: AVAudioPCMBuffer)? {
+        let f = buffer.format
+        if conv == nil || !Self.sameFormat(conv!.inFormat, f) {
+            if conv != nil { formatChanges += 1 }
+            conv = To16kMono(inFormat: f, mix: mix)
+        }
+        guard let conv, let (mono, peak) = conv.mono(buffer) else { return nil }
+        return (conv.convert(mono), peak, mono)
+    }
 }
 
 enum MeetingMixer {

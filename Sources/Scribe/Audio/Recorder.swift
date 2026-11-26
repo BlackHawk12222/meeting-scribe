@@ -76,6 +76,9 @@ final class Recorder: ObservableObject {
     private var configObserver: NSObjectProtocol?
     private var wantsNoiseCleanup = false
     private var vpFallbackDone = false
+    /// 0.7.7: the explicitly selected mic sent no audio → this meeting uses the system default path.
+    private var forceSystemMic = false
+    private var micExplicit = false
     private(set) var currentURL: URL?
     let micMonitor = SourceMonitor(name: "mic")
     let systemMonitor = SourceMonitor(name: "system")
@@ -98,6 +101,7 @@ final class Recorder: ObservableObject {
         problem = nil
         wantsNoiseCleanup = noiseCleanup
         vpFallbackDone = false
+        forceSystemMic = false
         micMonitor.reset(); systemMonitor.reset(); clock.reset()
         let file = try AVAudioFile(forWriting: url, settings: MeetingMixer.wavSettings,
                                    commonFormat: .pcmFormatFloat32, interleaved: false)
@@ -141,8 +145,14 @@ final class Recorder: ObservableObject {
         // 0.7.5: the chosen mic (Automatic = built-in when the default input is a Bluetooth headset,
         // so AirPods keep their music-quality mode). Voice processing uses the system devices.
         let dev = MicDevices.current()
-        if !voiceProcessing, let dev {
-            do { try input.auAudioUnit.setDeviceID(dev.id) } catch { AppLog.log("meeting: couldn't select \(dev.name): \(error.localizedDescription)") }
+        let defID = MicDevices.defaultInputID()
+        // 0.7.7: only switch device when the chosen mic isn't already the system default (a USB mic
+        // that IS the default input is opened on the plain default path), and log the error.
+        var explicit = false
+        if !voiceProcessing, !forceSystemMic, let dev, dev.id != defID {
+            do { try input.auAudioUnit.setDeviceID(dev.id); explicit = true } catch {
+                AppLog.log("meeting: setDeviceID(\(dev.name)) failed (\((error as NSError).domain) \((error as NSError).code)); using the system default")
+            }
         }
         if voiceProcessing {
             do {
@@ -155,17 +165,24 @@ final class Recorder: ObservableObject {
                 AppLog.log("voice processing unavailable: \(error.localizedDescription)")
             }
         }
+        let hwFormat = input.inputFormat(forBus: 0)
         let inFormat = input.outputFormat(forBus: 0)
         guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else { throw RecorderError.noMicrophone }
-        guard let conv = To16kMono(inFormat: inFormat, mix: .firstChannel) else { throw RecorderError.formatProblem }
-        micConverter = conv
+        let opened = voiceProcessing || !explicit ? (MicDevices.inputs().first { $0.id == defID } ?? dev) : dev
+        if let opened, let nominal = MicDevices.nominalSampleRate(opened.id), !voiceProcessing, abs(inFormat.sampleRate - nominal) > 1 {
+            AppLog.log("meeting: format mismatch: node out \(Int(inFormat.sampleRate)) Hz, device runs at \(Int(nominal)) Hz (the converter follows the real buffers)")
+        }
+        // 0.7.7: tap with format nil (the node's real format) and a converter that follows each
+        // buffer's actual format; all channels mixed (.voice: a receiver may put the voice on one channel).
+        let conv = Live16kMono(mix: .voice)
+        micConverter = nil
         let file = self.file
         let monitor = micMonitor
         let clock = self.clock
-        input.installTap(onBus: 0, bufferSize: 4096, format: inFormat) { [weak self] buffer, _ in
-            guard let (mono, peak) = conv.mono(buffer) else { return }
-            monitor.feed(peak: peak, duration: Double(buffer.frameLength) / inFormat.sampleRate)
-            if let out = conv.convert(mono), let file {
+        input.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
+            guard let r = conv.process(buffer) else { return }
+            monitor.feed(peak: r.peak, duration: Double(buffer.frameLength) / buffer.format.sampleRate)
+            if let out = r.out, let file {
                 // After a restart, fill the gap with silence so the Mac's sound stays in sync.
                 let gap = clock.micGap(adding: Int64(out.frameLength))
                 if gap > 0, let pad = AVAudioPCMBuffer(pcmFormat: To16kMono.out16k, frameCapacity: AVAudioFrameCount(gap)) {
@@ -175,16 +192,21 @@ final class Recorder: ObservableObject {
                 }
                 try? file.write(from: out)
             }
-            let meter = To16kMono.level(peakOrRMS: Self.rms(mono))
+            let meter = To16kMono.level(peakOrRMS: Self.rms(r.mono))
             DispatchQueue.main.async { self?.level = meter }
         }
         engine.prepare()
-        try engine.start()
+        do { try engine.start() } catch {
+            AppLog.log("meeting: mic engine start failed (\((error as NSError).domain) \((error as NSError).code))")
+            input.removeTap(onBus: 0)
+            throw error
+        }
         self.engine = engine
+        micExplicit = explicit
         configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.inputChanged() }
         }
-        AppLog.log("meeting mic running: \(voiceProcessing ? "system default" : dev?.name ?? "system default"), \(Int(inFormat.sampleRate)) Hz × \(inFormat.channelCount) ch, voiceProcessing=\(noiseCleanupActive)")
+        AppLog.log("meeting mic running: \(opened.map { MicDevices.describe($0) } ?? "system default"), node in \(Int(hwFormat.sampleRate)) Hz × \(hwFormat.channelCount) ch / out \(Int(inFormat.sampleRate)) Hz × \(inFormat.channelCount) ch, path=\(explicit ? "selected" : "system default"), voiceProcessing=\(noiseCleanupActive)")
     }
 
     private func stopMicEngine() {
@@ -261,6 +283,18 @@ final class Recorder: ObservableObject {
     private func watchdog() {
         guard isRecording else { return }
         let mic = micMonitor.snapshot()
+        // 0.7.7: an explicitly selected (non-default) mic that sends NO buffers for 1.5 s: restart
+        // once on the system default path (logged), before the 3 s "no audio" banner.
+        if mic.buffers == 0, mic.sinceLastBuffer > 1.5, micExplicit, !forceSystemMic, !noiseCleanupActive,
+           MicDevices.current()?.isBluetooth != true {
+            forceSystemMic = true
+            AppLog.log("meeting: selected mic sent no audio in 1.5 s; restarting on the system default")
+            micMonitor.reset()
+            do { try startMic(voiceProcessing: false) } catch {
+                AppLog.log("meeting: restart on the system default failed: \(error.localizedDescription)")
+            }
+            return
+        }
         let micBad = mic.sinceLastBuffer > 3 || mic.silentRun > 10
         if micBad {
             if noiseCleanupActive && !vpFallbackDone {
