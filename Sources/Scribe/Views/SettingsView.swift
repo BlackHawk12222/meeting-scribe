@@ -234,6 +234,9 @@ struct DictationSettingsTab: View {
     @AppStorage("pauseWhileThinking") private var pauseWhileThinking = true
     @AppStorage("doubleTapHandsFree") private var doubleTap = true
     @AppStorage(DictationStyle.key) private var style = DictationStyle.natural.rawValue
+    /// 0.7.5: which microphone Scribe opens (MicDevices).
+    @AppStorage(MicDevices.settingKey) private var micDevice = "auto"
+    @State private var mics: [MicDevice] = MicDevices.inputs()
 
     private var holdOptions: [(value: String, title: String)] { HoldKey.allCases.map { (value: $0.rawValue, title: $0.title) } }
     private var modeOptions: [(value: String, title: String)] {
@@ -242,8 +245,30 @@ struct DictationSettingsTab: View {
          (value: DictationMode.toggleOnly.rawValue, title: "Toggle only")]
     }
 
+    private var micOptions: [(value: String, title: String)] {
+        var o: [(value: String, title: String)] = [(value: "auto", title: "Automatic (built-in with AirPods)"),
+                                                   (value: "system", title: "System default")]
+        for m in mics {
+            o.append((value: m.uid, title: m.isBuiltIn ? "\(m.name) — Built-in (recommended with AirPods)"
+                                     : m.isBluetooth ? "\(m.name) — Bluetooth" : m.name))
+        }
+        if micDevice != "auto", micDevice != "system", !mics.contains(where: { $0.uid == micDevice }) {
+            o.append((value: micDevice, title: "Unplugged mic (uses Automatic)"))
+        }
+        return o
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
+            // 0.7.5: AirPods' mic switches them to call mode (music sounds distorted), so Automatic
+            // uses the Mac's built-in mic whenever the default input is a Bluetooth headset.
+            SettingsCard(title: "Microphone",
+                         footer: "Built-in is recommended with AirPods or other Bluetooth headphones: using their mic switches them to a low-quality call mode, so music and videos sound distorted while it's on. Scribe only opens the mic while you dictate or record.") {
+                SettingRow(title: "Microphone", detail: "For dictation and meetings") {
+                    NightPicker(selection: $micDevice, options: micOptions)
+                }
+                .onAppear { mics = MicDevices.inputs() }
+            }
             SettingsCard(title: "Shortcuts", footer: "Press Esc while talking to cancel. A quick tap of the hold key does nothing, and so does using it in a shortcut like ⌥←.") {
                 SettingRow(title: "Dictation shortcut", detail: "Hold to talk, release to paste where your cursor is") {
                     HStack(spacing: 10) {
@@ -916,7 +941,7 @@ enum DockPolicy {
 // MARK: - Meetings
 
 struct MeetingsSettingsTab: View {
-    @AppStorage("noiseCleanup") private var noiseCleanup = true
+    @AppStorage("noiseCleanup") private var noiseCleanup = false
     @AppStorage("meetingSystemAudio") private var systemAudio = true
     @AppStorage("showMeetingScroll") private var showMeetingScroll = true
     @AppStorage("aiNotes") private var aiNotes = true
@@ -929,7 +954,7 @@ struct MeetingsSettingsTab: View {
                 MyVoiceCard()
             }
             SettingsCard(title: "Recording") {
-                ToggleRow(title: "Noise cleanup", detail: "Apple voice processing: reduces background noise while recording", isOn: $noiseCleanup)
+                ToggleRow(title: "Noise cleanup", detail: "Apple voice processing: reduces background noise, but while a meeting records it also lowers other sound on this Mac and can make music, videos and AirPods sound distorted. Off by default.", isOn: $noiseCleanup)
                 NightDivider()
                 ToggleRow(title: "Also record the Mac's sound",
                           detail: "The other people on a call (Zoom, Meet, Teams…), even with headphones. macOS asks once to allow System Audio Recording. Needs macOS 14.4+.",

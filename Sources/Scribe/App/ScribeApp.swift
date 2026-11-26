@@ -125,7 +125,7 @@ final class AppModel: ObservableObject {
                     return
                 }
                 do {
-                    let cleanup = UserDefaults.standard.object(forKey: "noiseCleanup") as? Bool ?? true
+                    let cleanup = UserDefaults.standard.object(forKey: "noiseCleanup") as? Bool ?? false   // 0.7.5: off by default
                     try recorder.start(to: store.newRecordingURL(), noiseCleanup: cleanup)
                 } catch {
                     alertText = "Couldn't start recording: \(error.localizedDescription)"

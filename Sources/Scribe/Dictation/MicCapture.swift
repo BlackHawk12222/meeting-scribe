@@ -10,8 +10,16 @@
 //  • Starting and stopping happen on a private queue, never on the main thread, so the hotkey and
 //    the capsule react at once even when a Bluetooth mic takes a moment to wake up.
 //  • The mic is still OFF between dictations (macOS's orange mic dot only shows while you talk).
+//
+// 0.7.5 "music sounds distorted while Scribe runs": the engine used to be PREPARED at launch on the
+// default input. With AirPods (or any Bluetooth headset) as the default input that can switch the
+// headset into its low-quality call mode (HFP) for as long as Scribe runs. Now the mic is chosen by
+// MicDevices (Automatic = the built-in mic when the default input is Bluetooth), the engine is only
+// warmed up ahead of time on a non-Bluetooth mic, and a Bluetooth mic's engine is torn down after
+// every take.
 
 import AVFoundation
+import CoreAudio
 import os
 
 final class MicCapture: @unchecked Sendable {
@@ -21,6 +29,8 @@ final class MicCapture: @unchecked Sendable {
     private var running = false
     private var needsRebuild = false
     private var configObserver: NSObjectProtocol?
+    private var builtDevice: AudioDeviceID?
+    private var builtBluetooth = false
 
     private var samples: [Float] = []
     private let lock = NSLock()                 // the audio thread and other threads both touch these
@@ -38,9 +48,13 @@ final class MicCapture: @unchecked Sendable {
     /// Build the engine ahead of time (cheap; the mic stays off). Safe to call many times.
     func prepare() {
         queue.async { [self] in
-            if engine == nil || needsRebuild { try? build() }
+            guard let dev = MicDevices.current(), !dev.isBluetooth else { return }   // never warm a headset mic
+            if engine == nil || needsRebuild || builtDevice != dev.id { try? build() }
         }
     }
+
+    /// The mic to use changed (setting, default device, unplugged) → rebuild before this take.
+    private var deviceChanged: Bool { MicDevices.current()?.id != builtDevice }
 
     /// Start recording. Returns at once; the engine starts on the mic queue. `completion` runs on
     /// the main thread with nil (recording) or the error. Audio from the moment the engine runs
@@ -52,7 +66,7 @@ final class MicCapture: @unchecked Sendable {
         lock.unlock()
         queue.async { [self] in
             do {
-                if engine == nil || needsRebuild { try build() }
+                if engine == nil || needsRebuild || deviceChanged { try build() }
                 guard let engine else { throw Recorder.RecorderError.noMicrophone }
                 lock.lock(); running = true; lock.unlock()      // before start: keep the very first buffer
                 if !engine.isRunning {
@@ -74,7 +88,7 @@ final class MicCapture: @unchecked Sendable {
     func start() throws {
         lock.lock(); samples.removeAll(keepingCapacity: true); firstBufferPending = true; lock.unlock()
         try queue.sync {
-            if engine == nil || needsRebuild { try build() }
+            if engine == nil || needsRebuild || deviceChanged { try build() }
             guard let engine else { throw Recorder.RecorderError.noMicrophone }
             lock.lock(); running = true; lock.unlock()
             do { if !engine.isRunning { try engine.start() } } catch {
@@ -89,6 +103,13 @@ final class MicCapture: @unchecked Sendable {
         queue.sync {
             engine?.stop()                      // stop() not pause(): the mic really turns off
             lock.lock(); running = false; lock.unlock()
+            // A Bluetooth headset mic: let go of it completely so the headset returns to music mode.
+            if builtBluetooth, let e = engine {
+                e.inputNode.removeTap(onBus: 0)
+                if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+                configObserver = nil
+                engine = nil
+            }
         }
         lock.lock(); defer { lock.unlock() }
         let out = samples
@@ -109,6 +130,14 @@ final class MicCapture: @unchecked Sendable {
         let t0 = Date()
         let engine = AVAudioEngine()
         let input = engine.inputNode
+        let dev = MicDevices.current()
+        if let dev {
+            do { try input.auAudioUnit.setDeviceID(dev.id) } catch {
+                Perf.log.info("mic: couldn't select \(dev.name, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        builtDevice = dev?.id
+        builtBluetooth = dev?.isBluetooth ?? false
         let inFormat = input.outputFormat(forBus: 0)
         guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else { throw Recorder.RecorderError.noMicrophone }
         guard let monoIn = AVAudioFormat(standardFormatWithSampleRate: inFormat.sampleRate, channels: 1),
@@ -149,9 +178,11 @@ final class MicCapture: @unchecked Sendable {
             let level = min(1, max(0, (20 * log10(max(rms, 1e-6)) + 60) / 60))
             DispatchQueue.main.async { self.onLevel?(level) }
         }
-        engine.prepare()
+        // Warm up (allocate the input unit) only on a non-Bluetooth mic; a headset mic is opened by start().
+        if !builtBluetooth { engine.prepare() }
         self.engine = engine
         self.engineFormat = inFormat
+        AppLog.log("dictation mic: \(dev?.name ?? "system default")\(builtBluetooth ? " (Bluetooth: opened only while dictating)" : "") \(Int(inFormat.sampleRate)) Hz, setting=\(MicDevices.setting)")
         // Input device changed (AirPods, USB mic…): rebuild before the next take.
         configObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in

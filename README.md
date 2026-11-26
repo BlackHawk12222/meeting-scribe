@@ -145,6 +145,16 @@ cancellation used to remove the call's audio from the mic. A mic that sends noth
 digital silence for 10 s is restarted without voice processing, then reported on the live meeting
 view with a button to the right Settings page. Settings › Meetings › "Also record the Mac's sound".
 
+### 0.7.5: other audio sounding distorted
+- The dictation mic engine used to be prepared at launch on the default input; with AirPods as the
+  default input that can put them in call mode (HFP) while Scribe merely runs. Now Settings ›
+  Dictation › Microphone (Automatic = the built-in mic when the default input is Bluetooth), the
+  engine is only warmed up on a non-Bluetooth mic, and a Bluetooth mic is released after each take.
+- Meeting noise cleanup (Apple voice processing, which also processes/lowers other apps' output) is
+  off by default; when on, ducking stays at the minimum.
+- Scribe never changes any device's sample rate or format; the Mac-sound tap exists only while a
+  meeting records.
+
 ### 0.7.5: sign-in link
 Supabase's default email (no custom SMTP) has only a link. Scribe asks for it with
 `redirect_to=scribe://auth-callback` + a PKCE challenge and handles `scribe://auth-callback?code=…`

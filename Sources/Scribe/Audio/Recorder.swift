@@ -3,7 +3,9 @@
 // Mac plays (SystemAudioTap: the other people on a call), mixed when you stop.
 //
 // Noise cleanup: Apple's "voice processing" (the audio unit FaceTime uses) removes steady
-// background noise and echo. Its echo cancellation also removes what the speakers play, which is
+// background noise and echo. 0.7.5: OFF by default — voice processing also takes over the output
+// side (lowers and processes other apps' sound, and puts AirPods in call mode), which made music
+// and videos sound distorted during meetings. Ducking is set to the minimum when it's on. Its echo cancellation also removes what the speakers play, which is
 // why the call itself is recorded separately from the Mac's sound now.
 //
 // 0.7.5 "the audio isn't working" hardening:
@@ -136,6 +138,12 @@ final class Recorder: ObservableObject {
         let engine = AVAudioEngine()
         let input = engine.inputNode
         noiseCleanupActive = false
+        // 0.7.5: the chosen mic (Automatic = built-in when the default input is a Bluetooth headset,
+        // so AirPods keep their music-quality mode). Voice processing uses the system devices.
+        let dev = MicDevices.current()
+        if !voiceProcessing, let dev {
+            do { try input.auAudioUnit.setDeviceID(dev.id) } catch { AppLog.log("meeting: couldn't select \(dev.name): \(error.localizedDescription)") }
+        }
         if voiceProcessing {
             do {
                 try input.setVoiceProcessingEnabled(true)
@@ -176,7 +184,7 @@ final class Recorder: ObservableObject {
         configObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.inputChanged() }
         }
-        AppLog.log("meeting mic running: \(Int(inFormat.sampleRate)) Hz × \(inFormat.channelCount) ch, voiceProcessing=\(noiseCleanupActive)")
+        AppLog.log("meeting mic running: \(voiceProcessing ? "system default" : dev?.name ?? "system default"), \(Int(inFormat.sampleRate)) Hz × \(inFormat.channelCount) ch, voiceProcessing=\(noiseCleanupActive)")
     }
 
     private func stopMicEngine() {

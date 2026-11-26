@@ -19,6 +19,7 @@
 
 import Foundation
 import AVFoundation
+import CoreAudio
 
 enum SelfTest075 {
     static func log(_ s: String) { SelfTest.log(s) }
@@ -89,7 +90,7 @@ enum SelfTest075 {
                 if interleaved { p[0][2 * i] = 0.2; p[0][2 * i + 1] = 0.4 } else { p[0][i] = 0.2; p[1][i] = 0.4 }
             }
             guard let (mono, peak) = conv.mono(b), let out = conv.convert(mono) else { fail.append("audio: conversion failed (interleaved=\(interleaved))"); continue }
-            r["convert_\(interleaved ? "interleaved" : "planar")"] = ["frames": Int(out.frameLength), "peak": Double(peak)]
+            r["convert_\(interleaved ? "interleaved" : "planar")"] = ["frames": Int(out.frameLength), "peak": Double(peak)] as [String: Any]
             if abs(peak - 0.3) > 0.001 { fail.append("audio: stereo average wrong (\(peak), interleaved=\(interleaved))") }
             if out.frameLength < 1400 || out.frameLength > 1700 { fail.append("audio: 0.1 s at 48 kHz → \(out.frameLength) frames at 16 kHz") }
         }
@@ -120,13 +121,14 @@ enum SelfTest075 {
             do {
                 let res = try MeetingMixer.mix(mic: mic, system: sys, systemOffset: offset, out: out)
                 let s = read(out)
+                guard !s.isEmpty else { fail.append("audio: mixed file empty (offset \(offset))"); continue }
                 var got: [String: Double] = [:]
                 for (t, want) in probes {
                     let v = Double(s[min(s.count - 1, Int(t * 16_000))])
                     got[String(t)] = (v * 1000).rounded() / 1000
                     if abs(v - want) > 0.01 { fail.append("audio: mix offset \(offset) at \(t) s = \(v), want \(want)") }
                 }
-                r["mix_offset_\(offset)"] = ["seconds": Double(res.frames) / 16_000, "samples": got]
+                r["mix_offset_\(offset)"] = ["seconds": Double(res.frames) / 16_000, "samples": got] as [String: Any]
                 if res.frames != 32_000 { fail.append("audio: mix offset \(offset) length \(res.frames), want 32000") }
             } catch { fail.append("audio: mix threw \(error.localizedDescription)") }
         }
@@ -138,6 +140,22 @@ enum SelfTest075 {
         let g2 = c.micGap(adding: 16_000, now: s0.addingTimeInterval(4))
         r["gap_frames"] = [g1, g2]
         if g1 != 0 || abs(g2 - 32_000) > 100 { fail.append("audio: gap filler gave \(g1), \(g2) (want 0, 32000)") }
+        // Microphone choice: Automatic picks the built-in mic when the default input is a Bluetooth
+        // headset (AirPods stay in music mode), otherwise the default; a chosen device wins; an
+        // unplugged one falls back to Automatic.
+        let builtIn = MicDevice(id: 11, uid: "BuiltInMicrophoneDevice", name: "MacBook Microphone", transport: kAudioDeviceTransportTypeBuiltIn)
+        let pods = MicDevice(id: 22, uid: "AA-BB-CC:input", name: "Sample AirPods", transport: kAudioDeviceTransportTypeBluetooth)
+        let usb = MicDevice(id: 33, uid: "usb-mic-1", name: "Sample USB Mic", transport: kAudioDeviceTransportTypeUSB)
+        let all = [builtIn, pods, usb]
+        let rules: [(AudioDeviceID?, String, AudioDeviceID?)] = [(22, "auto", 11), (33, "auto", 33), (11, "auto", 11), (22, "system", 22),
+                                                                (22, "usb-mic-1", 33), (22, "gone-device", 11), (nil, "auto", 11)]
+        for (def, setting, want) in rules {
+            let got = MicDevices.choose(all, defaultID: def, setting: setting)?.id
+            if got != want { fail.append("audio: mic choice default=\(def.map(String.init) ?? "nil") setting=\(setting) → \(got.map(String.init) ?? "nil"), want \(want.map(String.init) ?? "nil")") }
+        }
+        if MicDevices.choose([pods], defaultID: 22, setting: "auto")?.id != 22 { fail.append("audio: only a headset mic → should still use it") }
+        r["mic_inputs_on_this_mac"] = MicDevices.inputs().count
+        r["mic_current"] = MicDevices.current().map { $0.isBluetooth ? "bluetooth" : $0.isBuiltIn ? "built-in" : "other" } ?? "none"
         // Banners open the right Settings pages.
         let panes: [(Recorder.AudioProblem, Permissions.Pane?)] = [(.micSilent, .microphone), (.micDenied, .microphone),
                                                                     (.systemSilent, .systemAudio), (.systemFailed("x"), .systemAudio), (.micNoAudio, nil)]
