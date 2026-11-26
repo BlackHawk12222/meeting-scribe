@@ -167,16 +167,16 @@ enum Snapshot {
                                         name: dark ? "P14b_meeting_detail_back_dark" : "P14_meeting_detail_back_light",
                                         dir: dir, dark: dark, chrome: true)
         }
-        // 0.7.6: the Meetings dashboard fills the page edge to edge: a wide window (offscreen `capture`, since the
-        // runner's screen is 1024 pt and clamps window-server shots) and the smallest window.
+        // 0.7.6: the Meetings dashboard fills the page edge to edge: a wide window (borderless + offscreen `capture`:
+        // the runner's screen is 1024 pt and macOS shrinks a titled window to fit it) and the smallest window.
         made += await capture(env(ContentView(section: .meetings)), size: NSSize(width: 2000, height: 1000),
-                                    name: "P13w_meetings_dashboard_wide_light", dir: dir, dark: false, chrome: true)
+                                    name: "P13w_meetings_dashboard_wide_light", dir: dir, titled: false, dark: false)
         made += await capture(env(ContentView(section: .meetings)), size: NSSize(width: 2000, height: 1000),
-                                    name: "P13wb_meetings_dashboard_wide_dark", dir: dir, dark: true, chrome: true)
+                                    name: "P13wb_meetings_dashboard_wide_dark", dir: dir, titled: false, dark: true)
         made += await serverCapture(env(ContentView(section: .meetings)), size: NSSize(width: 960, height: 600),
                                     name: "P13n_meetings_dashboard_small_light", dir: dir, dark: false, chrome: true)
         made += await capture(env(ContentView(section: .dictations)), size: NSSize(width: 2000, height: 1000),
-                                    name: "P13x_dictation_wide_light", dir: dir, dark: false, chrome: true)
+                                    name: "P13x_dictation_wide_light", dir: dir, titled: false, dark: false)
         // 0.7.3.2 My voice: not set up (Settings › Meetings), then set up with invented voice numbers.
         for dark in [false, true] {
             made += await serverCapture(env(ContentView(section: .settings, settingsPane: .meetings)), size: nightSize,
