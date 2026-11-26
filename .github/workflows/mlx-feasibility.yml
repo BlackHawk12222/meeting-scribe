@@ -11,6 +11,9 @@ on:
     paths: ["research/mlx-lora/**", ".github/workflows/mlx-feasibility.yml"]
   workflow_dispatch:
     inputs:
+      suite:
+        description: "compare (step two: regression check + configs A/B/C) or feasibility (step one)"
+        default: "compare"
       runner:
         description: "Apple Silicon runner image (macos-15; macos-14 is retired on GitHub)"
         default: "macos-15"
@@ -40,7 +43,7 @@ concurrency:
 jobs:
   feasibility:
     runs-on: ${{ inputs.runner || 'macos-15' }}
-    timeout-minutes: 150
+    timeout-minutes: 120
     env:
       MLX_LORA_OUT: ${{ github.workspace }}/research/mlx-lora/out
       HF_HUB_DISABLE_PROGRESS_BARS: "1"
@@ -82,14 +85,19 @@ jobs:
         with:
           path: ~/.cache/huggingface
           key: hf-parakeet-tdt-0.6b-v2-mlx
-      - name: Run feasibility test
+      - name: Run test suite
         working-directory: research/mlx-lora
-        run: ./run_all.sh
+        env:
+          SUITE: ${{ inputs.suite || 'compare' }}
+        run: |
+          if [ "$SUITE" = "feasibility" ]; then ./run_all.sh; else ./run_compare.sh; fi
       - name: Summary
         if: always()
         working-directory: research/mlx-lora
         run: |
-          if [ -f out/result.json ]; then
+          if [ -f out/compare.md ]; then
+            cat out/compare.md | tee -a "$GITHUB_STEP_SUMMARY"
+          elif [ -f out/result.json ]; then
             python -c "import json; r=json.load(open('out/result.json')); [print(k, '=', r[k]) for k in r if k not in ('heldout_rows','dataset','env','training')]; print('training =', r['training'])" | tee -a "$GITHUB_STEP_SUMMARY"
           else
             echo "no result.json" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -106,5 +114,8 @@ jobs:
             research/mlx-lora/out/data/*.jsonl
             research/mlx-lora/out/data/dataset_info.json
             research/mlx-lora/out/adapter_fp16.safetensors
+            research/mlx-lora/out/compare.md
+            research/mlx-lora/out/winner.txt
+            research/mlx-lora/out/configs/
           if-no-files-found: warn
           retention-days: 14

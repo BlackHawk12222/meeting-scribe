@@ -28,7 +28,7 @@ HERE = Path(__file__).resolve().parent
 OUT = Path(os.environ.get("MLX_LORA_OUT", HERE / "out")).resolve()
 DATA = OUT / "data"
 MODEL_ID = os.environ.get("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v2")
-LABEL = "GitHub runner (virtual M1, synthetic voice)"
+LABEL = "GitHub runner (virtual M1, synthetic voices)"
 
 
 # ---------------------------------------------------------------- device / memory
