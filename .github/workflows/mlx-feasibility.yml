@@ -1,0 +1,104 @@
+# Research only: can a LoRA adapter be trained on Parakeet TDT 0.6B v2 with Apple MLX?
+# Manual dispatch only. Does not build the app, does not release, uses no secrets.
+# Code: research/mlx-lora/. Result: artifact "mlx-feasibility" (logs + result.json).
+name: mlx-feasibility
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Apple Silicon runner image (macos-14 or macos-15)"
+        default: "macos-14"
+      steps:
+        description: "Training steps (batch size 1)"
+        default: "300"
+      rank:
+        description: "LoRA rank"
+        default: "8"
+      layers:
+        description: "Encoder blocks with LoRA: all, last:N, or 0,1,2"
+        default: "all"
+      lr:
+        description: "Peak learning rate"
+        default: "2e-4"
+      device:
+        description: "MLX device: gpu (Metal) or cpu"
+        default: "gpu"
+      max_minutes:
+        description: "Wall-clock cap for the training loop"
+        default: "75"
+permissions:
+  contents: read
+concurrency:
+  group: mlx-feasibility-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  feasibility:
+    runs-on: ${{ inputs.runner || 'macos-14' }}
+    timeout-minutes: 150
+    env:
+      MLX_LORA_OUT: ${{ github.workspace }}/research/mlx-lora/out
+      HF_HUB_DISABLE_PROGRESS_BARS: "1"
+      STEPS: ${{ inputs.steps }}
+      LORA_RANK: ${{ inputs.rank }}
+      LORA_ALPHA: "16"
+      LORA_LAYERS: ${{ inputs.layers }}
+      LR: ${{ inputs.lr }}
+      MAX_MINUTES: ${{ inputs.max_minutes }}
+      MLX_DEVICE: ${{ inputs.device }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Machine
+        run: |
+          uname -a; sw_vers; sysctl -n machdep.cpu.brand_string hw.memsize hw.ncpu
+          python -c "import platform; print(platform.machine())"
+      - name: Install
+        working-directory: research/mlx-lora
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip list | grep -iE "mlx|parakeet|sentencepiece|numpy|hugging"
+      - name: Metal probe
+        run: |
+          python - <<'EOF'
+          import mlx.core as mx
+          print("metal available:", mx.metal.is_available(), "default device:", mx.default_device())
+          try:
+              print("device info:", mx.metal.device_info())
+          except Exception as e:
+              print("device_info:", e)
+          a = mx.random.normal((1024, 1024)); print("matmul ok:", float((a @ a).sum()) == float((a @ a).sum()))
+          EOF
+      - name: Cache Hugging Face model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-parakeet-tdt-0.6b-v2-mlx
+      - name: Run feasibility test
+        working-directory: research/mlx-lora
+        run: ./run_all.sh
+      - name: Summary
+        if: always()
+        working-directory: research/mlx-lora
+        run: |
+          if [ -f out/result.json ]; then
+            python -c "import json; r=json.load(open('out/result.json')); [print(k, '=', r[k]) for k in r if k not in ('heldout_rows','dataset','env','training')]; print('training =', r['training'])" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "no result.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload logs and result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlx-feasibility
+          path: |
+            research/mlx-lora/out/logs/
+            research/mlx-lora/out/*.json
+            research/mlx-lora/out/*.jsonl
+            research/mlx-lora/out/data/*.jsonl
+            research/mlx-lora/out/data/dataset_info.json
+            research/mlx-lora/out/adapter_fp16.safetensors
+          if-no-files-found: warn
+          retention-days: 14
