@@ -16,11 +16,6 @@
 # dry_run=true does 1-3 and prints what 4 would do.
 name: release
 on:
-  # TEMPORARY (testing on the fast-release branch only): GitHub won't dispatch a workflow file that
-  # exists only on a non-default branch until it has run once there. A push run is ALWAYS a dry run.
-  push:
-    branches: [fast-release]
-    paths: [".github/workflows/release.yml"]
   workflow_dispatch:
     inputs:
       branch:
