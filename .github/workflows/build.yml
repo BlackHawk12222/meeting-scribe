@@ -62,22 +62,11 @@ jobs:
           sudo xcode-select -s "$X"
           xcodebuild -version
           xcrun --sdk macosx --show-sdk-version
-          echo "XCODE_ID=$(xcodebuild -version | tr -d ' \n' | tr -c 'A-Za-z0-9.' '_')" >> "$GITHUB_ENV"
       - name: Cache Swift packages
         uses: actions/cache@v4
         with:
           path: build/SourcePackages
           key: spm-${{ hashFiles('project.yml') }}
-      # Compiled Swift packages (FluidAudio, WhisperKit, …) dominate the ~7-9 min compile. Only the
-      # intermediates are cached: never Products (the built app, with the filled Supabase.plist)
-      # and never the signing keychain (build/, outside DD). Saved once per Xcode + package set.
-      - name: Cache compiled Swift packages (DerivedData intermediates only)
-        uses: actions/cache@v4
-        with:
-          path: |
-            build/DD/Build/Intermediates.noindex
-            build/DD/ModuleCache.noindex
-          key: dd-v1-${{ github.event.inputs.runner || 'macos-26' }}-${{ env.XCODE_ID }}-${{ hashFiles('Package.resolved', 'project.yml') }}
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Read version
@@ -183,7 +172,6 @@ jobs:
             "designated_requirement": open("dist/designated-requirement.txt").read().strip(),
             "supabase_configured": filled(sb.get("SupabaseURL")) and filled(sb.get("SupabaseAnonKey")),
             "runner": os.environ.get("ImageOS", "") + " " + os.environ.get("ImageVersion", ""),
-            "xcode": os.environ.get("XCODE_ID", ""),
           }
           json.dump(m, open("dist/release-manifest.json", "w"), indent=2)
           print(json.dumps({k: v for k, v in m.items()}, indent=2))  # no secret values in here
