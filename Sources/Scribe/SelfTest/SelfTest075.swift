@@ -92,7 +92,7 @@ enum SelfTest075 {
             guard let (mono, peak) = conv.mono(b), let out = conv.convert(mono) else { fail.append("audio: conversion failed (interleaved=\(interleaved))"); continue }
             r["convert_\(interleaved ? "interleaved" : "planar")"] = ["frames": Int(out.frameLength), "peak": Double(peak)] as [String: Any]
             if abs(peak - 0.3) > 0.001 { fail.append("audio: stereo average wrong (\(peak), interleaved=\(interleaved))") }
-            if out.frameLength < 1400 || out.frameLength > 1700 { fail.append("audio: 0.1 s at 48 kHz → \(out.frameLength) frames at 16 kHz") }
+            if out.frameLength < 1200 || out.frameLength > 1700 { fail.append("audio: 0.1 s at 48 kHz → \(out.frameLength) frames at 16 kHz (want ~1600 minus the converter's priming delay)") }
         }
         // Mixer: mic 2 s of 0.1; Mac sound 1 s of 0.2 starting 0.5 s later → 0.3 in [0.5, 1.5).
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("st075-mix-\(UUID().uuidString)")

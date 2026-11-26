@@ -234,7 +234,7 @@ final class Recorder: ObservableObject {
                 if conv == nil { conv = To16kMono(inFormat: buffer.format, mix: .average) }
                 guard let conv, let (mono, peak) = conv.mono(buffer) else { return }
                 monitor.feed(peak: peak, duration: Double(buffer.frameLength) / buffer.format.sampleRate)
-                clock.markSystemStart()
+                clock.markSystemStart(now: Date().addingTimeInterval(-Double(buffer.frameLength) / buffer.format.sampleRate))
                 if let out = conv.convert(mono) { try? sFile.write(from: out) }
             }
             systemTap = tap
@@ -361,7 +361,8 @@ final class RecordingClock: @unchecked Sendable {
     /// first (only after a restart left a gap of more than 0.5 s; smaller differences are clock jitter).
     func micGap(adding frames: Int64, now: Date = Date()) -> Int64 {
         lock.lock(); defer { lock.unlock() }
-        guard let start = micStart else { micStart = now; micFrames = frames; return 0 }
+        // The chunk that just arrived started `frames` earlier: the file's frame 0 is at that time.
+        guard let start = micStart else { micStart = now.addingTimeInterval(-Double(frames) / 16_000); micFrames = frames; return 0 }
         let expected = Int64(now.timeIntervalSince(start) * 16_000) - frames
         let gap = expected - micFrames
         let pad = gap > 8_000 ? gap : 0
