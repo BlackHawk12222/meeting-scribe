@@ -36,6 +36,11 @@ targets:
       - path: Resources/Fonts
         type: folder
         buildPhase: resources
+      # 0.7.3.1: Credits & licenses (licenses.json + every full license text), copied as a
+      # "Licenses" folder into Contents/Resources. build.sh adds the build's Package.resolved.
+      - path: Resources/Licenses
+        type: folder
+        buildPhase: resources
       # The model manifest: every model file's size + hash (scripts/make_model_manifest.py).
       - path: Resources/ModelManifest.json
         buildPhase: resources

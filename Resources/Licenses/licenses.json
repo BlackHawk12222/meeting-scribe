@@ -1,0 +1,169 @@
+{
+  "schema": 1,
+  "note": "Settings › General › Credits & licenses reads this file. Every pin in the build's Package.resolved must have an entry with a matching \"pin\" (scripts/check_licenses.py fails the build otherwise). License texts sit next to this file in Contents/Resources/Licenses. Lists only what ships in Scribe.app: FluidAudio's LuxTTS data is stripped by build.sh, and models Scribe downloads only for text-to-speech are not used.",
+  "entries": [
+    {
+      "id": "parakeet-tdt-0.6b-v2",
+      "kind": "model",
+      "name": "NVIDIA Parakeet TDT 0.6B v2",
+      "what": "The English speech-to-text model behind dictation and meeting transcripts. Converted to Core ML by FluidInference, unmodified weights.",
+      "license": "CC BY 4.0",
+      "copyright": "© NVIDIA Corporation",
+      "url": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2",
+      "extraUrl": "https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v2-coreml",
+      "file": "CC-BY-4.0.txt"
+    },
+    {
+      "id": "fluidaudio",
+      "pin": "fluidaudio",
+      "kind": "package",
+      "name": "FluidAudio",
+      "version": "0.18.3",
+      "what": "Runs the speech models on Core ML: speech-to-text, voice detection and who-spoke-when. Scribe has no text-to-speech, so FluidAudio's text-to-speech data (the LuxTTS pronunciation files built from eSpeak NG and FrequencyWords) is removed from the app.",
+      "license": "Apache 2.0",
+      "copyright": "Copyright FluidInference",
+      "url": "https://github.com/FluidInference/FluidAudio",
+      "file": "FluidAudio-LICENSE.txt",
+      "notices": [
+        "FluidAudio-third-party/fastcluster-LICENSE.md",
+        "FluidAudio-third-party/vbx-LICENSE.md",
+        "FluidAudio-third-party/NemoTextProcessing-LICENSE.md",
+        "FluidAudio-third-party/JapaneseG2P-LICENSE.md"
+      ]
+    },
+    {
+      "id": "nemo-text-processing",
+      "kind": "binary",
+      "name": "NemoTextProcessing (text-processing-rs)",
+      "version": "0.3.1",
+      "what": "Prebuilt text normalization library that FluidAudio links in.",
+      "license": "Apache 2.0",
+      "copyright": "Copyright FluidInference",
+      "url": "https://github.com/FluidInference/text-processing-rs",
+      "file": "NemoTextProcessing-LICENSE.txt"
+    },
+    {
+      "id": "whisperkit",
+      "pin": "whisperkit",
+      "kind": "package",
+      "name": "WhisperKit (argmax-oss-swift)",
+      "version": "1.1.1",
+      "what": "Optional Whisper speech engines for dictation.",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2024 argmax, inc.",
+      "url": "https://github.com/argmaxinc/WhisperKit",
+      "file": "WhisperKit-LICENSE.txt"
+    },
+    {
+      "id": "swift-argument-parser",
+      "pin": "swift-argument-parser",
+      "kind": "package",
+      "name": "Swift Argument Parser",
+      "what": "Resolved as a dependency of WhisperKit (used by its command-line tool).",
+      "license": "Apache 2.0 with Runtime Library Exception",
+      "copyright": "Copyright Apple Inc. and the Swift project authors",
+      "url": "https://github.com/apple/swift-argument-parser",
+      "file": "swift-argument-parser-LICENSE.txt"
+    },
+    {
+      "id": "parakeet-tdt-0.6b-v3",
+      "kind": "model",
+      "name": "NVIDIA Parakeet TDT 0.6B v3",
+      "what": "Optional 25-language speech model. Converted to Core ML by FluidInference.",
+      "license": "CC BY 4.0",
+      "copyright": "© NVIDIA Corporation",
+      "url": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3",
+      "file": "CC-BY-4.0.txt"
+    },
+    {
+      "id": "parakeet-ctc-110m",
+      "kind": "model",
+      "name": "NVIDIA Parakeet TDT-CTC 110M",
+      "what": "Vocabulary helper that spots your custom words. Converted to Core ML by FluidInference.",
+      "license": "CC BY 4.0",
+      "copyright": "© NVIDIA Corporation",
+      "url": "https://huggingface.co/nvidia/parakeet-tdt_ctc-110m",
+      "file": "CC-BY-4.0.txt"
+    },
+    {
+      "id": "parakeet-ultra",
+      "kind": "model",
+      "name": "Parakeet Ultra",
+      "what": "Optional accurate speech model by Moondream. Converted to Core ML by FluidInference.",
+      "license": "CC BY 4.0",
+      "copyright": "© Moondream",
+      "url": "https://huggingface.co/moondream/parakeet-ultra",
+      "file": "CC-BY-4.0.txt"
+    },
+    {
+      "id": "silero-vad",
+      "kind": "model",
+      "name": "Silero VAD",
+      "what": "Voice activity detection: finds where you're talking. Converted to Core ML by FluidInference.",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2020-present Silero Team",
+      "url": "https://github.com/snakers4/silero-vad",
+      "file": "SileroVAD-LICENSE.txt"
+    },
+    {
+      "id": "pyannote-community-1",
+      "kind": "model",
+      "name": "pyannote speaker-diarization-community-1 + WeSpeaker",
+      "what": "Who-spoke-when segmentation and voice fingerprints for meetings. Converted to Core ML by FluidInference.",
+      "license": "CC BY 4.0",
+      "copyright": "pyannote.audio contributors / WeSpeaker",
+      "url": "https://huggingface.co/pyannote/speaker-diarization-community-1",
+      "file": "CC-BY-4.0.txt"
+    },
+    {
+      "id": "whisper",
+      "kind": "model",
+      "name": "OpenAI Whisper (large-v3 turbo, distil-large-v3)",
+      "what": "Optional Whisper speech models, in Argmax's Core ML conversions (MIT).",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2022 OpenAI",
+      "url": "https://github.com/openai/whisper",
+      "extraUrl": "https://huggingface.co/argmaxinc/whisperkit-coreml",
+      "file": "Whisper-LICENSE.txt"
+    },
+    {
+      "id": "manrope",
+      "kind": "font",
+      "name": "Manrope",
+      "what": "The typeface bundled in Scribe.",
+      "license": "SIL Open Font License 1.1",
+      "copyright": "Copyright 2018 The Manrope Project Authors",
+      "url": "https://github.com/googlefonts/manrope",
+      "file": "Manrope-OFL.txt"
+    },
+    {
+      "id": "handy",
+      "kind": "design",
+      "name": "Handy",
+      "what": "Scribe's dictation design follows Handy (hold-to-talk and toggle hotkeys, silence trimming, paste and restore the clipboard). Scribe's code is a new Swift implementation.",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2025 CJ Pais",
+      "url": "https://github.com/cjpais/Handy",
+      "file": "Handy-LICENSE.txt"
+    },
+    {
+      "id": "apple-foundation-models",
+      "kind": "other",
+      "name": "Apple Foundation Models",
+      "what": "Optional on-device clean-up and meeting notes on macOS 26 with Apple Intelligence.",
+      "license": "Part of macOS",
+      "copyright": "© Apple Inc.",
+      "url": "https://developer.apple.com/documentation/foundationmodels"
+    },
+    {
+      "id": "selftest-audio",
+      "kind": "other",
+      "name": "Self-test audio (LibriSpeech, AMI Meeting Corpus)",
+      "what": "Test clips used only by Scribe's built-in self-test.",
+      "license": "CC BY 4.0",
+      "copyright": "LibriSpeech: Panayotov et al.; AMI: University of Edinburgh and partners",
+      "url": "https://www.openslr.org/12",
+      "file": "CC-BY-4.0.txt"
+    }
+  ]
+}

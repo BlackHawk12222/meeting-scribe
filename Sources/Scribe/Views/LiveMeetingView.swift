@@ -1,7 +1,7 @@
 // LiveMeetingView.swift
 // The Meetings page while a meeting records (0.7 "Night Sky"): the live meter card (the icon's
 // capsule wave following the mic), the input, the voices Scribe already knows, and what happens
-// when you stop. Scribe transcribes and splits speakers AFTER the recording (using the whole
+// when you stop (0.7.3.1: plus the recording-consent reminder on top). Scribe transcribes and splits speakers AFTER the recording (using the whole
 // recording is what makes the speaker split reliable), so this screen shows no live transcript.
 
 import SwiftUI
@@ -30,6 +30,8 @@ struct LiveMeetingView: View {
             }
             .frame(height: Night.headerHeight)
             VStack(spacing: Night.cardGap) {
+                // 0.7.3.1: recording-consent reminder (non-blocking; see ConsentNotice.swift).
+                ConsentNoticeView(reminder: model.consent)
                 meterCard
                 HStack(alignment: .top, spacing: Night.cardGap) {
                     listeningCard.frame(maxWidth: .infinity, maxHeight: .infinity)

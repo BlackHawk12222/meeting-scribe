@@ -99,6 +99,18 @@ Meetings list 300 pt. Poster tiles: Home 186 pt tall, other pages 120–132 pt.
   your fixes lists and removes them. Settings › Models › Corrections: opt-in (off) local audio +
   corrected-text pairs for a future fine-tune, with a count and Delete all.
 
+- **Recording-consent notice** (0.7.3.1): when a meeting recording starts, a hairline card on top
+  of the live meeting view: indigo `person.2` tile, "Let everyone know you're recording. Some
+  places require everyone's OK.", "Don't show again" (UserDefaults `consentReminderHidden`) and ×
+  (this meeting only). Non-blocking; the recording is already running.
+- **Credits & licenses** (0.7.3.1, Settings › General › About › Open): Legal (Privacy Policy,
+  Terms of Use: "Coming soon" chips until `LegalLinks` has URLs), then Speech models, Open-source
+  code, Fonts and design, Other; each row has version, license chip, links and View license.
+  Data: `Resources/Licenses/licenses.json` + full texts; build.sh copies Package.resolved in and
+  `scripts/check_licenses.py` fails the build if a resolved package has no entry. build.sh strips
+  FluidAudio's LuxTTS G2P bundle (eSpeak NG / FrequencyWords data, TTS only); Scribe has no TTS.
+  Package.resolved is committed at the repo root and copied into the generated project.
+
 ## 5. Data rules
 
 Every number is real. Dictation counts come from the ledger in
