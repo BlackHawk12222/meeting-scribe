@@ -225,7 +225,7 @@ brew install xcodegen
 ```
 Xcode 16 builds everything except the Apple Intelligence parts (they are behind `#if canImport(FoundationModels)`
 and turn into the rule-based fallback). Xcode 26 compiles them in. CI picks the newest Xcode 26 on the runner.
-**Release in one step** (publishes the already-tested build, ~2 min, no rebuild): `gh workflow run release.yml --ref main -f branch=<branch> -f dry_run=false`, see [docs/RELEASING.md](docs/RELEASING.md).
+**Release in one step** (publishes the already-tested build, ~1-2 min, no rebuild): `gh workflow run release.yml --ref main -f branch=<branch> -f dry_run=false`, see [docs/RELEASING.md](docs/RELEASING.md).
 The old way still works: put `[release]` in a commit message pushed to main to rebuild and publish a GitHub Release (tag `v<VERSION file>`, assets Scribe.zip, Scribe.dmg,
 components.json). A push only runs the tests for what it changed: the app-icon check always, the targeted self-test
 when engine/dictation/storage code changed, nothing long by default (`[selftest:quick]` etc. in the message forces

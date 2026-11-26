@@ -2,7 +2,9 @@
 
 A release **publishes the build you already tested**. It does not rebuild: the signed `Scribe`
 artifact from the passing branch build is re-checked and published as `v<VERSION>`.
-Approval to live (the in-app updater sees it) takes about 2 minutes.
+Approval to live (the in-app updater sees it) takes about 1-2 minutes: dry runs measured 18-34 s
+from dispatch to done on a `macos-26` runner; a real release adds uploading ~50 MB of assets.
+The old `[release]` push rebuilt everything: ~9-13 min, almost all of it the Xcode compile.
 
 ## Before approval (on the branch)
 
@@ -45,6 +47,12 @@ It:
 If `main` can't be moved by the workflow (a commit that edits `.github/workflows/` needs a token
 with the `workflows` scope), the release still publishes with the tag on the exact commit, and
 the log says to run `git push origin <sha>:main`.
+
+## Checks that stop a release
+
+No passing build for the tip's content · run not `success` · run from a fork · tag already exists ·
+`main` not an ancestor of the tip · artifact missing a file (built before this workflow) · any
+hash, signature, designated-requirement, version, components or Supabase check failing.
 
 ## Fallback
 
